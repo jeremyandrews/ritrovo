@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "plugins/ritrovo_access",
+    "plugins/ritrovo_cfp",
+    "plugins/ritrovo_importer",
+    "plugins/ritrovo_notify",
+    "plugins/ritrovo_translate",
+]
+
+[workspace.package]
+version = "0.2.1-devel"
+edition = "2024"
+license = "GPL-2.0-or-later"
+
+[workspace.dependencies]
+# trovato-sdk: assumes a sibling checkout of Trovato at ../Trovato/trovato.
+# Override locally in .cargo/config.toml or with `patch.workspace` if your
+# Trovato checkout lives elsewhere. See README.md for details.
+trovato-sdk = { path = "../Trovato/trovato/crates/plugin-sdk" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
