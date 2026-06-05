@@ -10,3 +10,10 @@ implements = [
     "tap_item_view",
 ]
 weight = 0
+
+# Declared plugin capabilities (WASM-1, deny-unless-declared). The Trovato
+# kernel builds this plugin's WASM linker from host_interfaces — it receives
+# exactly the host interfaces named here (plus baseline WASI). Derived from
+# the compiled .wasm import section.
+[capabilities]
+host_interfaces = ["logging"]
