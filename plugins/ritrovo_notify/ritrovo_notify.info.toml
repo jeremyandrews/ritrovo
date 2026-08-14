@@ -21,8 +21,20 @@ files = [
 
 # Declared plugin capabilities (WASM-1, deny-unless-declared). The Trovato
 # kernel builds this plugin's WASM linker from host_interfaces — it receives
-# exactly the host interfaces named here (plus baseline WASI). Derived from
-# the source (lib.rs implements only data-returning taps; no host calls — 
-# the ritrovo workspace is not buildable in this checkout to compile-verify).
+# exactly the host interfaces named here (plus baseline WASI).
+#
+# Derived from the compiled .wasm import section, like every other Ritrovo
+# manifest. This entry previously read `[]`, guessed by reading lib.rs back when
+# this workspace could not be built and so could not be compile-verified. The
+# guess was wrong. Nothing in this plugin's lib.rs calls a host function, but the
+# SDK's tap entry-point macro wraps every tap in host-input validation that calls
+# `trovato_sdk::host::log` on failure (negative ptr/len, invalid UTF-8). That
+# macro-generated call imports `trovato:kernel/logging` regardless of what the tap
+# bodies do — which is why source-reading cannot answer this question and only the
+# import section can. With `[]` declared, the kernel's
+# load-time import-vs-declaration pre-check rejects the plugin outright:
+#   plugin 'ritrovo_notify' imports host interface 'logging' but does not declare
+#   host_interfaces = [..., "logging"] in its [capabilities] manifest
+# Verify against the artifact, never against the source.
 [capabilities]
-host_interfaces = []
+host_interfaces = ["logging"]
