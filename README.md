@@ -42,9 +42,20 @@ alongside its `*.info.toml` (and `migrations/`, where the plugin has them).
 - **Rust toolchain** — pinned by `rust-toolchain.toml` (1.96.0) and installed
   automatically by rustup, including the `wasm32-wasip1` target. Nothing to do
   by hand.
-- **SSH access to the Trovato repository.** `trovato-private` is a private repo,
-  so cargo must be able to authenticate to GitHub over SSH to fetch the SDK. A
-  loaded `ssh-agent` key with access is enough. If cargo's built-in git client
+- **Access to the Trovato repository — currently a hard blocker for most
+  readers.** This repository is public. The Trovato repository it depends on
+  (`trovato-private`) is not, and `trovato-sdk` is published nowhere else: not on
+  crates.io, not in a public mirror. The build below therefore works only for
+  someone who already has access to a private repo, which is the opposite of what
+  a public reference application is for.
+
+  Nothing in Ritrovo can fix this — the SDK has to become publicly obtainable
+  (crates.io, or a public repo carrying the SDK crates). Until then, treat these
+  instructions as working-but-gated. When it is fixed, the change here is one
+  line: the `trovato-sdk` entry in the workspace `Cargo.toml` becomes a version
+  dependency instead of a git one.
+
+  With access, a loaded `ssh-agent` key is enough. If cargo's built-in git client
   cannot use your key (agent forwarding, a hardware key, or a passphrase prompt),
   tell it to shell out to the system `git` instead, which honors your full SSH
   configuration:
