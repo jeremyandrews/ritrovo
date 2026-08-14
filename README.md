@@ -6,7 +6,7 @@ Ritrovo is a conference management reference application built on [Trovato](http
 
 Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History is preserved for all Ritrovo-specific commits.
 
-**Build is not yet wired up** — the plugins reference `trovato-sdk` via a path dependency that assumes a sibling Trovato checkout. See "Building" below.
+**Builds standalone.** All five plugins compile to WebAssembly against the Trovato SDK as an external git dependency, with no Trovato checkout anywhere on disk. See "Building" below.
 
 ## Repository layout
 
@@ -25,33 +25,68 @@ docs/
 
 Ritrovo plugins compile to WebAssembly modules that Trovato loads at runtime.
 
-Expected directory layout:
-
-```
-<parent>/
-  Trovato/trovato/          # Core Trovato repo (provides trovato-sdk)
-  Ritrovo/                  # This repo
-```
-
-With both checked out as siblings, from this repo:
+**No Trovato checkout is required.** `trovato-sdk` is consumed as a git dependency
+pinned by revision in the workspace `Cargo.toml`, so the entire build is:
 
 ```bash
+git clone git@github.com:jeremyandrews/ritrovo.git
+cd ritrovo
 cargo build --target wasm32-wasip1 --release
 ```
 
-If your Trovato checkout lives elsewhere, override the path in a local `.cargo/config.toml`:
+Artifacts land in `target/wasm32-wasip1/release/ritrovo_*.wasm`. Install each
+alongside its `*.info.toml` (and `migrations/`, where the plugin has them).
 
-```toml
-[patch."path+file:///..."]
-trovato-sdk = { path = "/absolute/path/to/trovato/crates/plugin-sdk" }
+### Prerequisites
+
+- **Rust toolchain** — pinned by `rust-toolchain.toml` (1.96.0) and installed
+  automatically by rustup, including the `wasm32-wasip1` target. Nothing to do
+  by hand.
+- **SSH access to the Trovato repository.** `trovato-private` is a private repo,
+  so cargo must be able to authenticate to GitHub over SSH to fetch the SDK. A
+  loaded `ssh-agent` key with access is enough. If cargo's built-in git client
+  cannot use your key (agent forwarding, a hardware key, or a passphrase prompt),
+  tell it to shell out to the system `git` instead, which honors your full SSH
+  configuration:
+
+  ```toml
+  # ~/.cargo/config.toml
+  [net]
+  git-fetch-with-cli = true
+  ```
+
+  A failure here surfaces as `failed to authenticate when downloading repository`,
+  not as anything Ritrovo-specific.
+
+### Which SDK revision this builds against
+
+The pin is a specific commit, not a branch: the PF-5 contract-freeze revision,
+where the SDK crates read `1.0.0` and the kernel's `KERNEL_API_VERSION` reads
+`(1, 0)`. That is the same commit `cargo-semver-checks` uses as its baseline in
+Trovato CI, so "Ritrovo builds against the published contract" means something
+checkable rather than "against whatever `main` happens to be today".
+
+To build against a different contract revision, change `rev` in the
+`[workspace.dependencies]` entry in the root `Cargo.toml`; the bump protocol is
+documented there.
+
+### Verifying a build
+
+A plugin's `[capabilities] host_interfaces` must list exactly the
+`trovato:kernel/<iface>` imports its compiled module actually has. The kernel
+rejects the plugin at load time otherwise. Derive the list from the artifact, not
+from reading the source — the SDK's tap macros generate host calls that no tap
+body contains:
+
+```bash
+wasm-tools print target/wasm32-wasip1/release/ritrovo_notify.wasm \
+  | grep '(import "trovato:kernel/'
 ```
-
-A proper git-based dependency on a versioned Trovato release is the eventual answer.
 
 ## Next steps (fix-it phase)
 
-- [ ] Decide if `trovato-sdk` should be consumed by path (sibling checkout), git revision, or crates.io publish
-- [ ] Verify each plugin builds standalone
+- [x] Decide if `trovato-sdk` should be consumed by path (sibling checkout), git revision, or crates.io publish — **git revision**, pinned to the contract-freeze commit
+- [x] Verify each plugin builds standalone
 - [ ] Add CI (GitHub Actions) for `cargo check` + `cargo clippy` on the wasm target
 - [ ] Document the end-to-end "install Ritrovo on a fresh Trovato" walkthrough
 - [ ] Decide: is Ritrovo a published product or a reference demo? The answer shapes release cadence, versioning, and public marketing

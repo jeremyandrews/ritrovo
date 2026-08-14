@@ -1,0 +1,23 @@
+# Pinned Rust toolchain for Ritrovo.
+#
+# WHY THIS FILE EXISTS
+# Ritrovo is an EXTERNAL plugin set: it compiles against the Trovato SDK with no
+# Trovato checkout on disk. Nothing else in this repo would otherwise install the
+# `wasm32-wasip1` target, so a fresh clone failed at the build step with a bare
+# "target may not be installed" — one more thing the developer had to know but
+# was never told. rustup honors this file automatically, so cloning and building
+# now provisions the target instead of documenting it.
+#
+# The channel mirrors the pin in the Trovato kernel (its own rust-toolchain.toml).
+# Keeping the two in lock-step means a plugin author and the kernel see the same
+# compiler and the same clippy lint set; the workspace denies `unwrap_used` and
+# `expect_used`, and lint availability is toolchain-dependent.
+#
+# BUMP PROTOCOL: bump this only alongside the kernel's pin, and rerun
+#   cargo build --target wasm32-wasip1 --release
+# for all five plugins before committing.
+
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+targets = ["wasm32-wasip1"]

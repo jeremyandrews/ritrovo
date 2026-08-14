@@ -14,10 +14,28 @@ edition = "2024"
 license = "GPL-2.0-or-later"
 
 [workspace.dependencies]
-# trovato-sdk: assumes a sibling checkout of Trovato at ../Trovato/trovato.
-# Override locally in .cargo/config.toml or with `patch.workspace` if your
-# Trovato checkout lives elsewhere. See README.md for details.
-trovato-sdk = { path = "../Trovato/trovato/crates/plugin-sdk" }
+# trovato-sdk — the Trovato plugin contract, consumed as an EXTERNAL git
+# dependency. Ritrovo builds with no Trovato checkout anywhere on disk: this is
+# the whole point (FR-24). Do not reintroduce a path dependency; a path dep is
+# what made this workspace unbuildable outside the monorepo it was split from.
+#
+# PINNED BY `rev`, deliberately, to the PF-5 contract-freeze commit — the same
+# commit cargo-semver-checks uses as its baseline, where the SDK crates read
+# version 1.0.0 and the kernel's KERNEL_API_VERSION reads (1, 0). Building
+# against the freeze commit is what makes "Ritrovo compiles against the
+# published contract" a falsifiable claim rather than a moving target.
+#
+# BUMP PROTOCOL: move this rev only to another commit that is (a) pushed to
+# origin, and (b) a deliberate contract checkpoint. Record the new
+# (rev, SDK version, KERNEL_API_VERSION) triple here when you do.
+#
+# `trovato-sdk` pulls `trovato-sdk-macros` through a repo-relative path
+# dependency; cargo resolves that inside the git checkout, so only this one
+# entry is needed.
+#
+# NOTE: trovato-private is a PRIVATE repository. Cargo must be able to
+# authenticate over SSH to fetch it — see README.md "Building".
+trovato-sdk = { git = "ssh://git@github.com/jeremyandrews/trovato-private.git", rev = "9791c24faad245356a496b0752d1599d9fe18602" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

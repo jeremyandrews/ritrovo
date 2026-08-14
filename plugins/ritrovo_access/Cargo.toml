@@ -12,6 +12,6 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
-trovato-sdk = { path = "../../crates/plugin-sdk" }
+trovato-sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
