@@ -11,6 +11,8 @@ Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History
 ## Repository layout
 
 ```
+scripts/
+  assemble-overlay.sh   Stage built plugins into overlay/ for PLUGINS_DIR
 plugins/
   ritrovo_access/       Editorial workflow / role-based access control
   ritrovo_cfp/          Call for Papers submission + review
@@ -35,7 +37,11 @@ cargo build --target wasm32-wasip1 --release
 ```
 
 Artifacts land in `target/wasm32-wasip1/release/ritrovo_*.wasm`. Install each
-alongside its `*.info.toml` (and `migrations/`, where the plugin has them).
+alongside its `*.info.toml` (and `migrations/`, where the plugin has them), or
+run `scripts/assemble-overlay.sh` to stage all five into `overlay/plugins/` in
+the layout `PLUGINS_DIR` expects. Installing into a Trovato instance is
+[docs/INSTALL.md](docs/INSTALL.md) — note the API version blocker recorded
+there.
 
 ### Prerequisites
 
@@ -99,7 +105,7 @@ wasm-tools print target/wasm32-wasip1/release/ritrovo_notify.wasm \
 - [x] Decide if `trovato-sdk` should be consumed by path (sibling checkout), git revision, or crates.io publish — **git revision**, pinned to the contract-freeze commit
 - [x] Verify each plugin builds standalone
 - [ ] Add CI (GitHub Actions) for `cargo check` + `cargo clippy` on the wasm target
-- [ ] Document the end-to-end "install Ritrovo on a fresh Trovato" walkthrough
+- [x] Document the end-to-end "install Ritrovo on a fresh Trovato" walkthrough — [docs/INSTALL.md](docs/INSTALL.md)
 - [ ] Decide: is Ritrovo a published product or a reference demo? The answer shapes release cadence, versioning, and public marketing
 
 ## License
