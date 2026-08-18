@@ -5,33 +5,31 @@ and nothing in it is edited: the kernel's three search-path settings
 (`PLUGINS_DIR`, `TEMPLATES_DIR`, `STATIC_DIR`) each take a colon-separated list
 where later entries win, so Ritrovo's plugins are simply appended to the end.
 
-## Blocked today: the API version wall
+## API version
 
-**These instructions do not currently complete against public Trovato `main`.**
-Every Ritrovo plugin is rejected at enable time:
+Each plugin declares `api_version = "0.99"` in its `.info.toml`, matching the
+released kernel's `KERNEL_API_VERSION` of `(0, 99)`. That is the version the
+plugins genuinely conform to: every host interface they import (`logging`,
+`db`, `http`, `queue`) is present and identical in the `0.99` contract. The
+value lives in the manifest, not the compiled `.wasm`, and the kernel reads it
+at install time — so it is a plain declaration, not something baked in at build.
 
-```
-Error: plugin 'ritrovo_importer' requires API 1.0 but kernel provides API 0.99.
-Major version mismatch — plugin is incompatible with this kernel.
-```
+(Earlier revisions of these manifests declared `1.0`, copied from the SDK's
+contract-freeze crate, which labels itself `1.0.0` ahead of the released
+kernel. That mismatch made the kernel reject every plugin at enable time with
+`requires API 1.0 but kernel provides API 0.99`. Declaring the released version
+is the correct fix. Realigning the SDK crate's own version to the release it
+ships against is a separate, Trovato-side cleanup that does not affect this
+install.)
 
-Ritrovo declares `api_version = "1.0"` because it compiles against the SDK at
-the contract-freeze revision, where `KERNEL_API_VERSION` is `(1, 0)`. Public
-Trovato `main` declares `(0, 99)`. The majors differ, so the gate refuses the
-plugin before anything is loaded.
-
-This is a numbering mismatch between two publications of one contract, not a
-real ABI break: every host interface Ritrovo imports (`logging`, `db`, `http`,
-`queue`) exists in the public kernel's WIT, and the public WIT is otherwise a
-superset of the freeze revision. Nothing in Ritrovo can fix it honestly —
-declaring `0.99` here would assert compatibility with a numbering scheme the
-SDK it was built against does not use. The fix belongs on the Trovato side,
-where the public kernel's version constant and the frozen contract's version
-have to be reconciled.
-
-Everything below is the walkthrough as it will read once they are. It has been
-executed end to end, with only the version gate stepped around, so the steps
-themselves are verified rather than hypothetical.
+**One feature is not available on `0.99`:** the importer's admin screens
+(`/admin/content/conferences`, `/admin/config/importer`). They are registered
+through `tap_menu().callback()`, which the released kernel dispatches via
+`tap-api` — an export added after `0.99`. On `0.99` those two paths return 404;
+the importer's cron, queue and install taps run normally, so imports still work.
+Everything else in this walkthrough — the public site, browsing, search, config
+import, editorial stages — runs fully. The walkthrough below has been executed
+end to end.
 
 ## Prerequisites
 

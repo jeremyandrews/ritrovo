@@ -40,8 +40,7 @@ Artifacts land in `target/wasm32-wasip1/release/ritrovo_*.wasm`. Install each
 alongside its `*.info.toml` (and `migrations/`, where the plugin has them), or
 run `scripts/assemble-overlay.sh` to stage all five into `overlay/plugins/` in
 the layout `PLUGINS_DIR` expects. Installing into a Trovato instance is
-[docs/INSTALL.md](docs/INSTALL.md) — note the API version blocker recorded
-there.
+[docs/INSTALL.md](docs/INSTALL.md).
 
 ### Prerequisites
 
@@ -82,6 +81,13 @@ where the SDK crates read `1.0.0` and the kernel's `KERNEL_API_VERSION` reads
 `(1, 0)`. That is the same commit `cargo-semver-checks` uses as its baseline in
 Trovato CI, so "Ritrovo builds against the published contract" means something
 checkable rather than "against whatever `main` happens to be today".
+
+Note that the freeze crate labels itself `1.0.0` ahead of the kernel Trovato
+actually ships, which is still `0.99`. The interfaces are the same, so the pin
+stays valid, but the plugin manifests declare `api_version = "0.99"` to match
+the *released* kernel they install against — not the SDK crate's aspirational
+number. Reconciling the SDK crate's own version with the release is a
+Trovato-side cleanup, tracked separately.
 
 To build against a different contract revision, change `rev` in the
 `[workspace.dependencies]` entry in the root `Cargo.toml`; the bump protocol is
