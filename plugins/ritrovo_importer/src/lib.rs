@@ -17,6 +17,7 @@ use std::collections::HashMap;
 
 use trovato_sdk::host;
 use trovato_sdk::prelude::*;
+use trovato_sdk::types::{ApiRequest, ApiResponse, MenuRoute};
 
 /// Plugin name for logging calls.
 const PLUGIN_NAME: &str = "ritrovo_importer";
@@ -443,18 +444,230 @@ pub fn tap_perm() -> Vec<PermissionDefinition> {
 // ─── Menu routes ─────────────────────────────────────────────────────
 
 /// Define admin menu routes for the importer.
+///
+/// These are `MenuRoute::api` entries, not `MenuDefinition`. A `MenuDefinition`
+/// leaves `handler_type` at `"page"`, and the kernel routes a request to
+/// `tap_api` only for an entry whose `handler_type` is `"api"` and which names a
+/// callback — so declaring a callback on a page entry produced two admin paths
+/// that were registered, gated, listed in navigation, and 404.
+///
+/// `.visible()` because both are meant to appear under their parent in the admin
+/// navigation; an api route defaults to invisible, which is right for a REST
+/// endpoint and wrong for a screen.
 #[plugin_tap]
-pub fn tap_menu() -> Vec<MenuDefinition> {
+pub fn tap_menu() -> Vec<MenuRoute> {
     vec![
-        MenuDefinition::new("/admin/content/conferences", "Conferences")
-            .callback("conference_list")
+        MenuRoute::api("GET", "/admin/content/conferences", "conference_list")
+            .title("Conferences")
             .permission("view conference content")
-            .parent("/admin/content"),
-        MenuDefinition::new("/admin/config/importer", "Conference Import")
-            .callback("importer_config")
+            .parent("/admin/content")
+            .visible(),
+        MenuRoute::api("GET", "/admin/config/importer", "importer_config")
+            .title("Conference Import")
             .permission("administer conference import")
-            .parent("/admin/config"),
+            .parent("/admin/config")
+            .visible(),
     ]
+}
+
+// ─── Admin screens (tap_api) ─────────────────────────────────────────
+
+/// How many conferences one page of the conference list shows.
+const CONFERENCE_PAGE_SIZE: i64 = 50;
+
+/// Serve one request for a menu entry this plugin registered.
+///
+/// The kernel has already checked the entry's `permission`, so a request that
+/// reaches here holds it. Both screens are read-only: this is an operator view
+/// of what the importer has done, not a second content editor, and triggering an
+/// import is what cron is for.
+#[plugin_tap]
+pub fn tap_api(request: ApiRequest) -> ApiResponse {
+    match request.callback.as_str() {
+        "conference_list" => conference_list(&request),
+        "importer_config" => importer_config(),
+        other => ApiResponse::error(404, &format!("no such callback: {other}")),
+    }
+}
+
+/// Escape text for an HTML text node or a double-quoted attribute.
+///
+/// The kernel serves a plugin's response body as-is and does not sanitize it, so
+/// escaping is this plugin's job. Conference titles, cities and URLs all come
+/// from a third-party dataset, which makes every one of them untrusted input.
+fn escape_html(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Wrap a body fragment in a minimal standalone document.
+fn admin_page(title: &str, body: &str) -> ApiResponse {
+    let html = format!(
+        "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
+         <title>{t}</title>\n</head>\n<body>\n<h1>{t}</h1>\n{body}\n</body>\n</html>\n",
+        t = escape_html(title),
+    );
+    ApiResponse::with_status(200, html).content_type("text/html; charset=utf-8")
+}
+
+/// Read one string field out of a row, escaped, or a placeholder.
+fn cell(row: &serde_json::Value, key: &str) -> String {
+    row.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map_or_else(|| "&mdash;".to_string(), escape_html)
+}
+
+/// The conference list: what the importer has actually landed.
+fn conference_list(request: &ApiRequest) -> ApiResponse {
+    let page: i64 = request
+        .query
+        .get("page")
+        .and_then(|p| p.parse::<i64>().ok())
+        .unwrap_or(1)
+        .max(1);
+    let offset = (page - 1) * CONFERENCE_PAGE_SIZE;
+
+    let total = scalar_i64(
+        "SELECT COUNT(*) AS n FROM item WHERE type = 'conference'",
+        "n",
+    );
+
+    let rows_json = host::query_raw(
+        "SELECT title, \
+                fields->>'field_start_date' AS start_date, \
+                fields->>'field_city'       AS city, \
+                fields->>'field_country'    AS country, \
+                fields->>'field_source_id'  AS source_id \
+         FROM item \
+         WHERE type = 'conference' \
+         ORDER BY fields->>'field_start_date' DESC NULLS LAST, title ASC \
+         LIMIT $1 OFFSET $2",
+        &[
+            serde_json::json!(CONFERENCE_PAGE_SIZE),
+            serde_json::json!(offset),
+        ],
+    );
+
+    let rows: Vec<serde_json::Value> = match rows_json {
+        Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+        Err(code) => {
+            host::log(
+                PLUGIN_NAME,
+                "error",
+                &format!("conference list query failed with code {code}"),
+            );
+            return ApiResponse::error(500, "failed to read conferences");
+        }
+    };
+
+    let mut body = format!("<p>{total} conference(s) imported.</p>\n");
+    if rows.is_empty() {
+        body.push_str(
+            "<p>No conferences on this page. The importer fills this in from cron; \
+             see the import status screen.</p>\n",
+        );
+    } else {
+        body.push_str(
+            "<table>\n<thead><tr><th>Title</th><th>Starts</th><th>City</th>\
+             <th>Country</th><th>Source id</th></tr></thead>\n<tbody>\n",
+        );
+        for row in &rows {
+            body.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+                cell(row, "title"),
+                cell(row, "start_date"),
+                cell(row, "city"),
+                cell(row, "country"),
+                cell(row, "source_id"),
+            ));
+        }
+        body.push_str("</tbody>\n</table>\n");
+    }
+
+    let pages = total.div_euclid(CONFERENCE_PAGE_SIZE)
+        + i64::from(total.rem_euclid(CONFERENCE_PAGE_SIZE) != 0);
+    if pages > 1 {
+        body.push_str(&format!("<p>Page {page} of {pages}. "));
+        if page > 1 {
+            body.push_str(&format!(
+                "<a href=\"/admin/content/conferences?page={}\">Previous</a> ",
+                page - 1
+            ));
+        }
+        if page < pages {
+            body.push_str(&format!(
+                "<a href=\"/admin/content/conferences?page={}\">Next</a>",
+                page + 1
+            ));
+        }
+        body.push_str("</p>\n");
+    }
+
+    admin_page("Conferences", &body)
+}
+
+/// The import status screen: the importer's own state, read back.
+fn importer_config() -> ApiResponse {
+    let last_import = load_state_str(STATE_LAST_IMPORT).unwrap_or_else(|| "never".to_string());
+    let offset = load_state_usize(STATE_TOPIC_OFFSET, TOPICS.len());
+    let etags = scalar_i64(
+        "SELECT COUNT(*) AS n FROM ritrovo_state WHERE name LIKE 'etag.%'",
+        "n",
+    );
+    let resolved_terms = scalar_i64(
+        "SELECT COUNT(*) AS n FROM ritrovo_state WHERE name LIKE 'topic_term.%'",
+        "n",
+    );
+    let queued = scalar_i64(
+        "SELECT COUNT(*) AS n FROM plugin_queue WHERE plugin_name = 'ritrovo_importer'",
+        "n",
+    );
+
+    let next_topics: Vec<String> = (0..TOPICS_PER_CYCLE)
+        .map(|i| escape_html(TOPICS[(offset + i) % TOPICS.len()]))
+        .collect();
+
+    let body = format!(
+        "<h2>Import status</h2>\n\
+         <dl>\n\
+         <dt>Last import run</dt><dd>{last}</dd>\n\
+         <dt>Topics per cron cycle</dt><dd>{per_cycle} of {total_topics}</dd>\n\
+         <dt>Next topics</dt><dd>{next}</dd>\n\
+         <dt>Cached ETags</dt><dd>{etags}</dd>\n\
+         <dt>Resolved topic terms</dt><dd>{resolved_terms} of {total_topics}</dd>\n\
+         <dt>Jobs waiting in the import queue</dt><dd>{queued}</dd>\n\
+         <dt>Minimum interval between runs</dt><dd>{interval} seconds</dd>\n\
+         </dl>\n\
+         <p>Imports run from cron. There is no internal scheduler, so this only \
+         advances when something calls the cron route.</p>\n",
+        last = escape_html(&last_import),
+        per_cycle = TOPICS_PER_CYCLE,
+        total_topics = TOPICS.len(),
+        next = next_topics.join(", "),
+        interval = IMPORT_INTERVAL_SECS,
+    );
+
+    admin_page("Conference Import", &body)
+}
+
+/// Read one integer out of a single-row, single-column query, or 0.
+fn scalar_i64(sql: &str, column: &str) -> i64 {
+    host::query_raw(sql, &[])
+        .ok()
+        .and_then(|json| serde_json::from_str::<Vec<serde_json::Value>>(&json).ok())
+        .and_then(|rows| rows.into_iter().next())
+        .and_then(|row| row.get(column).and_then(serde_json::Value::as_i64))
+        .unwrap_or(0)
 }
 
 // ─── Cron: daily import ──────────────────────────────────────────────
@@ -1194,6 +1407,103 @@ mod tests {
         assert_eq!(menus.len(), 2);
         assert_eq!(menus[0].path, "/admin/content/conferences");
         assert_eq!(menus[1].path, "/admin/config/importer");
+    }
+
+    /// The kernel dispatches to `tap_api` only for an entry whose
+    /// `handler_type` is `"api"` and which names a callback. Both were true of
+    /// the callback and false of the handler type, which is why both screens
+    /// were registered and 404.
+    #[test]
+    fn both_menu_entries_are_routable_api_entries() {
+        for entry in __inner_tap_menu() {
+            assert_eq!(
+                entry.handler_type, "api",
+                "{} must be an api entry to be routed",
+                entry.path
+            );
+            assert!(
+                !entry.callback.is_empty(),
+                "{} must name a callback",
+                entry.path
+            );
+            assert!(
+                !entry.permission.is_empty(),
+                "{} must be gated on a permission",
+                entry.path
+            );
+            assert!(
+                entry.visible,
+                "{} is a screen, so it belongs in navigation",
+                entry.path
+            );
+        }
+    }
+
+    /// Every callback the menu registers is one `tap_api` answers, and every
+    /// callback `tap_api` answers is one the menu registers. A drift either way
+    /// is a 404 or dead code.
+    #[test]
+    fn every_registered_callback_is_served() {
+        for entry in __inner_tap_menu() {
+            let request = ApiRequest::new(
+                &entry.callback,
+                "GET",
+                &entry.path,
+                "00000000-0000-0000-0000-000000000000",
+                true,
+            );
+            let response = __inner_tap_api(request);
+            assert_eq!(
+                response.status, 200,
+                "callback {} answered {}",
+                entry.callback, response.status
+            );
+            assert!(
+                response.content_type.starts_with("text/html"),
+                "callback {} served {}",
+                entry.callback,
+                response.content_type
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_callback_is_a_404() {
+        let request = ApiRequest::new(
+            "not_a_callback",
+            "GET",
+            "/admin/config/importer",
+            "00000000-0000-0000-0000-000000000000",
+            true,
+        );
+        let response = __inner_tap_api(request);
+        assert_eq!(response.status, 404);
+    }
+
+    /// The kernel does not sanitize a plugin's response body, so anything from
+    /// the confs.tech dataset that reaches the page has to be escaped here.
+    #[test]
+    fn html_escaping_neutralizes_markup_and_quotes() {
+        let escaped = escape_html(r#"<script>alert("x & 'y'")</script>"#);
+        assert_eq!(
+            escaped,
+            "&lt;script&gt;alert(&quot;x &amp; &#39;y&#39;&quot;)&lt;/script&gt;"
+        );
+        assert!(!escaped.contains('<'), "no raw angle bracket may survive");
+    }
+
+    /// A conference title is untrusted input and reaches the list through
+    /// `cell`, so the escaping has to be on that path and not merely available.
+    #[test]
+    fn a_conference_title_is_escaped_on_the_way_into_the_table() {
+        let row = serde_json::json!({"title": "<b>Rust</b> & Friends"});
+        assert_eq!(cell(&row, "title"), "&lt;b&gt;Rust&lt;/b&gt; &amp; Friends");
+    }
+
+    #[test]
+    fn a_missing_cell_renders_a_placeholder_rather_than_empty() {
+        let row = serde_json::json!({"title": "Conf"});
+        assert_eq!(cell(&row, "city"), "&mdash;");
     }
 
     // ── tap_queue_info ───────────────────────────────────────────────

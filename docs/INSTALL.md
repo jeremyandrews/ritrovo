@@ -14,28 +14,30 @@ plugins genuinely conform to: every host interface they import (`logging`,
 value lives in the manifest, not the compiled `.wasm`, and the kernel reads it
 at install time — so it is a plain declaration, not something baked in at build.
 
-(Earlier revisions of these manifests declared `1.0`, copied from the SDK's
-contract-freeze crate, which labels itself `1.0.0` ahead of the released
-kernel. That mismatch made the kernel reject every plugin at enable time with
-`requires API 1.0 but kernel provides API 0.99`. Declaring the released version
-is the correct fix. Realigning the SDK crate's own version to the release it
-ships against is a separate, Trovato-side cleanup that does not affect this
-install.)
+(Earlier revisions of these manifests declared `1.0`, copied from an SDK crate
+that labelled itself `1.0.0` ahead of the released kernel. That mismatch made the
+kernel reject every plugin at enable time with `requires API 1.0 but kernel
+provides API 0.99`. Declaring the released version was the correct fix, and the
+mismatch is gone at the source too: the SDK is now pinned at a commit of the
+public Trovato repository where the crate version, the manifests and
+`KERNEL_API_VERSION` all read 0.99.)
 
-**One feature is not available on `0.99`:** the importer's admin screens
-(`/admin/content/conferences`, `/admin/config/importer`). They are registered
-through `tap_menu().callback()`, which the released kernel dispatches via
-`tap-api` — an export added after `0.99`. On `0.99` those two paths return 404;
-the importer's cron, queue and install taps run normally, so imports still work.
-Everything else in this walkthrough — the public site, browsing, search, config
-import, editorial stages — runs fully. The walkthrough below has been executed
-end to end.
+**Every feature is available.** The importer's two admin screens
+(`/admin/content/conferences`, `/admin/config/importer`) used to 404, and the
+caveat that lived here blamed the kernel: it said `tap-api` was "an export added
+after 0.99". That was wrong on both counts. `tap-api` shipped *in* 0.99.0, and
+the reason those paths 404ed was on this side of the boundary — the entries were
+built with `MenuDefinition`, which leaves `handler_type` at `"page"`, and the
+plugin exported no `tap_api` at all. The kernel routes a request to `tap_api`
+only for an entry whose `handler_type` is `"api"`, so it had nothing to dispatch
+to and correctly served a 404. Both are fixed: the entries are `MenuRoute::api`
+and the plugin serves them. The walkthrough below has been executed end to end.
 
 ## Prerequisites
 
-PostgreSQL 15+, Redis 7+, a Rust toolchain, and SSH access to the private
-Trovato repository (see [Building](../README.md#building) — the SDK is a git
-dependency and is published nowhere public).
+PostgreSQL 15+, Redis 7+, and a Rust toolchain. No credentials and no private
+repository: the SDK is a git dependency on the public Trovato repository (see
+[Building](../README.md#building)).
 
 ## Steps
 
@@ -86,6 +88,20 @@ curl -X POST http://localhost:3000/cron/$CRON_KEY
 Finally, set the front page to `/conferences` at `/admin/config/site`. A
 non-item front path redirects rather than rendering inline, which is the
 documented behaviour.
+
+## Checking the install
+
+Log in as the admin you created and open the importer's two screens:
+
+- `/admin/content/conferences` — what the importer has landed, newest first.
+- `/admin/config/importer` — the importer's own state: last run, which topics
+  the next cron cycle takes, how many ETags are cached, how many topic terms
+  resolved, and how many jobs are waiting in the queue.
+
+Both are read-only operator views. Both must return 200 for an administrator and
+401 for an anonymous visitor; the kernel checks each entry's declared permission
+(`view conference content` and `administer conference import`) before the plugin
+sees the request.
 
 **Ordering matters.** `ritrovo_importer` resolves the topic taxonomy once, in
 `tap_install`. Enable it before importing the config and it finds 0 of 23 terms

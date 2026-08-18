@@ -6,7 +6,7 @@ Ritrovo is a conference management reference application built on [Trovato](http
 
 Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History is preserved for all Ritrovo-specific commits.
 
-**Builds standalone.** All five plugins compile to WebAssembly against the Trovato SDK as an external git dependency, with no Trovato checkout anywhere on disk. See "Building" below.
+**Builds standalone, from public sources.** All five plugins compile to WebAssembly against the Trovato SDK as an external git dependency on the public Trovato repository, with no Trovato checkout anywhere on disk and no credentials. See "Building" below.
 
 ## Repository layout
 
@@ -47,51 +47,38 @@ the layout `PLUGINS_DIR` expects. Installing into a Trovato instance is
 - **Rust toolchain** — pinned by `rust-toolchain.toml` (1.96.0) and installed
   automatically by rustup, including the `wasm32-wasip1` target. Nothing to do
   by hand.
-- **Access to the Trovato repository — currently a hard blocker for most
-  readers.** This repository is public. The Trovato repository it depends on
-  (`trovato-private`) is not, and `trovato-sdk` is published nowhere else: not on
-  crates.io, not in a public mirror. The build below therefore works only for
-  someone who already has access to a private repo, which is the opposite of what
-  a public reference application is for.
+- **Nothing else.** No credentials, no private repository, no Trovato checkout.
+  `trovato-sdk` comes from the public
+  [Trovato repository](https://github.com/jeremyandrews/trovato) over HTTPS, so
+  `git clone` and `cargo build` is the whole story.
 
-  Nothing in Ritrovo can fix this — the SDK has to become publicly obtainable
-  (crates.io, or a public repo carrying the SDK crates). Until then, treat these
-  instructions as working-but-gated. When it is fixed, the change here is one
-  line: the `trovato-sdk` entry in the workspace `Cargo.toml` becomes a version
-  dependency instead of a git one.
-
-  With access, a loaded `ssh-agent` key is enough. If cargo's built-in git client
-  cannot use your key (agent forwarding, a hardware key, or a passphrase prompt),
-  tell it to shell out to the system `git` instead, which honors your full SSH
-  configuration:
-
-  ```toml
-  # ~/.cargo/config.toml
-  [net]
-  git-fetch-with-cli = true
-  ```
-
-  A failure here surfaces as `failed to authenticate when downloading repository`,
-  not as anything Ritrovo-specific.
+  This was not true until recently: the `trovato-sdk` dependency pointed at an
+  unpublished development repository, so the build worked only for someone who
+  already had access to a private repo, which is the opposite of what a public
+  reference application is for. That repository is archived and is not the repo
+  of record.
 
 ### Which SDK revision this builds against
 
-The pin is a specific commit, not a branch: the PF-5 contract-freeze revision,
-where the SDK crates read `1.0.0` and the kernel's `KERNEL_API_VERSION` reads
-`(1, 0)`. That is the same commit `cargo-semver-checks` uses as its baseline in
-Trovato CI, so "Ritrovo builds against the published contract" means something
-checkable rather than "against whatever `main` happens to be today".
+The pin is a specific commit, not a branch, so "Ritrovo builds against the
+published contract" names a contract rather than whatever `main` happens to be
+today:
 
-Note that the freeze crate labels itself `1.0.0` ahead of the kernel Trovato
-actually ships, which is still `0.99`. The interfaces are the same, so the pin
-stays valid, but the plugin manifests declare `api_version = "0.99"` to match
-the *released* kernel they install against — not the SDK crate's aspirational
-number. Reconciling the SDK crate's own version with the release is a
-Trovato-side cleanup, tracked separately.
+| | |
+|---|---|
+| `rev` | `50c46ee` (`jeremyandrews/trovato`, `main`) |
+| SDK crate version | 0.99.0 |
+| `KERNEL_API_VERSION` | (0, 99) |
+
+All three agree, and the plugin manifests declare `api_version = "0.99"` to
+match. Under the old pin they did not: that SDK crate labelled itself `1.0.0`
+ahead of the kernel Trovato ships, and manifests copied from it were rejected at
+enable time with `requires API 1.0 but kernel provides API 0.99`.
 
 To build against a different contract revision, change `rev` in the
 `[workspace.dependencies]` entry in the root `Cargo.toml`; the bump protocol is
 documented there.
+
 
 ### Verifying a build
 
