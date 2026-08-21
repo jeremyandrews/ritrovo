@@ -32,7 +32,7 @@ jobs:
     name: build and test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
         uses: dtolnay/rust-toolchain@master
@@ -68,7 +68,7 @@ jobs:
     name: demo wiring
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Nine files in docs/tutorial/templates are copies of Trovato's, vendored
       # so the demo needs nothing but Docker. This is what keeps the copy honest.
