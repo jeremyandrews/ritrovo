@@ -1,0 +1,18 @@
+# Front page: the upcoming-conference listing.
+#
+# Every other piece of the demo's configuration comes from Trovato's own tutorial
+# config set, which ships inside the released image. This one setting does not,
+# because it is the last step of the tutorial walkthrough rather than part of the
+# set: "set the front page to /conferences at /admin/config/site".
+#
+# A `variable` config entity writes straight to the site_config table, which is
+# the same row the admin form writes, so importing this one-file set is the
+# non-interactive equivalent of filling that form in. Doing it this way is why the
+# demo needs no CSRF token scraping and no SQL.
+#
+# /conferences is a url_alias onto /gather/ritrovo.upcoming_conferences. A front
+# path that is not an item is served as a redirect rather than rendered inline,
+# which is the kernel's documented behaviour, so the demo's `/` answers 307 and
+# the listing renders at /conferences.
+key: site_front_page
+value: /conferences

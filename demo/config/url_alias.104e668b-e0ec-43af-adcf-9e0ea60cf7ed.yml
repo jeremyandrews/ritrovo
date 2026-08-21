@@ -1,0 +1,11 @@
+# Italian alias for the upcoming-conference listing.
+#
+# Stored WITHOUT the /it/ prefix, unlike the equivalent row in Trovato's tutorial
+# config set: the language middleware strips the prefix before the alias lookup
+# runs, so a prefixed alias can never match. See README.md in this directory.
+id: '104e668b-e0ec-43af-adcf-9e0ea60cf7ed'
+source: /gather/ritrovo.upcoming_conferences
+alias: /conferenze
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1787000000

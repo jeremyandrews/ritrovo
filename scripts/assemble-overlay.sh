@@ -13,11 +13,15 @@
 # --release`.
 #
 # Usage: scripts/assemble-overlay.sh [output-dir]   (default: overlay/plugins)
+#
+# CARGO_TARGET_DIR is honoured, because the demo's container build sets it: the
+# repository is mounted read-only there and the artifacts land on a volume, so
+# `$root/target` is not where they are.
 
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-build="$root/target/wasm32-wasip1/release"
+build="${CARGO_TARGET_DIR:-$root/target}/wasm32-wasip1/release"
 out="${1:-$root/overlay/plugins}"
 
 rm -rf "$out"

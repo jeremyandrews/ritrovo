@@ -1,0 +1,150 @@
+# Ritrovo, standing up on the released Trovato, in one command.
+#
+#   docker compose -f docker-compose.demo.yml up
+#
+# Nothing else is needed: no Trovato checkout, no Rust toolchain on the host, no
+# credentials. Postgres and Redis come up here, the plugins are compiled in a
+# throwaway container, and the kernel is the published image — not a build of this
+# machine's Trovato working copy, which is the point. Ritrovo installs as a pure
+# overlay onto a stock release, and this file is that claim, executable.
+#
+# The overlay reaches the kernel through the three search-path settings. Each
+# takes a colon-separated list where a LATER entry wins, so Ritrovo is appended
+# and nothing in the image is replaced:
+#
+#   PLUGINS_DIR    /app/plugins    : /ritrovo/overlay/plugins
+#   TEMPLATES_DIR  /app/templates  : /ritrovo/docs/tutorial/templates
+#   STATIC_DIR     <index volume>  : /app/static : /ritrovo/docs/tutorial/static
+#
+# STATIC_DIR is the one that is not simply "kernel first, Ritrovo last": its FIRST
+# entry is where the kernel writes the generated Pagefind search index, so it has
+# to be a writable volume. Both other entries are read-only mounts.
+#
+# TEMPLATES_DIR points at templates vendored into this repository from the Trovato
+# release. They are Trovato's own tutorial assets and the image does not ship
+# them; the tradeoff, and why they are copied rather than fetched, is written up
+# in docs/INSTALL.md under "Templates and static assets".
+#
+# To throw it all away:  docker compose -f docker-compose.demo.yml down -v
+
+name: ritrovo-demo
+
+x-kernel-env: &kernel-env
+  DATABASE_URL: postgres://trovato:trovato@postgres:5432/ritrovo
+  REDIS_URL: redis://redis:6379/0
+  CRON_KEY: ${CRON_KEY:-ritrovo-demo-cron-key}
+  PORT: "3000"
+  PLUGINS_DIR: /app/plugins:/ritrovo/overlay/plugins
+  TEMPLATES_DIR: /app/templates:/ritrovo/docs/tutorial/templates
+  STATIC_DIR: /var/lib/ritrovo/index:/app/static:/ritrovo/docs/tutorial/static
+  UPLOADS_DIR: /var/lib/ritrovo/uploads
+  RUST_LOG: ${RUST_LOG:-info,sqlx=warn,tower_http=warn}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: trovato
+      POSTGRES_PASSWORD: trovato
+      POSTGRES_DB: ritrovo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trovato -d ritrovo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # Compile the five plugins to WebAssembly and stage them where PLUGINS_DIR can
+  # reach them. Runs to completion, then exits; the kernel waits for it.
+  #
+  # The repository is mounted READ-ONLY and the sources are copied into a volume
+  # before building, so a container running as root cannot leave root-owned
+  # artifacts in the host checkout. target/ and the cargo registry live on volumes
+  # too, so the second run of this demo is fast.
+  plugin-builder:
+    image: rust:1-bookworm
+    working_dir: /build/src
+    environment:
+      CARGO_HOME: /build/cargo
+      CARGO_TARGET_DIR: /build/target
+    volumes:
+      - ./:/src:ro
+      - buildcache:/build
+      - overlay:/overlay
+    command:
+      - sh
+      - -euc
+      - |
+        echo "==> staging sources (the checkout is read-only)"
+        rm -rf /build/src && mkdir -p /build/src
+        cp -R /src/Cargo.toml /src/rust-toolchain.toml /src/plugins /src/demo /src/scripts /build/src/
+        echo "==> cargo build --target wasm32-wasip1 --release"
+        cd /build/src && cargo build --target wasm32-wasip1 --release
+        echo "==> assembling the overlay"
+        scripts/assemble-overlay.sh /overlay/plugins
+        ls -la /overlay/plugins
+
+  trovato:
+    image: ghcr.io/jeremyandrews/trovato:0.101.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      plugin-builder:
+        condition: service_completed_successfully
+    environment:
+      <<: *kernel-env
+      DEMO_ADMIN_USER: ${DEMO_ADMIN_USER:-admin}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-ritrovo-demo-password}
+      DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@ritrovo.example}
+      RITROVO_DEMO_CONFIG_DIR: /ritrovo/demo/config
+    entrypoint: ["/ritrovo/scripts/demo-bootstrap.sh"]
+    ports:
+      - "${RITROVO_DEMO_PORT:-3000}:3000"
+    volumes:
+      - overlay:/ritrovo/overlay:ro
+      - ./docs:/ritrovo/docs:ro
+      - ./demo:/ritrovo/demo:ro
+      - ./scripts:/ritrovo/scripts:ro
+      - siteindex:/var/lib/ritrovo/index
+      - uploads:/var/lib/ritrovo/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 30s
+
+  # There is no scheduler in the kernel. This is it.
+  cron:
+    image: ghcr.io/jeremyandrews/trovato:0.101.0
+    depends_on:
+      trovato:
+        condition: service_started
+    environment:
+      TROVATO_URL: http://trovato:3000
+      CRON_KEY: ${CRON_KEY:-ritrovo-demo-cron-key}
+    # This container runs the poker, not a kernel, so the image's own health
+    # check would curl a server that is not here and report unhealthy forever.
+    healthcheck:
+      disable: true
+    entrypoint: ["/ritrovo/scripts/demo-cron.sh"]
+    volumes:
+      - ./scripts:/ritrovo/scripts:ro
+
+volumes:
+  pgdata:
+  buildcache:
+  overlay:
+  siteindex:
+  uploads:

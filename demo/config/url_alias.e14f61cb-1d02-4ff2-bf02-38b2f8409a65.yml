@@ -1,0 +1,11 @@
+# Italian alias for the topic index.
+#
+# Stored WITHOUT the /it/ prefix, unlike the equivalent row in Trovato's tutorial
+# config set: the language middleware strips the prefix before the alias lookup
+# runs, so a prefixed alias can never match. See README.md in this directory.
+id: 'e14f61cb-1d02-4ff2-bf02-38b2f8409a65'
+source: /topics
+alias: /argomenti
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1787000000

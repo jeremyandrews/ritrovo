@@ -8,19 +8,90 @@ Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History
 
 **Builds standalone, from public sources.** All five plugins compile to WebAssembly against the Trovato SDK as an external git dependency on the public Trovato repository, with no Trovato checkout anywhere on disk and no credentials. See "Building" below.
 
+**Runs standalone, on the released kernel.** `scripts/serve-demo.sh` stands the
+whole site up against `ghcr.io/jeremyandrews/trovato:0.101.0` with Docker as the
+only prerequisite. Verified against that release on 2026-08-21, from an empty
+Docker to a checked site in 1m41s: all five plugins enabled, 269 import batches
+drained, 5,644 conferences landed on that run (160 of them upcoming), the
+importer's two admin screens answering 401 to an anonymous visitor and 200 to an
+administrator, `/search?q=rust` returning 37 results, and `/it/conferenze`
+rendering with `lang="it"`. The conference count moves run to run: confs.tech is
+live data.
+
+## The demo, in one command
+
+```bash
+git clone https://github.com/jeremyandrews/ritrovo.git
+cd ritrovo
+scripts/serve-demo.sh
+```
+
+Docker is the only prerequisite. No Trovato checkout, no Rust toolchain, no
+credentials. When it finishes, <http://localhost:3000> is a populated conference
+site: a filterable listing of upcoming conferences imported from confs.tech,
+speaker pages, open calls for papers, search, the importer's two admin screens,
+and the same listing in Italian.
+
+What it stands up, in order, because the order is the interesting part:
+
+| | |
+|---|---|
+| Postgres 16, Redis 7 | the kernel's two dependencies |
+| the five Ritrovo plugins | compiled to WebAssembly in a throwaway `rust:1-bookworm` container, staged into an overlay volume |
+| `ghcr.io/jeremyandrews/trovato:0.101.0` | the **released** kernel, unmodified, with the overlay appended to its three search paths |
+| the installer | completed over HTTP, so nobody has to fill in a form |
+| the tutorial config set | imported **before** the plugins are enabled, which is the trap: `ritrovo_importer` resolves the topic taxonomy once, in `tap_install` |
+| the five plugins | enabled, then a restart, which is when `tap_install` fires and the conference import begins |
+| a cron poker | the kernel has no scheduler, so something has to `POST /cron/<key>` until the import queue drains |
+| the Italian seed content | Part 7's content-translation set |
+| the front page | pointed at `/conferences` |
+
+`scripts/serve-demo.sh` is a wrapper that waits for all of that and then checks
+it. The demo itself is the compose file, so this works too, it just does not tell
+you when it has finished:
+
+```bash
+docker compose -f docker-compose.demo.yml up
+```
+
+To check a running demo, or to see what it found:
+
+```bash
+scripts/verify-demo.sh          # plugin status, conference counts, 401/200, search, Italian
+scripts/serve-demo.sh --down    # stop it and delete its volumes
+```
+
+The full walkthrough, including installing Ritrovo onto a Trovato you built
+yourself, is [docs/INSTALL.md](docs/INSTALL.md).
+
 ## Repository layout
 
 ```
+docker-compose.demo.yml   The one-command demo: Postgres, Redis, the released
+                          kernel image, a plugin builder, a cron poker
 scripts/
-  assemble-overlay.sh   Stage built plugins into overlay/ for PLUGINS_DIR
+  serve-demo.sh           Bring the demo up, wait for the import, check it
+  demo-bootstrap.sh       The install recipe, run inside the kernel container
+  demo-cron.sh            The cron poker: no scheduler lives in the kernel
+  verify-demo.sh          What a populated site looks like, asserted over HTTP
+  assemble-overlay.sh     Stage built plugins into overlay/ for PLUGINS_DIR
+  check-tutorial-templates.sh
+                          Diff the vendored templates against the release
 plugins/
-  ritrovo_access/       Editorial workflow / role-based access control
-  ritrovo_cfp/          Call for Papers submission + review
-  ritrovo_importer/     Content import tooling
-  ritrovo_notify/       Email / notification system
-  ritrovo_translate/    Multi-language content translation workflow
+  ritrovo_access/         Editorial workflow / role-based access control
+  ritrovo_cfp/            Call for Papers submission + review
+  ritrovo_importer/       Content import tooling
+  ritrovo_notify/         Email / notification system
+  ritrovo_translate/      Multi-language content translation workflow
+demo/
+  config/                 The two pieces of config the tutorial set does not
+                          carry: the front page and the Italian aliases
+  checks/                 Tests pinning the demo's wiring to the repository
 docs/
-  ritrovo/              Architecture, epics, design docs
+  INSTALL.md              The demo, then the manual walkthrough
+  ritrovo/                Architecture, epics, design docs
+  tutorial/templates/     Trovato's tutorial templates, vendored for the demo
+  tutorial/static/        ritrovo.css
 ```
 
 ## Building
@@ -97,7 +168,8 @@ wasm-tools print target/wasm32-wasip1/release/ritrovo_notify.wasm \
 
 - [x] Decide if `trovato-sdk` should be consumed by path (sibling checkout), git revision, or crates.io publish — **git revision**, pinned to the contract-freeze commit
 - [x] Verify each plugin builds standalone
-- [ ] Add CI (GitHub Actions) for `cargo check` + `cargo clippy` on the wasm target
+- [x] Add CI (GitHub Actions) for `cargo check` + `cargo clippy` on the wasm target — `.github/workflows/ci.yml`, which also gates the demo's wiring
+- [x] A one-command demo on the released kernel, standing up unattended — `docker-compose.demo.yml`
 - [x] Document the end-to-end "install Ritrovo on a fresh Trovato" walkthrough — [docs/INSTALL.md](docs/INSTALL.md)
 - [ ] Decide: is Ritrovo a published product or a reference demo? The answer shapes release cadence, versioning, and public marketing
 
