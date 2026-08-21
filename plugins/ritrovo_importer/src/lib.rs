@@ -241,7 +241,7 @@ pub fn tap_install() -> serde_json::Value {
 
     // 2. Queue historical import.
     let now = current_timestamp();
-    let current_year = timestamp_to_year(now) as u16;
+    let current_year = timestamp_to_year(now);
     let mut pushed = 0u32;
     let mut errors = 0u32;
 

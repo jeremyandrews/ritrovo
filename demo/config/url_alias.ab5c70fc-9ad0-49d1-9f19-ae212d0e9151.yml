@@ -1,0 +1,11 @@
+# Italian alias for the speaker listing.
+#
+# Stored WITHOUT the /it/ prefix, unlike the equivalent row in Trovato's tutorial
+# config set: the language middleware strips the prefix before the alias lookup
+# runs, so a prefixed alias can never match. See README.md in this directory.
+id: 'ab5c70fc-9ad0-49d1-9f19-ae212d0e9151'
+source: /gather/ritrovo.all_speakers
+alias: /relatori
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1787000000

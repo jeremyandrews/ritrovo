@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "demo/checks",
     "plugins/ritrovo_access",
     "plugins/ritrovo_cfp",
     "plugins/ritrovo_importer",
