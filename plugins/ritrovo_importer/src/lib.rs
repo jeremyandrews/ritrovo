@@ -910,7 +910,7 @@ pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
 
         if let Some(info) = existing.get(&source_id) {
             let merged_topics = merge_topics(&info.topics, topic_uuid.as_deref());
-            if update_conference(&info.item_id, conf, &merged_topics, now) {
+            if update_conference(&info.item_id, conf, &source_id, &merged_topics, now) {
                 updated += 1;
             } else {
                 skipped += 1;
@@ -1271,14 +1271,23 @@ fn insert_conference(
 ///
 /// Only updates source-derived fields, preserving manually-edited fields
 /// like description and editor notes. Returns true if the update executed.
+///
+/// `source_id` is the key the conference was found under, and it is written
+/// back unchanged. It used to be passed as `""` on the reasoning that it does
+/// not change, but `build_source_fields` always sets `field_source_id` and the
+/// update merges with `||`, so every update blanked the dedup key. The next
+/// import could no longer find the conference and inserted it again, which the
+/// unique index could not stop because it excludes empty ids.
+/// `migrations/004_restore_blanked_source_ids.sql` repairs the rows that bug
+/// left behind.
 fn update_conference(
     item_id: &str,
     conf: &ConfsTechEntry,
+    source_id: &str,
     merged_topics: &[String],
     now: i64,
 ) -> bool {
-    // Reuse shared field builder — omit source_id since it doesn't change.
-    let updates = build_source_fields(conf, "", merged_topics);
+    let updates = build_source_fields(conf, source_id, merged_topics);
 
     let result = host::execute_raw(
         "UPDATE item SET \
