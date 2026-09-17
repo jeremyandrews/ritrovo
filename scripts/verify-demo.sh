@@ -130,9 +130,15 @@ fi
 # INDEX_MARKER is a conference the Italian seed guarantees on any bootstrapped
 # demo, so its absence means the index is stale or empty, not that data varies.
 INDEX_MARKER="${INDEX_MARKER:-Codemotion Roma 2026}"
-indexed="$(cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T trovato sh -c \
-    'cat /var/lib/ritrovo/index/pagefind/fragment/*.pf_fragment 2>/dev/null | gzip -dc 2>/dev/null' \
-    2>/dev/null | grep -c "$INDEX_MARKER" || true)"
+# The marker is counted INSIDE the container, so only a number crosses back: the
+# fragments for 5,656 conferences are megabytes, and none of it is interesting
+# here. It travels as an environment variable rather than interpolated into the
+# shell string, so a marker with a quote in it cannot rewrite the command.
+# No output at all means the compose stack is not the one running, which is a
+# skip; "0" means the stack answered and the index does not have the conference.
+indexed="$( (cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T \
+    -e MARKER="$INDEX_MARKER" trovato sh -c \
+    'cat /var/lib/ritrovo/index/pagefind/fragment/*.pf_fragment 2>/dev/null | gzip -dc 2>/dev/null | grep -c "$MARKER"') 2>/dev/null )"
 if [ -z "$indexed" ]; then
     note "skipped the index content check: needs the $COMPOSE_FILE stack"
 elif [ "$indexed" -gt 0 ]; then
