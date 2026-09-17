@@ -1,17 +1,15 @@
 name = "ritrovo_notify"
 description = "Subscription and notification system for conferences"
-version = "1.0.0"
+version = "1.1.0"
 api_version = "0.102"
 default_enabled = false
 dependencies = []
 
 [taps]
-implements = [
-    "tap_menu",
-    "tap_perm",
-    "tap_item_view",
-    "tap_queue_info",
-]
+# None yet. See README.md for what this plugin will implement, and src/lib.rs for
+# why the menu entry, the Subscribe button, the queue and the permissions it used
+# to declare were removed.
+implements = []
 weight = 0
 
 [migrations]
@@ -20,21 +18,15 @@ files = [
 ]
 
 # Declared plugin capabilities (WASM-1, deny-unless-declared). The Trovato
-# kernel builds this plugin's WASM linker from host_interfaces — it receives
-# exactly the host interfaces named here (plus baseline WASI).
+# kernel builds this plugin's WASM linker from host_interfaces: it receives
+# exactly the host interfaces named here (plus baseline WASI), and rejects the
+# plugin at load time if the module imports one not declared.
 #
-# Derived from the compiled .wasm import section, like every other Ritrovo
-# manifest. This entry previously read `[]`, guessed by reading lib.rs back when
-# this workspace could not be built and so could not be compile-verified. The
-# guess was wrong. Nothing in this plugin's lib.rs calls a host function, but the
-# SDK's tap entry-point macro wraps every tap in host-input validation that calls
-# `trovato_sdk::host::log` on failure (negative ptr/len, invalid UTF-8). That
-# macro-generated call imports `trovato:kernel/logging` regardless of what the tap
-# bodies do — which is why source-reading cannot answer this question and only the
-# import section can. With `[]` declared, the kernel's
-# load-time import-vs-declaration pre-check rejects the plugin outright:
-#   plugin 'ritrovo_notify' imports host interface 'logging' but does not declare
-#   host_interfaces = [..., "logging"] in its [capabilities] manifest
-# Verify against the artifact, never against the source.
+# Derived from the compiled .wasm import section, never from reading the source.
+# While this plugin implemented taps it imported `trovato:kernel/logging`, which
+# the SDK's tap entry-point macro pulls in whatever the tap bodies do. With no
+# taps there is no macro-generated code and the module imports no kernel
+# interface at all, so the list is empty; the host-in-the-loop suite loads the
+# module, which is the check.
 [capabilities]
-host_interfaces = ["logging"]
+host_interfaces = []

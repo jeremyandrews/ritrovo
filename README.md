@@ -82,7 +82,7 @@ plugins/                  Each plugin's tests/ holds its host-in-the-loop suite
   ritrovo_access/         Editorial workflow / role-based access control
   ritrovo_cfp/            Call for Papers submission + review
   ritrovo_importer/       Content import tooling
-  ritrovo_notify/         Email / notification system
+  ritrovo_notify/         Subscriptions and notifications: not built yet, see its README
   ritrovo_translate/      Multi-language content translation workflow
 tests/host/               The kernel harness every host-in-the-loop suite includes,
                           and the slice of Trovato's tutorial config they import
