@@ -54,8 +54,45 @@ license = "GPL-2.0-or-later"
 # entry is needed.
 trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "20baa121810b5c656b3f80028335770069fab5e0" }
 
+# trovato-kernel: TEST ONLY, and pinned to the same revision as the SDK above.
+#
+# The host-in-the-loop suites under plugins/*/tests/ load each compiled module
+# from the assembled overlay and drive it through the real TapDispatcher,
+# ItemService, plugin migration runner and HTTP router against a real Postgres.
+# There is no way to do that without the kernel, and a fake host would be a fake
+# answer to "does this plugin work on Trovato".
+#
+# Every plugin takes it as a DEV-dependency only. Dev-dependencies are never
+# built for `--target wasm32-wasip1`, so the shipped modules carry none of it and
+# the "builds standalone with no Trovato checkout" claim is untouched: the kernel
+# arrives the same way the SDK does, as a pinned git revision.
+#
+# The rev must equal the SDK's. A plugin compiled against one contract and tested
+# against another kernel is a test that proves nothing about what ships;
+# demo/checks/src/lib.rs asserts the two pins are the same string, so moving one
+# without the other fails the build.
+trovato-kernel = { git = "https://github.com/jeremyandrews/trovato.git", rev = "20baa121810b5c656b3f80028335770069fab5e0" }
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# The rest of this table is test-only, for the host-in-the-loop suites. Each
+# version is the one the pinned kernel itself resolves, because several of these
+# types cross the kernel's API: `RequestServices::for_background` takes a
+# `reqwest::Client`, the router is an `axum::Router`, the pool is a `sqlx::PgPool`.
+# A second major version of any of them would not be the same type.
+argon2 = "0.5"
+axum = "0.8"
+rcgen = "0.13"
+reqwest = "0.12"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "json", "uuid"] }
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tower = { version = "0.5", features = ["util"] }
+tower-sessions = "0.14"
+redis = { version = "0.27", features = ["tokio-comp"] }
+uuid = { version = "1", features = ["v7", "serde"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

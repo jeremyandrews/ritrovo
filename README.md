@@ -78,12 +78,14 @@ scripts/
   assemble-overlay.sh     Stage built plugins into overlay/ for PLUGINS_DIR
   check-tutorial-templates.sh
                           Diff the vendored templates against the release
-plugins/
+plugins/                  Each plugin's tests/ holds its host-in-the-loop suite
   ritrovo_access/         Editorial workflow / role-based access control
   ritrovo_cfp/            Call for Papers submission + review
   ritrovo_importer/       Content import tooling
   ritrovo_notify/         Email / notification system
   ritrovo_translate/      Multi-language content translation workflow
+tests/host/               The kernel harness every host-in-the-loop suite includes,
+                          and the slice of Trovato's tutorial config they import
 demo/
   config/                 The two pieces of config the tutorial set does not
                           carry: the front page and the Italian aliases
@@ -93,6 +95,8 @@ docs/
   ritrovo/                Architecture, epics, design docs
   tutorial/templates/     Trovato's tutorial templates, vendored for the demo
   tutorial/static/        ritrovo.css
+FRICTION.md               Kernel gaps this repository has hit, for Trovato's backlog
+CHANGELOG.md
 ```
 
 ## Building
@@ -168,6 +172,35 @@ body contains:
 wasm-tools print target/wasm32-wasip1/release/ritrovo_notify.wasm \
   | grep '(import "trovato:kernel/'
 ```
+
+## Testing
+
+Two layers, and CI runs both on every push (`.github/workflows/ci.yml`):
+
+- **Unit tests** in each plugin's `src/lib.rs`, and the demo's wiring checks in
+  `demo/checks`. No services needed.
+- **Host-in-the-loop suites** in `plugins/<name>/tests/<name>_host.rs`. Each
+  loads the plugin's compiled module from the assembled overlay and drives it
+  through the Trovato kernel at the pinned revision: the kernel's own install,
+  enable and migration code, its tap dispatcher, `ItemService`, queue drain and
+  router, against a real Postgres (and Redis, for the importer's admin screens).
+  No test reaches the network: the importer's confs.tech fetch is answered from
+  `plugins/ritrovo_importer/tests/fixtures/` by a local HTTPS server.
+
+```bash
+docker run -d --name ritrovo-test-pg -p 127.0.0.1:55432:5432 \
+  -e POSTGRES_USER=trovato -e POSTGRES_PASSWORD=trovato -e POSTGRES_DB=trovato postgres:17
+docker run -d --name ritrovo-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine
+
+cargo build --target wasm32-wasip1 --release && scripts/assemble-overlay.sh
+DATABASE_URL=postgres://trovato:trovato@127.0.0.1:55432/trovato \
+REDIS_URL=redis://127.0.0.1:56379 \
+cargo test --workspace
+```
+
+The suites write to that database freely, so point them at one that holds
+nothing you want. The one-command demo itself runs weekly in
+`.github/workflows/demo.yml`, which says why weekly.
 
 ## Next steps (fix-it phase)
 

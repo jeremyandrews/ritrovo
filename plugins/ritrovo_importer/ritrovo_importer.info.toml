@@ -1,6 +1,6 @@
 name = "ritrovo_importer"
 description = "Import tech conferences from confs.tech into Trovato"
-version = "1.1.0"
+version = "1.2.0"
 api_version = "0.102"
 default_enabled = false
 dependencies = []
@@ -25,6 +25,7 @@ files = [
     "migrations/001_create_ritrovo_state.sql",
     "migrations/002_dedup_conferences.sql",
     "migrations/003_remove_conferences_alias.sql",
+    "migrations/004_restore_blanked_source_ids.sql",
 ]
 
 # Declared plugin capabilities (WASM-1, deny-unless-declared). The Trovato

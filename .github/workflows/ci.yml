@@ -1,16 +1,20 @@
 # CI for Ritrovo.
 #
-# Three things are gated here, and they are the three ways this repository can
-# break without anyone noticing:
+# Four things are gated here, and they are the ways this repository can break
+# without anyone noticing:
 #
 #   build    the five plugins still compile to wasm32-wasip1 against the pinned
 #            SDK revision, with no Trovato checkout and no credentials. That
 #            "standalone from public sources" claim is the whole premise, so it
 #            is checked on every push rather than trusted.
+#   test     the unit tests, and the host-in-the-loop suites: each compiled module
+#            loaded from the overlay and driven through the pinned kernel's own
+#            dispatcher, item service, queue drain and router against Postgres and
+#            Redis. The job fails if any of the five suites did not actually run.
 #   demo     the one-command demo's wiring still matches the repository it
-#            demonstrates, and the tutorial templates vendored for it still match
-#            the Trovato release the demo runs. Both are shell and YAML, which
-#            nothing else would catch.
+#            demonstrates, and the tutorial files vendored for the demo and for the
+#            tests still match the Trovato release. Both are shell and YAML, which
+#            nothing else would catch. The demo itself runs weekly, in demo.yml.
 #   lint     fmt, clippy with warnings as errors, and shellcheck over the scripts.
 #
 # The toolchain pin is duplicated here because dtolnay/rust-toolchain does not
@@ -61,8 +65,103 @@ jobs:
       - name: Assemble the overlay
         run: scripts/assemble-overlay.sh
 
+  test:
+    name: unit and host-in-the-loop tests
+    runs-on: ubuntu-latest
+    # The host-in-the-loop suites run the pinned kernel, which needs both. Redis
+    # is for the one suite that goes through the kernel's router: login and the
+    # importer's admin screens hold a Redis-backed session.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: trovato
+          POSTGRES_PASSWORD: trovato
+          POSTGRES_DB: trovato
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trovato"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://trovato:trovato@localhost:5432/trovato
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The suites load each module from overlay/plugins, so the overlay has to be
+      # built here, from this commit. Nothing in the repository keeps a .wasm the
+      # tests could quietly run against instead.
+      - name: Build and assemble the overlay the suites load
+        run: |
+          cargo build --target wasm32-wasip1 --release
+          scripts/assemble-overlay.sh
+
+      # `pipefail` is not optional: without it the step's status is tee's, which
+      # is always 0, and a failing suite reports green.
       - name: Tests
-        run: cargo test --workspace
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee test-raw.log
+          # CARGO_TERM_COLOR=always puts ANSI escapes inside the lines grepped
+          # below. Strip them once rather than writing escape-tolerant patterns.
+          sed -e 's/\x1b\[[0-9;]*m//g' test-raw.log > test.log
+
+      # A green `cargo test` does not prove the host-in-the-loop suites ran: a
+      # renamed file, a dropped [[test]], or an `#[ignore]` removes them with
+      # everything still passing. So each suite must appear, must have passed
+      # at least one test, and must have ignored none; and the tests that carry
+      # the claims this repository makes about itself must be among the passes.
+      - name: The host-in-the-loop suites actually ran
+        run: |
+          status=0
+          for plugin in ritrovo_access ritrovo_cfp ritrovo_importer ritrovo_notify ritrovo_translate; do
+            result="$(awk -v target="Running tests/${plugin}_host.rs" \
+              'index($0, target) { found = 1 } found && /^test result:/ { print; exit }' test.log)"
+            if [ -z "$result" ]; then
+              echo "::error::the $plugin host-in-the-loop suite did not run"
+              status=1
+              continue
+            fi
+            passed="$(printf '%s' "$result" | sed -n 's/.* \([0-9][0-9]*\) passed;.*/\1/p')"
+            ignored="$(printf '%s' "$result" | sed -n 's/.* \([0-9][0-9]*\) ignored;.*/\1/p')"
+            echo "$plugin: $result"
+            if [ "${passed:-0}" -eq 0 ] || [ "${ignored:-1}" -ne 0 ]; then
+              echo "::error::the $plugin suite passed ${passed:-0} and ignored ${ignored:-?}"
+              status=1
+            fi
+          done
+          for test in \
+            the_queue_worker_drains_the_fixture_batches_into_conferences \
+            replaying_the_import_adds_no_conference_and_no_duplicate \
+            the_admin_screens_are_401_anonymous_and_200_html_for_an_administrator \
+            incoming_and_curated_conferences_are_gated_by_permission \
+            an_italian_conference_is_marked_for_translation_and_an_english_one_is_not \
+            each_deadline_renders_the_badge_for_its_distance \
+            the_sdk_and_the_test_kernel_pin_the_same_trovato; do
+            grep -q "^test .*${test} \.\.\. ok$" test.log \
+              || { echo "::error::$test did not pass"; status=1; }
+          done
+          exit "$status"
 
   demo:
     name: demo wiring
@@ -71,8 +170,10 @@ jobs:
       - uses: actions/checkout@v5
 
       # Nine files in docs/tutorial/templates are copies of Trovato's, vendored
-      # so the demo needs nothing but Docker. This is what keeps the copy honest.
-      - name: Vendored tutorial templates match the release
+      # so the demo needs nothing but Docker, and tests/host/tutorial-config holds
+      # the slice of its tutorial config the host-in-the-loop suites import. This
+      # is what keeps both copies honest.
+      - name: Vendored tutorial files match the release
         run: scripts/check-tutorial-templates.sh
 
       - name: Shellcheck

@@ -62,7 +62,7 @@ if [ -z "$plugin_list" ]; then
 else
     for plugin in ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_notify ritrovo_translate; do
         line="$(printf '%s\n' "$plugin_list" | grep "^$plugin ")"
-        if printf '%s' "$line" | grep -q 'enabled'; then
+        if [[ "$line" == *enabled* ]]; then
             ok "$(printf '%s' "$line" | awk '{printf "%-20s %-8s %s", $1, $2, $3}')"
         else
             bad "$plugin is not enabled (got: ${line:-nothing})"
@@ -119,7 +119,12 @@ head_ "Italian"
 for path in /it/conferenze /it/relatori /it/argomenti; do
     if [ "$(code "$path")" = "200" ]; then ok "$path renders 200"; else bad "$path answered $(code "$path")"; fi
 done
-if curl -s "$BASE/it/conferenze" | grep -q 'lang="it"'; then
+# Match on the captured page, never `curl | grep -q`. With pipefail set, grep -q
+# exits at the first match, near the top of the page, curl takes a SIGPIPE writing
+# the rest, and the pipeline reports failure for a page that passed. It did, on
+# roughly one run in eight.
+italian_page="$(curl -s "$BASE/it/conferenze")"
+if [[ "$italian_page" == *'lang="it"'* ]]; then
     ok '/it/conferenze renders with lang="it"'
 else
     bad '/it/conferenze did not render in Italian'
