@@ -10,13 +10,14 @@ Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History
 
 **Runs standalone, on the released kernel.** `scripts/serve-demo.sh` stands the
 whole site up against `ghcr.io/jeremyandrews/trovato:0.102.0` with Docker as the
-only prerequisite. Verified against that release on 2026-08-21, from an empty
-Docker to a checked site in 1m41s: all five plugins enabled, 269 import batches
-drained, 5,644 conferences landed on that run (160 of them upcoming), the
-importer's two admin screens answering 401 to an anonymous visitor and 200 to an
-administrator, `/search?q=rust` returning 37 results, and `/it/conferenze`
-rendering with `lang="it"`. The conference count moves run to run: confs.tech is
-live data.
+only prerequisite. Verified against that release on 2026-09-17, from empty
+volumes (images already pulled) to a checked site in 2m31s: all five plugins
+enabled, 269 import batches drained, 5,661 conferences landed on that run (159 of
+them upcoming), the importer's two admin screens answering 401 to an anonymous
+visitor and 200 to an administrator, `/search?q=rust` returning 37 results, and
+`/it/conferenze` rendering with `lang="it"`. The conference count moves run to
+run: confs.tech is live data. (The previous run, against 0.101.0 on 2026-08-21,
+took 1m41s and landed 5,644 conferences, 160 upcoming.)
 
 ## The demo, in one command
 

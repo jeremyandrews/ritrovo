@@ -99,8 +99,9 @@ built with `MenuDefinition`, which leaves `handler_type` at `"page"`, and the
 plugin exported no `tap_api` at all. The kernel routes a request to `tap_api`
 only for an entry whose `handler_type` is `"api"`, so it had nothing to dispatch
 to and correctly served a 404. Both are fixed: the entries are `MenuRoute::api`
-and the plugin serves them. The walkthrough below has been executed end to end,
-most recently against the released `0.102.0` kernel on 2026-09-17.
+and the plugin serves them. The walkthrough below is what the one-command demo
+runs unattended, and that was most recently verified end to end against the
+released `0.102.0` kernel on 2026-09-17.
 
 ## Installing by hand
 
