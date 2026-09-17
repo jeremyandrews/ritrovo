@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
-//! `ritrovo_notify` on the real kernel: install, enable, the API check, and the
-//! notification table's migration.
+//! `ritrovo_notify` on the real kernel: install, enable, the API check, the
+//! notification table's migration, and the absence of everything it used to
+//! pretend to do.
 //!
 //! Needs Postgres (`DATABASE_URL`) and the assembled overlay:
 //!
@@ -78,5 +79,64 @@ fn the_migrations_apply_and_apply_again_as_a_no_op() {
                 "sent_at"
             ]
         );
+    });
+}
+
+/// Until the plugin has the taps behind them, there is no subscriptions route to
+/// 404, no Subscribe button that does nothing, no queue that only fills and no
+/// permission that grants nothing. See `README.md` for what will replace them.
+#[test]
+fn it_registers_no_route_button_queue_or_permission() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::install_and_enable(&pool, PLUGIN).await.unwrap();
+        host::import_tutorial_config(&pool).await;
+
+        let disp = host::dispatcher(PLUGIN);
+        let compiled = disp.runtime().get_plugin(PLUGIN).unwrap();
+        assert!(
+            compiled.info.taps.implements.is_empty(),
+            "{PLUGIN} declares taps again: {:?}; each needs the implementation behind it",
+            compiled.info.taps.implements
+        );
+        for tap in [
+            "tap_menu",
+            "tap_api",
+            "tap_item_view",
+            "tap_queue_info",
+            "tap_queue_worker",
+            "tap_perm",
+        ] {
+            assert!(
+                disp.registry().get_handlers(tap).is_empty(),
+                "{tap} is registered"
+            );
+        }
+
+        // A conference page gets nothing from this plugin.
+        let items = host::items(&pool, &disp);
+        let conference = host::create_conference(
+            &pool,
+            &items,
+            "Subscribable Conf",
+            None,
+            serde_json::json!({
+                "field_start_date": "2027-05-01",
+                "field_end_date": "2027-05-02",
+            }),
+        )
+        .await;
+        let reader = host::visitor(&pool, &["access content"]).await;
+        let (_, rendered) = items
+            .load_for_view(conference.id, &reader)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(rendered.is_empty(), "rendered {rendered:?}");
+        sqlx::query("DELETE FROM item WHERE id = $1")
+            .bind(conference.id)
+            .execute(&pool)
+            .await
+            .unwrap();
     });
 }
