@@ -1,5 +1,7 @@
 # Epic 18 (I): Tutorial & Recipe Refresh
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This epic describes Trovato kernel infrastructure, not Ritrovo.
+
 **Tutorial Parts Affected:** All 7 parts
 **Trovato Phase Dependency:** All epics A–H landed
 **BMAD Epic:** 48

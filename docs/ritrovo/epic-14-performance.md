@@ -1,5 +1,7 @@
 # Epic 14 (E): Performance Verification
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This epic describes Trovato kernel infrastructure, not Ritrovo.
+
 **Tutorial Parts Affected:** None directly (performance infrastructure is invisible to tutorial narrative)
 **Trovato Phase Dependency:** Phase 6 (Caching, Search, Hardening) — already complete
 **BMAD Epic:** 44

@@ -1,5 +1,7 @@
 # Inclusivity-First Foundation: Overall Summary
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This document describes Trovato kernel infrastructure, not Ritrovo.
+
 **Epics:** 10–19 (A–J)
 **Total Stories:** 59
 **Total Estimated Effort:** 25–38 weeks (parallelized: 16–22 weeks with 2–3 contributors)

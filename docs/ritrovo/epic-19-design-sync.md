@@ -1,5 +1,7 @@
 # Epic 19 (J): Design Doc Sync
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This epic describes Trovato kernel infrastructure, not Ritrovo.
+
 **Tutorial Parts Affected:** None
 **Trovato Phase Dependency:** All epics A–I landed
 **BMAD Epic:** 49

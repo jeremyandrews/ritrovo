@@ -1,5 +1,7 @@
 # Epic 8: Community & Plugin Communication
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 6
 **Trovato Phase Dependency:** Phase 4 (Queue API, Comments), Phase 5 (Subscriptions, Notifications)
 **BMAD Epic:** 37

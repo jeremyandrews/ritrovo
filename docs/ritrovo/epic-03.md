@@ -1,5 +1,7 @@
 # Epic 3: AI as a Building Block
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** Supporting (spans Phase 4-5 kernel + Phase 6 plugins)
 **Trovato Phase Dependency:** Phase 4 (Stages, Permissions), Phase 5 (Form API, Theming)
 **BMAD Epic:** 31

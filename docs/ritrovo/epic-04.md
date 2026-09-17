@@ -1,5 +1,7 @@
 # Epic 4: From Demo to Data-Driven
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 2
 **Trovato Phase Dependency:** Phase 3 (Plugin SDK, Gather, Category, Search)
 **BMAD Epic:** 33 (stories 33-1 through 33-4) + 30-1 (search)

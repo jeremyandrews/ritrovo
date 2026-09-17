@@ -1,5 +1,7 @@
 # Epic 9: Going Global
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 7
 **Trovato Phase Dependency:** Phase 4 (i18n, REST API), Phase 5 (Translation Workflow)
 **BMAD Epic:** 38

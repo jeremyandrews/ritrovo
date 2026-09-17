@@ -1,5 +1,7 @@
 # Inclusivity-First Foundation: Epic Dependency Graph
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This document describes Trovato kernel infrastructure, not Ritrovo.
+
 **Epics:** 10–19 (A–J)
 **Scope:** Kernel infrastructure, Plugin SDK, design docs, tutorials, recipes
 **Governing Principle:** The core kernel enables. Plugins implement.
