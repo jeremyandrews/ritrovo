@@ -16,7 +16,7 @@ scripts/serve-demo.sh
 
 That brings up Postgres and Redis, compiles the five plugins to WebAssembly in a
 throwaway container, starts the **released** kernel image
-(`ghcr.io/jeremyandrews/trovato:0.101.0`) with the Ritrovo overlay on its search
+(`ghcr.io/jeremyandrews/trovato:0.102.0`) with the Ritrovo overlay on its search
 paths, completes the installer over HTTP, imports the tutorial config set, enables
 the plugins, drains the conference import queue, loads the Italian seed content,
 points the front page at `/conferences`, and then checks the result and prints
@@ -67,28 +67,28 @@ just has fewer conferences in it than it will have. `serve-demo.sh` waits for th
 
 ## API version
 
-Each plugin declares `api_version = "0.99"` in its `.info.toml`, matching the
-`KERNEL_API_VERSION` of `(0, 99)` the SDK is pinned to. That is the version the
-plugins genuinely conform to: every host interface they import (`logging`,
-`db`, `http`, `queue`) is present and identical in the `0.99` contract. The
-value lives in the manifest, not the compiled `.wasm`, and the kernel reads it
-at install time — so it is a plain declaration, not something baked in at build.
+Each plugin declares `api_version = "0.102"` in its `.info.toml`, matching the
+`KERNEL_API_VERSION` of `(0, 102)` at the commit the SDK is pinned to, the
+`v0.102.0` tag. The value lives in the manifest, not the compiled `.wasm`, and the
+kernel reads it at install time, so it is a plain declaration, not something
+baked in at build.
 
-**`0.99` plugins run on the `0.101` kernel unchanged, and no bump was needed.**
 The kernel accepts a plugin when the plugin's major equals the kernel's and the
-plugin's minor is less than or equal to the kernel's, so `0.99 <= 0.101` passes.
-All five plugins install and enable on `ghcr.io/jeremyandrews/trovato:0.101.0`
-with these manifests exactly as committed — verified, not assumed. A newer
-kernel is never the reason to bump this number; a host interface the plugins
-import changing shape would be.
+plugin's minor is less than or equal to the kernel's. A manifest therefore states
+the oldest kernel a plugin is promised to run on, and the honest value is the
+contract the plugins were compiled and tested against. On 2026-08-21 that was
+`0.99`, and the plugins ran unchanged on the `0.101` kernel. On 2026-09-17 the SDK
+pin moved to `v0.102.0`, so the manifests moved with it. The consequence is
+deliberate: these plugins now refuse a kernel older than 0.102, which is a kernel
+they were never built or verified against.
 
 (Earlier revisions of these manifests declared `1.0`, copied from an SDK crate
 that labelled itself `1.0.0` ahead of the released kernel. That mismatch made the
 kernel reject every plugin at enable time with `requires API 1.0 but kernel
 provides API 0.99`. Declaring the released version was the correct fix, and the
-mismatch is gone at the source too: the SDK is now pinned at a commit of the
-public Trovato repository where the crate version, the manifests and
-`KERNEL_API_VERSION` all read 0.99.)
+mismatch is gone at the source too: the SDK is pinned at a release tag of the
+public Trovato repository, where the crate version, the manifests and
+`KERNEL_API_VERSION` agree.)
 
 **Every feature is available.** The importer's two admin screens
 (`/admin/content/conferences`, `/admin/config/importer`) used to 404, and the
@@ -100,7 +100,7 @@ plugin exported no `tap_api` at all. The kernel routes a request to `tap_api`
 only for an entry whose `handler_type` is `"api"`, so it had nothing to dispatch
 to and correctly served a 404. Both are fixed: the entries are `MenuRoute::api`
 and the plugin serves them. The walkthrough below has been executed end to end,
-most recently against the released `0.101.0` kernel on 2026-08-21.
+most recently against the released `0.102.0` kernel on 2026-09-17.
 
 ## Installing by hand
 

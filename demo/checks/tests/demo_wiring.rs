@@ -16,7 +16,7 @@ use ritrovo_demo_checks::repo_root;
 
 /// The released kernel the demo runs against. Every place that names it must
 /// agree, which is what `kernel_release_is_named_consistently` checks.
-const KERNEL_IMAGE: &str = "ghcr.io/jeremyandrews/trovato:0.101.0";
+const KERNEL_IMAGE: &str = "ghcr.io/jeremyandrews/trovato:0.102.0";
 
 /// The compose file the demo is driven from.
 const COMPOSE: &str = "docker-compose.demo.yml";
@@ -240,13 +240,13 @@ fn kernel_release_is_named_consistently() {
     for doc in ["README.md", "docs/INSTALL.md"] {
         let body = read(doc);
         assert!(
-            body.contains("0.101.0"),
+            body.contains("0.102.0"),
             "{doc} must name the kernel release the demo runs against"
         );
     }
     let checker = read("scripts/check-tutorial-templates.sh");
     assert!(
-        checker.contains("v0.101.0"),
+        checker.contains("v0.102.0"),
         "scripts/check-tutorial-templates.sh must diff the vendored templates \
          against the same release the demo runs"
     );

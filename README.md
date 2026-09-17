@@ -9,7 +9,7 @@ Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History
 **Builds standalone, from public sources.** All five plugins compile to WebAssembly against the Trovato SDK as an external git dependency on the public Trovato repository, with no Trovato checkout anywhere on disk and no credentials. See "Building" below.
 
 **Runs standalone, on the released kernel.** `scripts/serve-demo.sh` stands the
-whole site up against `ghcr.io/jeremyandrews/trovato:0.101.0` with Docker as the
+whole site up against `ghcr.io/jeremyandrews/trovato:0.102.0` with Docker as the
 only prerequisite. Verified against that release on 2026-08-21, from an empty
 Docker to a checked site in 1m41s: all five plugins enabled, 269 import batches
 drained, 5,644 conferences landed on that run (160 of them upcoming), the
@@ -38,7 +38,7 @@ What it stands up, in order, because the order is the interesting part:
 |---|---|
 | Postgres 16, Redis 7 | the kernel's two dependencies |
 | the five Ritrovo plugins | compiled to WebAssembly in a throwaway `rust:1-bookworm` container, staged into an overlay volume |
-| `ghcr.io/jeremyandrews/trovato:0.101.0` | the **released** kernel, unmodified, with the overlay appended to its three search paths |
+| `ghcr.io/jeremyandrews/trovato:0.102.0` | the **released** kernel, unmodified, with the overlay appended to its three search paths |
 | the installer | completed over HTTP, so nobody has to fill in a form |
 | the tutorial config set | imported **before** the plugins are enabled, which is the trap: `ritrovo_importer` resolves the topic taxonomy once, in `tap_install` |
 | the five plugins | enabled, then a restart, which is when `tap_install` fires and the conference import begins |
@@ -137,14 +137,18 @@ today:
 
 | | |
 |---|---|
-| `rev` | `50c46ee` (`jeremyandrews/trovato`, `main`) |
-| SDK crate version | 0.99.0 |
-| `KERNEL_API_VERSION` | (0, 99) |
+| tag | `v0.102.0` |
+| `rev` | `20baa121810b5c656b3f80028335770069fab5e0` |
+| Trovato version | 0.102.0 |
+| `KERNEL_API_VERSION` | (0, 102) |
 
-All three agree, and the plugin manifests declare `api_version = "0.99"` to
-match. Under the old pin they did not: that SDK crate labelled itself `1.0.0`
-ahead of the kernel Trovato ships, and manifests copied from it were rejected at
-enable time with `requires API 1.0 but kernel provides API 0.99`.
+The `rev` is the commit the `v0.102.0` tag points at, which is the tree the
+`ghcr.io/jeremyandrews/trovato:0.102.0` image was published from, so the SDK the
+plugins compile against and the kernel the demo runs are the same code. The
+plugin manifests declare `api_version = "0.102"` to match. (Before 0.99 they did
+not agree: that SDK crate labelled itself `1.0.0` ahead of the kernel Trovato
+ships, and manifests copied from it were rejected at enable time with
+`requires API 1.0 but kernel provides API 0.99`.)
 
 To build against a different contract revision, change `rev` in the
 `[workspace.dependencies]` entry in the root `Cargo.toml`; the bump protocol is
