@@ -1,6 +1,6 @@
 name = "ritrovo_cfp"
 description = "CFP deadline badge and validation for conferences"
-version = "1.0.0"
+version = "1.1.0"
 api_version = "0.102"
 default_enabled = false
 dependencies = []
@@ -15,5 +15,13 @@ weight = 0
 # kernel builds this plugin's WASM linker from host_interfaces — it receives
 # exactly the host interfaces named here (plus baseline WASI). Derived from
 # the compiled .wasm import section.
+#
+# `db` and `raw_sql` are for one query, the database clock the countdown is
+# measured against: the kernel links no WASI clock into a plugin, so this is the
+# only clock a plugin can reach, and it is the one ritrovo_importer already uses.
+# The badge used to count from the item's `changed` timestamp instead, and so
+# reported the day the record was last saved rather than today.
 [capabilities]
-host_interfaces = ["logging"]
+host_interfaces = ["db", "logging"]
+# Uses the raw-SQL host function query-raw, for SELECT NOW() and nothing else.
+raw_sql = true
