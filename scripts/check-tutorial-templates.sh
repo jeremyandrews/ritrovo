@@ -44,6 +44,30 @@ CONFIG_SUBSET="$ROOT/tests/host/tutorial-config"
 UPDATE=0
 [ "${1:-}" = "--update" ] && UPDATE=1
 
+# Templates this repository has taken OWNERSHIP of, by path under
+# docs/tutorial/templates. The release is no longer their source, so a difference
+# from it is not drift and this script neither reports it nor overwrites it with
+# --update. Everything not listed here is still a vendored copy and is still
+# checked byte for byte.
+#
+# Keep this list short and say why each entry is on it. An entry is a decision to
+# stop taking the kernel's version of a file, which is the opposite of what the
+# rest of this script is for.
+#
+#   elements/item--conference.html
+#       Rewritten to render the conference's fields in their own places. The
+#       release's copy renders `children`, which is the kernel's generic
+#       `label: value` dump of every scalar field, so the page printed every field
+#       twice and leaked internal ones. The file's own header comment carries the
+#       detail and the FRICTION.md entry.
+OWNED_TEMPLATES="
+elements/item--conference.html
+"
+
+is_owned() {
+    printf '%s\n' "$OWNED_TEMPLATES" | grep -qx -- "$1"
+}
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
@@ -68,8 +92,14 @@ fi
 
 if [ "$UPDATE" = "1" ]; then
     echo "==> updating the vendored copies"
-    rm -rf "$VENDORED"
-    cp -R "$upstream" "$VENDORED"
+    for file in $(cd "$upstream" && find . -type f | sed 's|^\./||'); do
+        if is_owned "$file"; then
+            echo "    skipping $file: Ritrovo owns it"
+            continue
+        fi
+        mkdir -p "$(dirname "$VENDORED/$file")"
+        cp "$upstream/$file" "$VENDORED/$file"
+    done
     for file in "$CONFIG_SUBSET"/*.yml; do
         name="$(basename "$file")"
         if [ -f "$upstream_config/$name" ]; then
@@ -83,9 +113,28 @@ if [ "$UPDATE" = "1" ]; then
 fi
 
 drift=0
-if ! diff -ru "$upstream" "$VENDORED"; then
-    drift=1
-fi
+owned_seen=0
+# File by file rather than `diff -ru` over the two trees, so that a template this
+# repository has taken ownership of can be skipped by path without also skipping a
+# same-named file somewhere else in the tree.
+for file in $(cd "$upstream" && find . -type f | sed 's|^\./||'); do
+    if is_owned "$file"; then
+        owned_seen=$((owned_seen + 1))
+        continue
+    fi
+    if [ ! -f "$VENDORED/$file" ]; then
+        echo "docs/tutorial/templates/$file is in Trovato $RELEASE and not in this repository"
+        drift=1
+    elif ! diff -u "$upstream/$file" "$VENDORED/$file"; then
+        drift=1
+    fi
+done
+for file in $(cd "$VENDORED" && find . -type f | sed 's|^\./||'); do
+    if [ ! -f "$upstream/$file" ]; then
+        echo "docs/tutorial/templates/$file is not in Trovato $RELEASE"
+        drift=1
+    fi
+done
 for file in "$CONFIG_SUBSET"/*.yml; do
     name="$(basename "$file")"
     if [ ! -f "$upstream_config/$name" ]; then
@@ -99,7 +148,11 @@ done
 if [ "$drift" = "0" ]; then
     templates="$(find "$VENDORED" -type f | wc -l | tr -d ' ')"
     config="$(find "$CONFIG_SUBSET" -name '*.yml' | wc -l | tr -d ' ')"
-    echo "==> $templates vendored template(s) and $config tutorial config file(s) are identical to Trovato $RELEASE"
+    echo "==> $((templates - owned_seen)) vendored template(s) and $config tutorial config file(s) are identical to Trovato $RELEASE"
+    if [ "$owned_seen" -gt 0 ]; then
+        echo "==> $owned_seen template(s) are Ritrovo's own and were not compared:"
+        printf '%s\n' "$OWNED_TEMPLATES" | grep -v '^$' | sed 's/^/      /'
+    fi
     exit 0
 fi
 
