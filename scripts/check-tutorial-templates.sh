@@ -28,7 +28,7 @@ set -euo pipefail
 
 # The release the demo runs against. Bump this and the image tag in
 # docker-compose.demo.yml together; the demo_wiring tests fail if they disagree.
-RELEASE="v0.101.0"
+RELEASE="v0.102.0"
 REPO="https://codeload.github.com/jeremyandrews/trovato/tar.gz/refs/tags"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

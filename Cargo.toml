@@ -30,21 +30,29 @@ license = "GPL-2.0-or-later"
 # contract" names a specific contract rather than whatever `main` is today.
 # The current pin:
 #
-#   rev                 50c46ee (jeremyandrews/trovato, main)
-#   SDK crate version   0.99.0
-#   KERNEL_API_VERSION  (0, 99)
+#   tag                 v0.102.0
+#   rev                 20baa121810b5c656b3f80028335770069fab5e0
+#   Trovato version     0.102.0
+#   KERNEL_API_VERSION  (0, 102)
 #
-# All three now agree, which they did not under the old pin: that SDK crate
-# labelled itself 1.0.0 ahead of the kernel Trovato ships.
+# The rev is the commit the v0.102.0 tag points at (`git rev-list -n 1
+# v0.102.0`): the tree the ghcr.io/jeremyandrews/trovato:0.102.0 image the demo
+# runs was published from (docker-publish, tag push, 2026-09-02). netgrasp-trovato
+# pins the version sweep commit ca76a96 instead, six commits earlier on the same
+# line. This repository pins the tag's commit so the SDK it compiles against and
+# the kernel it runs on are the same tree. The plugin manifests declare
+# `api_version = "0.102"` to match.
 #
 # BUMP PROTOCOL: move this rev only to another commit that is (a) pushed to
-# origin, and (b) a deliberate contract checkpoint. Record the new
-# (rev, SDK version, KERNEL_API_VERSION) triple here when you do.
+# origin, and (b) a deliberate contract checkpoint, preferably a release tag.
+# Record the new (tag, rev, Trovato version, KERNEL_API_VERSION) here when you
+# do, and move the manifests' api_version, the demo's kernel image and
+# RELEASE in scripts/check-tutorial-templates.sh with it.
 #
 # `trovato-sdk` pulls `trovato-sdk-macros` through a repo-relative path
 # dependency; cargo resolves that inside the git checkout, so only this one
 # entry is needed.
-trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "50c46ee156480e28ea8d2b90b225a8a4af355664" }
+trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "20baa121810b5c656b3f80028335770069fab5e0" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
