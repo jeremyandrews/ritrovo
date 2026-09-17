@@ -1,0 +1,76 @@
+# The one-command demo, run for real, by a machine.
+#
+# README says `scripts/serve-demo.sh` stands a populated Ritrovo up on the released
+# kernel with Docker as the only prerequisite. ci.yml checks the demo's wiring on
+# every push, but wiring is not the claim: the claim is that a stranger who runs
+# the command gets the site. This job runs the command and then
+# `scripts/verify-demo.sh`, which asserts that site over HTTP: all five plugins
+# enabled, conferences imported and listed, the importer's admin screens 401 and
+# 200, search answering, the Italian listing rendering in Italian.
+#
+# WHEN, AND WHY NOT ON EVERY PUSH
+#   weekly    Mondays 05:23 UTC. Most of what can break the demo is outside this
+#             repository and moves without a commit here: the confs.tech data it
+#             imports live, the ghcr.io kernel image and the Postgres, Redis and
+#             Rust images it pulls, the crates the plugin build resolves (the
+#             lockfile is not committed). Those drift over days and weeks, so a
+#             weekly run catches them within a week without spending fifteen
+#             minutes and a live third-party fetch on every push, where ci.yml's
+#             host-in-the-loop suites already cover the plugins offline.
+#   pull request, when the demo's own files change: the compose file, the demo
+#             scripts, the vendored demo config and templates, or this workflow.
+#             Those are the changes that break the demo from inside the repository.
+#   by hand   workflow_dispatch, before a release or after bumping the kernel.
+#
+# The odd minute is deliberate: GitHub delays scheduled runs queued on the hour.
+
+name: Demo
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - docker-compose.demo.yml
+      - scripts/serve-demo.sh
+      - scripts/demo-bootstrap.sh
+      - scripts/demo-cron.sh
+      - scripts/verify-demo.sh
+      - scripts/assemble-overlay.sh
+      - demo/config/**
+      - docs/tutorial/**
+      - .github/workflows/demo.yml
+
+jobs:
+  demo:
+    name: serve the demo and verify it
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      # --no-verify so the check below is its own step with its own status: a
+      # stack that never came up and a site that came up wrong are different
+      # failures, and the run page should say which one this was.
+      - name: Stand the demo up (scripts/serve-demo.sh)
+        env:
+          DRAIN_TIMEOUT: "1500"
+        run: scripts/serve-demo.sh --fresh --no-verify
+
+      - name: Verify the site (scripts/verify-demo.sh)
+        run: scripts/verify-demo.sh http://localhost:3000
+
+      - name: Builder, kernel and cron logs
+        if: failure()
+        run: |
+          docker compose -f docker-compose.demo.yml ps -a
+          for service in plugin-builder trovato cron; do
+            echo "::group::$service"
+            docker compose -f docker-compose.demo.yml logs --no-color --tail 200 "$service" || true
+            echo "::endgroup::"
+          done
+
+      - name: Tear down
+        if: always()
+        run: scripts/serve-demo.sh --down
