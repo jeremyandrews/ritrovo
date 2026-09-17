@@ -97,12 +97,18 @@ fn has_any_permission(input: &ItemAccessInput, perms: &[&str]) -> bool {
         .any(|p| input.user_permissions.iter().any(|up| up == p))
 }
 
-/// Placeholder for future editor_notes stripping.
+/// Placeholder for future editor_notes stripping. Returns empty (no extra
+/// render HTML).
 ///
-/// `tap_item_view` receives the `Item` but not the current user context,
-/// so we cannot check `edit conferences` here. Once the kernel passes
-/// `UserContext` to view taps (planned), this will strip `editor_notes`
-/// for non-editors. Until then, returns empty (no extra render HTML).
+/// The view tap's input is the `Item` alone, with no viewer in it, which is why
+/// this was left empty. The viewer is not out of reach: the kernel dispatches
+/// the tap with the viewer's request state, so `current-user-has-permission`
+/// answers for them, though without the `administer site` bypass every kernel
+/// route applies. But a view tap can only add HTML to the page, never remove a
+/// field from it, so stripping `field_editor_notes` is not this tap's job at
+/// all: the kernel drops fields a viewer may not see before any view tap runs,
+/// as decided by `tap_field_access`. `FRICTION.md`,
+/// `G-VIEW-TAP-INPUT-CARRIES-NO-VIEWER`, has the evidence.
 #[plugin_tap]
 pub fn tap_item_view(_item: Item) -> String {
     String::new()
