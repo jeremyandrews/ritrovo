@@ -126,98 +126,6 @@ const SLUG_TO_TERM: &[(&str, &str, &str)] = &[
     ("cpp", "cpp", "C++"),
 ];
 
-// ─── Conference field definitions ────────────────────────────────────
-//
-// The `conference` item type is created by the user via the admin UI
-// (see tutorial Part 1 Step 2). This plugin does NOT auto-register it
-// via `tap_item_info` — the importer assumes the type already exists
-// when `tap_cron` or `tap_queue_worker` runs.
-
-/// Build the field definitions for the conference content type.
-///
-/// Called by unit tests to verify field declarations. The importer does not
-/// register the content type itself (the tutorial user creates it via the
-/// admin UI), so this function is not called from production code paths.
-#[cfg_attr(not(test), allow(dead_code))]
-fn conference_fields() -> Vec<FieldDefinition> {
-    vec![
-        FieldDefinition::new(
-            "field_url",
-            FieldType::Text {
-                max_length: Some(2048),
-            },
-        )
-        .label("Website URL"),
-        FieldDefinition::new("field_start_date", FieldType::Date)
-            .label("Start Date")
-            .required(),
-        FieldDefinition::new("field_end_date", FieldType::Date)
-            .label("End Date")
-            .required(),
-        FieldDefinition::new(
-            "field_city",
-            FieldType::Text {
-                max_length: Some(255),
-            },
-        )
-        .label("City"),
-        FieldDefinition::new(
-            "field_country",
-            FieldType::Text {
-                max_length: Some(255),
-            },
-        )
-        .label("Country"),
-        FieldDefinition::new("field_online", FieldType::Boolean).label("Online"),
-        FieldDefinition::new(
-            "field_cfp_url",
-            FieldType::Text {
-                max_length: Some(2048),
-            },
-        )
-        .label("CFP URL"),
-        FieldDefinition::new("field_cfp_end_date", FieldType::Date).label("CFP End Date"),
-        FieldDefinition::new("field_description", FieldType::TextLong).label("Description"),
-        FieldDefinition::new(
-            "field_topics",
-            FieldType::Text {
-                max_length: Some(255),
-            },
-        )
-        .label("Topics")
-        .cardinality(-1),
-        FieldDefinition::new(
-            "field_language",
-            FieldType::Text {
-                max_length: Some(10),
-            },
-        )
-        .label("Language"),
-        FieldDefinition::new(
-            "field_source_id",
-            FieldType::Text {
-                max_length: Some(512),
-            },
-        )
-        .label("Source ID"),
-        FieldDefinition::new(
-            "field_twitter",
-            FieldType::Text {
-                max_length: Some(255),
-            },
-        )
-        .label("Twitter/X"),
-        FieldDefinition::new(
-            "field_coc_url",
-            FieldType::Text {
-                max_length: Some(2048),
-            },
-        )
-        .label("Code of Conduct URL"),
-        FieldDefinition::new("field_editor_notes", FieldType::TextLong).label("Editor Notes"),
-    ]
-}
-
 // ─── Install ──────────────────────────────────────────────────────────
 
 /// Called once when the plugin is first enabled in the admin UI.
@@ -1208,9 +1116,19 @@ fn build_source_fields(
     fields
 }
 
-/// Insert a new conference item as unpublished on the live stage.
+/// Insert a new conference item, published, on the live stage.
 ///
 /// Returns true on success.
+///
+/// This plugin does not define the `conference` type it writes. The type, its
+/// fields and their types come from the Trovato tutorial config,
+/// `docs/tutorial/config/item_type.conference.yml` in the Trovato release, which
+/// the kernel image ships and the demo imports before enabling this plugin
+/// (`scripts/demo-bootstrap.sh`); the host-in-the-loop suites import the same
+/// file from `tests/host/tutorial-config/`. `item.type` is a foreign key onto that
+/// type, so an insert before the config is imported fails. `field_topics` is the
+/// one field written here that the type does not declare: the topic gathers read
+/// it straight from the JSONB.
 fn insert_conference(
     conf: &ConfsTechEntry,
     source_id: &str,
@@ -1362,39 +1280,6 @@ fn merge_topics(existing: &[String], new_uuid: Option<&str>) -> Vec<String> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-
-    // ── conference_fields ────────────────────────────────────────────
-
-    #[test]
-    fn conference_has_fifteen_fields() {
-        let fields = conference_fields();
-        assert_eq!(fields.len(), 15);
-    }
-
-    #[test]
-    fn start_and_end_date_required() {
-        let fields = conference_fields();
-        let start = fields
-            .iter()
-            .find(|f| f.field_name == "field_start_date")
-            .unwrap();
-        let end = fields
-            .iter()
-            .find(|f| f.field_name == "field_end_date")
-            .unwrap();
-        assert!(start.required);
-        assert!(end.required);
-    }
-
-    #[test]
-    fn topics_field_is_multivalue() {
-        let fields = conference_fields();
-        let topics = fields
-            .iter()
-            .find(|f| f.field_name == "field_topics")
-            .unwrap();
-        assert_eq!(topics.cardinality, -1);
-    }
 
     // ── tap_perm / tap_menu ──────────────────────────────────────────
 
