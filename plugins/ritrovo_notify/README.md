@@ -60,7 +60,7 @@ event today either; the two halves land together.
   host function sends only to the site's own configured contact address, by
   design (`crates/kernel/src/host/mail.rs`), so a plugin cannot mail a user. The
   design brief's emailed digest therefore needs a kernel surface that does not
-  exist yet; see `FRICTION.md`, `G-MAIL-HOST-CANNOT-REACH-A-USER`. Until then the
+  exist yet; see `FRICTION.md`, `G-MAIL-CANNOT-REACH-A-USER`. Until then the
   deliverable is the on-site list and digest, and the brief's own fallback for the
   demo, which is to log instead of send.
 - **No scheduler.** `tap_cron` runs when something calls the kernel's cron route,
