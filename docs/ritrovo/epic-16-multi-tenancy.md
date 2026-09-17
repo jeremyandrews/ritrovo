@@ -1,5 +1,7 @@
 # Epic 16 (G): Multi-Tenancy Foundation
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This epic describes Trovato kernel infrastructure, not Ritrovo.
+
 **Tutorial Parts Affected:** All (tenant context visible even in single-tenant mode, like stage_id)
 **Trovato Phase Dependency:** Phase 3 (Content Model) — already complete
 **BMAD Epic:** 46

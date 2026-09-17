@@ -1,5 +1,7 @@
 # Epic 11 (B): i18n Infrastructure
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This epic describes Trovato kernel infrastructure, not Ritrovo.
+
 **Tutorial Parts Affected:** 7 (going global), 3 (templates/render)
 **Trovato Phase Dependency:** Phase 5 (Theming) — already complete
 **BMAD Epic:** 41

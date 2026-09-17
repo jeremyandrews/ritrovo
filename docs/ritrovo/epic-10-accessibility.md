@@ -1,5 +1,7 @@
 # Epic 10 (A): Accessibility Foundation
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This epic describes Trovato kernel infrastructure, not Ritrovo.
+
 **Tutorial Parts Affected:** 3 (templates/render), 5 (forms/input), 1 (base install), 6 (community)
 **Trovato Phase Dependency:** Phase 5 (Form API, Theming) — already complete
 **BMAD Epic:** 40

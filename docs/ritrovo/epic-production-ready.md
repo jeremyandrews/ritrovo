@@ -1,5 +1,7 @@
 # Epic 10: Production Ready
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 8
 **Trovato Phase Dependency:** Phase 6 (Files, Search, Cron, Hardening)
 **BMAD Epic:** 39

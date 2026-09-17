@@ -1,5 +1,7 @@
 # Epic 6: The Editorial Engine
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 4
 **Trovato Phase Dependency:** Phase 3 (Users, Sessions), Phase 5 (Stages, Permissions, Revisions)
 **BMAD Epic:** 35

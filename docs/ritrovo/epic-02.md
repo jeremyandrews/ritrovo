@@ -1,5 +1,7 @@
 # Epic 2: Search That Thinks
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** Supporting (spans Part 2 search + AI Integration)
 **Trovato Phase Dependency:** Phase 3 (Search infrastructure), Phase 6 (AI Core for Stages 2-4)
 **BMAD Epic:** 30

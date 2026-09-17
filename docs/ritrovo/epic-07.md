@@ -1,5 +1,7 @@
 # Epic 7: Forms & User Input
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 5
 **Trovato Phase Dependency:** Phase 4 (Form API, Multi-Step Forms, AJAX), Phase 5 (Field-Level Access)
 **BMAD Epic:** 36

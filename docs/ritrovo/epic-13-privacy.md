@@ -1,5 +1,7 @@
 # Epic 13 (D): Privacy Infrastructure (GDPR)
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`. This epic describes Trovato kernel infrastructure, not Ritrovo.
+
 **Tutorial Parts Affected:** 6 (community — user registration), 4 (editorial — revisions)
 **Trovato Phase Dependency:** Phase 1 (User Auth) — already complete
 **BMAD Epic:** 43

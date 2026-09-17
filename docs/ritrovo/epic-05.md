@@ -1,5 +1,7 @@
 # Epic 5: Look & Feel
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 3
 **Trovato Phase Dependency:** Phase 3 (Render Tree, Templates, Files), Phase 5 (Tiles, Slots)
 **BMAD Epic:** 34

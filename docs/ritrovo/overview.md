@@ -1,5 +1,7 @@
 # Ritrovo -- Trovato's Reference Application, Demo & Tutorial
 
+> **Note:** The tap lists below are the design, not what the public repository implements; the real status per story is in `STATUS.md`.
+
 **Status:** Design brief v2 (expanded scope, ready for BMAD)
 **Name:** Ritrovo (Italian: "meeting place" -- etymologically related to Trovato, both from *trovare* = "to find." A ritrovo is where you find each other again.)
 **Purpose:** Triple-role reference application: (1) a comprehensive tutorial showing how to build a real site with Trovato, (2) a turnkey demo you can install and explore immediately, and (3) a regression test suite that validates every core Trovato feature through real-world usage.

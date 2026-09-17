@@ -1,5 +1,7 @@
 # Epic 1: Hello, Trovato
 
+> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+
 **Tutorial Part:** 1
 **Trovato Phase Dependency:** Phase 3 (Content Model, CCK, Gather)
 **BMAD Epic:** 29
