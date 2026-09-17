@@ -51,7 +51,7 @@ the import is minutes rather than seconds. The site is browsable throughout; it
 just has fewer conferences in it than it will have. `serve-demo.sh` waits for the
 `cron` service to report the queue drained before it runs its checks.
 
-### Two harmless noises in the log
+### A harmless noise in the log
 
 * `no .info.toml file found, skipping dir=/app/plugins/ritrovo_importer`. The
   released image creates that directory and puts nothing in it: Trovato's own
@@ -59,11 +59,6 @@ just has fewer conferences in it than it will have. `serve-demo.sh` waits for th
   manifest, and its Dockerfile makes a directory per plugin source directory. An
   entry with no manifest cannot be discovered, so the kernel skips it and finds
   the real one later on the search path, in the Ritrovo overlay. Nothing to do.
-* `menu entry declares a callback but handler_type is not "api" … plugin=ritrovo_notify path=/user/subscriptions`.
-  Real, and Ritrovo's own: `ritrovo_notify` registers that path with
-  `MenuDefinition`, which leaves `handler_type` at `"page"`, and exports no
-  `tap_api`, so the path 404s. It is the same defect the importer's two admin
-  screens had before they were fixed, still outstanding for this one route.
 
 ## API version
 
