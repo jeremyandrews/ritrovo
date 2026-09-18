@@ -27,27 +27,31 @@ license = "GPL-2.0-or-later"
 # archived and is not the repo of record; nothing here may reference it.
 #
 # PINNED BY `rev` rather than a branch, so "Ritrovo builds against the published
-# contract" names a specific contract rather than whatever `main` is today.
-# The current pin:
+# contract" names a specific contract rather than whatever `main` is today. And
+# pinned to a RELEASE TAG's commit rather than to any commit on that line,
+# because the tag's tree is the one the published kernel image was built from:
+# the SDK the plugins compile against and the kernel they run on are then the
+# same code. (netgrasp-trovato pins a version sweep commit on the same line
+# instead, which is a different tradeoff for a different consumer.)
 #
+# BUMP PROTOCOL: two steps, neither of them a hand edit here.
+#
+#     scripts/sync-kernel-release.sh --set-version X.Y.Z
+#
+# resolves the tag against the public repository and writes the new release into
+# kernel-release.toml and into every place this repository repeats it, the two
+# revs and the recorded pin below included. Then review the diff.
+#
+# kernel-release:begin pin
 #   tag                 v0.102.0
 #   rev                 20baa121810b5c656b3f80028335770069fab5e0
 #   Trovato version     0.102.0
 #   KERNEL_API_VERSION  (0, 102)
 #
-# The rev is the commit the v0.102.0 tag points at (`git rev-list -n 1
-# v0.102.0`): the tree the ghcr.io/jeremyandrews/trovato:0.102.0 image the demo
-# runs was published from (docker-publish, tag push, 2026-09-02). netgrasp-trovato
-# pins the version sweep commit ca76a96 instead, six commits earlier on the same
-# line. This repository pins the tag's commit so the SDK it compiles against and
-# the kernel it runs on are the same tree. The plugin manifests declare
-# `api_version = "0.102"` to match.
-#
-# BUMP PROTOCOL: move this rev only to another commit that is (a) pushed to
-# origin, and (b) a deliberate contract checkpoint, preferably a release tag.
-# Record the new (tag, rev, Trovato version, KERNEL_API_VERSION) here when you
-# do, and move the manifests' api_version, the demo's kernel image and
-# RELEASE in scripts/check-tutorial-templates.sh with it.
+# The rev is the commit the v0.102.0 tag points at: the tree the
+# ghcr.io/jeremyandrews/trovato:0.102.0 image the demo runs was published from.
+# The plugin manifests declare `api_version = "0.102"` to match.
+# kernel-release:end pin
 #
 # `trovato-sdk` pulls `trovato-sdk-macros` through a repo-relative path
 # dependency; cargo resolves that inside the git checkout, so only this one

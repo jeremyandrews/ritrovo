@@ -2,8 +2,15 @@
 //!
 //! Each test here pins one thing that is invisible to the compiler and only
 //! shows up as a broken demo: a plugin missing from the enable list, a search
-//! path in the wrong order, the front-page config gone, the kernel image drifting
-//! away from the release the docs name. All of them read the real files.
+//! path in the wrong order, the front-page config gone, one of the eleven places
+//! the kernel-release generator owns left behind by a bump. All of them read the
+//! real files.
+//!
+//! The release is the one case where this file is a generator's guard rather
+//! than a hand-written expectation: `kernel-release.toml` authors it,
+//! `scripts/sync-kernel-release.sh` writes it everywhere, and
+//! `kernel_release_is_named_consistently` holds every one of those places to the
+//! contract file. So no value here is a copy of the release.
 
 // Test code may panic: a file that cannot be read or parsed IS the failure this
 // test reports, so `unwrap` here is the assertion, not a shortcut.
@@ -14,12 +21,12 @@ use std::path::PathBuf;
 
 use ritrovo_demo_checks::repo_root;
 
-/// The released kernel the demo runs against. Every place that names it must
-/// agree, which is what `kernel_release_is_named_consistently` checks.
-const KERNEL_IMAGE: &str = "ghcr.io/jeremyandrews/trovato:0.102.0";
-
 /// The compose file the demo is driven from.
 const COMPOSE: &str = "docker-compose.demo.yml";
+
+/// The image repository the demo's kernel comes from. Not a released value: the
+/// tag is, and the tag is derived from `kernel-release.toml`.
+const IMAGE_REPO: &str = "ghcr.io/jeremyandrews/trovato";
 
 /// Every template on the demo's `TEMPLATES_DIR` search path.
 ///
@@ -63,6 +70,115 @@ const ROUTED_GATHERS: &[&str] = &[
 fn read(relative: &str) -> String {
     let path = repo_root().join(relative);
     fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()))
+}
+
+/// The one file that authors the pinned Trovato release.
+const CONTRACT: &str = "kernel-release.toml";
+
+/// The Trovato release this repository pins, read from [`CONTRACT`].
+///
+/// Everything else that names the release derives from these two fields, is
+/// written by `scripts/sync-kernel-release.sh`, and is checked against this by
+/// `kernel_release_is_named_consistently`. The point of reading it here rather
+/// than declaring the values again is that this file is then a checker and not a
+/// twelfth copy.
+struct KernelRelease {
+    version: String,
+    rev: String,
+    major: String,
+    minor: String,
+}
+
+impl KernelRelease {
+    fn read() -> Self {
+        let body = read(CONTRACT);
+        let version = contract_field(&body, "version");
+        let rev = contract_field(&body, "rev");
+
+        let mut parts = version.split('.');
+        let major = parts.next().unwrap_or_default().to_string();
+        let minor = parts.next().unwrap_or_default().to_string();
+        assert!(
+            !major.is_empty() && !minor.is_empty() && parts.next().is_some(),
+            "{CONTRACT} version {version:?} is not X.Y.Z"
+        );
+        assert!(
+            rev.len() == 40 && rev.chars().all(|c| c.is_ascii_hexdigit()),
+            "{CONTRACT} rev {rev:?} is not a 40-character commit id"
+        );
+
+        Self {
+            version,
+            rev,
+            major,
+            minor,
+        }
+    }
+
+    /// The git tag of the release: `v` and the version.
+    fn tag(&self) -> String {
+        format!("v{}", self.version)
+    }
+
+    /// What a plugin manifest declares: the version's major and minor.
+    fn api(&self) -> String {
+        format!("{}.{}", self.major, self.minor)
+    }
+
+    /// The kernel's own `KERNEL_API_VERSION`, as the docs write it.
+    fn api_pair(&self) -> String {
+        format!("({}, {})", self.major, self.minor)
+    }
+
+    /// The published kernel image the demo runs.
+    fn image(&self) -> String {
+        format!("{IMAGE_REPO}:{}", self.version)
+    }
+}
+
+/// One `key = "value"` line of the contract file.
+///
+/// Anchored on the line start and on both quotes, matching the reader in
+/// `scripts/sync-kernel-release.sh`. A narrow match is safe here and only here:
+/// this file is written by that script and holds two keys, both always
+/// double-quoted. It is not a TOML parser and must not be pointed at one.
+fn contract_field(body: &str, key: &str) -> String {
+    let prefix = format!("{key} = \"");
+    body.lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .unwrap_or_else(|| panic!("{CONTRACT} has no {key} = \"...\" line"))
+        .to_string()
+}
+
+/// Everything between a named `kernel-release` marker pair, markers excluded.
+///
+/// The markers ride in whatever comment syntax the host file already uses, so
+/// this matches on the marker text inside the line rather than on the whole line.
+fn marker_block(body: &str, name: &str, whence: &str) -> String {
+    let begin = format!("kernel-release:begin {name}");
+    let end = format!("kernel-release:end {name}");
+    let mut inside = false;
+    let mut seen = false;
+    let mut closed = false;
+    let mut block = String::new();
+    for line in body.lines() {
+        if inside && line.contains(&end) {
+            inside = false;
+            closed = true;
+        }
+        if inside {
+            block.push_str(line);
+            block.push('\n');
+        }
+        if line.contains(&begin) {
+            inside = true;
+            seen = true;
+        }
+    }
+    assert!(seen, "{whence} has no `{begin}` marker");
+    assert!(closed, "the `{begin}` block in {whence} is never closed");
+    block
 }
 
 /// The value of a `KEY: value` line in the compose file, with quotes stripped.
@@ -453,24 +569,112 @@ fn no_stray_files_in_the_vendored_template_tree() {
 
 #[test]
 fn kernel_release_is_named_consistently() {
+    let release = KernelRelease::read();
+    let fix = "run scripts/sync-kernel-release.sh";
+
+    // The demo's two kernel services. Asserted as "every image line naming the
+    // Trovato repository carries the pinned tag", not as "the pinned tag appears
+    // twice": a third service added later is then covered without editing this,
+    // and one of the two left behind on the old tag still fails.
     let compose = read(COMPOSE);
-    assert!(
-        compose.contains(KERNEL_IMAGE),
-        "{COMPOSE} must pin {KERNEL_IMAGE}"
+    let images: Vec<&str> = compose
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("image:") && line.contains(IMAGE_REPO))
+        .collect();
+    assert_eq!(
+        images.len(),
+        2,
+        "{COMPOSE} should run two kernel services, found {images:?}"
     );
-    for doc in ["README.md", "docs/INSTALL.md"] {
-        let body = read(doc);
-        assert!(
-            body.contains("0.102.0"),
-            "{doc} must name the kernel release the demo runs against"
+    let expected_image = format!("image: {}", release.image());
+    for line in images {
+        assert_eq!(
+            line, expected_image,
+            "{COMPOSE} runs a kernel image that is not the pinned release; {fix}"
         );
     }
-    let checker = read("scripts/check-tutorial-templates.sh");
+
+    // Both git dependencies. Cargo cannot read a `rev` out of another file, so
+    // the literal sha in the manifest is unavoidable and this is the only thing
+    // holding it to the contract file.
+    let manifest = read("Cargo.toml");
+    for dependency in ["trovato-sdk", "trovato-kernel"] {
+        let line = manifest
+            .lines()
+            .find(|line| line.starts_with(&format!("{dependency} = ")))
+            .unwrap_or_else(|| panic!("Cargo.toml has no {dependency} dependency"));
+        let pinned = line
+            .split("rev = \"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or_else(|| panic!("Cargo.toml pins no rev for {dependency}: {line}"));
+        assert_eq!(
+            pinned, release.rev,
+            "Cargo.toml pins {dependency} at a commit {CONTRACT} does not name; {fix}"
+        );
+    }
+
+    // The pin recorded in the manifest's comment, which is what a reader of
+    // Cargo.toml actually sees.
+    let recorded = marker_block(&manifest, "pin", "Cargo.toml");
+    for value in [
+        release.tag(),
+        release.rev.clone(),
+        release.version.clone(),
+        release.api_pair(),
+    ] {
+        assert!(
+            recorded.contains(&value),
+            "the recorded pin in Cargo.toml does not name {value}; {fix}"
+        );
+    }
+
+    // The five plugin manifests, which were not checked before this: each
+    // declares the oldest kernel its plugin is promised to run on, and the honest
+    // value is the contract it was compiled and tested against.
+    let declaration = format!("api_version = \"{}\"", release.api());
+    for plugin in workspace_plugins() {
+        let path = format!("plugins/{plugin}/{plugin}.info.toml");
+        assert!(
+            read(&path).lines().any(|line| line.trim() == declaration),
+            "{path} does not declare {declaration}; {fix}"
+        );
+    }
+
+    let declaration = format!("RELEASE=\"{}\"", release.tag());
     assert!(
-        checker.contains("v0.102.0"),
+        read("scripts/check-tutorial-templates.sh")
+            .lines()
+            .any(|line| line == declaration),
         "scripts/check-tutorial-templates.sh must diff the vendored templates \
-         against the same release the demo runs"
+         against the same release the demo runs ({declaration}); {fix}"
     );
+
+    // The documentation, block by block rather than "the string appears
+    // somewhere in the file". A dated sentence about a release the pin has since
+    // moved past is history and is correct forever; only what is inside the
+    // markers is a live value, and only that is asserted.
+    for (doc, block) in [
+        ("README.md", "pin"),
+        ("docs/INSTALL.md", "image"),
+        ("docs/INSTALL.md", "api"),
+    ] {
+        let body = read(doc);
+        let generated = marker_block(&body, block, doc);
+        assert!(
+            generated.contains(&release.version),
+            "the kernel-release:{block} block in {doc} does not name Trovato {}; {fix}",
+            release.version
+        );
+    }
+    let pin = marker_block(&read("README.md"), "pin", "README.md");
+    for value in [release.tag(), release.rev.clone(), release.image()] {
+        assert!(
+            pin.contains(&value),
+            "the kernel-release:pin block in README.md does not name {value}; {fix}"
+        );
+    }
 }
 
 #[test]

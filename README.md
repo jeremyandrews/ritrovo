@@ -9,15 +9,15 @@ Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History
 **Builds standalone, from public sources.** All five plugins compile to WebAssembly against the Trovato SDK as an external git dependency on the public Trovato repository, with no Trovato checkout anywhere on disk and no credentials. See "Building" below.
 
 **Runs standalone, on the released kernel.** `scripts/serve-demo.sh` stands the
-whole site up against `ghcr.io/jeremyandrews/trovato:0.102.0` with Docker as the
-only prerequisite. Verified against that release on 2026-09-17, from empty
-volumes (images already pulled) to a checked site in 2m31s: all five plugins
-enabled, 269 import batches drained, 5,661 conferences landed on that run (159 of
-them upcoming), the importer's two admin screens answering 401 to an anonymous
-visitor and 200 to an administrator, `/search?q=rust` returning 37 results, and
-`/it/conferenze` rendering with `lang="it"`. The conference count moves run to
-run: confs.tech is live data. (The previous run, against 0.101.0 on 2026-08-21,
-took 1m41s and landed 5,644 conferences, 160 upcoming.)
+whole site up against the pinned `ghcr.io/jeremyandrews/trovato` image, with
+Docker as the only prerequisite. Verified against release 0.102.0 on 2026-09-17,
+from empty volumes (images already pulled) to a checked site in 2m31s: all five
+plugins enabled, 269 import batches drained, 5,661 conferences landed on that run
+(159 of them upcoming), the importer's two admin screens answering 401 to an
+anonymous visitor and 200 to an administrator, `/search?q=rust` returning 37
+results, and `/it/conferenze` rendering with `lang="it"`. The conference count
+moves run to run: confs.tech is live data. (The previous run, against 0.101.0 on
+2026-08-21, took 1m41s and landed 5,644 conferences, 160 upcoming.)
 
 ## The demo, in one command
 
@@ -39,7 +39,7 @@ What it stands up, in order, because the order is the interesting part:
 |---|---|
 | Postgres 16, Redis 7 | the kernel's two dependencies |
 | the five Ritrovo plugins | compiled to WebAssembly in a throwaway `rust:1-bookworm` container, staged into an overlay volume |
-| `ghcr.io/jeremyandrews/trovato:0.102.0` | the **released** kernel, unmodified, with the overlay appended to its three search paths |
+| `ghcr.io/jeremyandrews/trovato` | the **released** kernel at the pinned version, unmodified, with the overlay appended to its three search paths |
 | the installer | completed over HTTP, so nobody has to fill in a form |
 | the tutorial config set | imported **before** the plugins are enabled, which is the trap: `ritrovo_importer` resolves the topic taxonomy once, in `tap_install` |
 | the five plugins | enabled, then a restart, which is when `tap_install` fires and the conference import begins |
@@ -68,6 +68,8 @@ yourself, is [docs/INSTALL.md](docs/INSTALL.md).
 ## Repository layout
 
 ```
+kernel-release.toml       The pinned Trovato release, authored here and nowhere
+                          else; every other mention is written from it
 docker-compose.demo.yml   The one-command demo: Postgres, Redis, the released
                           kernel image, a plugin builder, a cron poker
 scripts/
@@ -78,6 +80,8 @@ scripts/
   assemble-overlay.sh     Stage built plugins into overlay/ for PLUGINS_DIR
   check-tutorial-templates.sh
                           Diff the vendored templates against the release
+  sync-kernel-release.sh  Write kernel-release.toml into every file that names
+                          the pinned release
 plugins/                  Each plugin's tests/ holds its host-in-the-loop suite
   ritrovo_access/         Editorial workflow / role-based access control
   ritrovo_cfp/            Call for Papers submission + review
@@ -138,8 +142,10 @@ the layout `PLUGINS_DIR` expects. Installing into a Trovato instance is
 
 The pin is a specific commit, not a branch, so "Ritrovo builds against the
 published contract" names a contract rather than whatever `main` happens to be
-today:
+today. It is authored in exactly one place, `kernel-release.toml`, and written
+from there into every file that repeats it:
 
+<!-- kernel-release:begin pin -->
 | | |
 |---|---|
 | tag | `v0.102.0` |
@@ -150,14 +156,28 @@ today:
 The `rev` is the commit the `v0.102.0` tag points at, which is the tree the
 `ghcr.io/jeremyandrews/trovato:0.102.0` image was published from, so the SDK the
 plugins compile against and the kernel the demo runs are the same code. The
-plugin manifests declare `api_version = "0.102"` to match. (Before 0.99 they did
-not agree: that SDK crate labelled itself `1.0.0` ahead of the kernel Trovato
-ships, and manifests copied from it were rejected at enable time with
-`requires API 1.0 but kernel provides API 0.99`.)
+plugin manifests declare `api_version = "0.102"` to match.
+<!-- kernel-release:end pin -->
 
-To build against a different contract revision, change `rev` in the
-`[workspace.dependencies]` entry in the root `Cargo.toml`; the bump protocol is
-documented there.
+(Before 0.99 the two did not agree: that SDK crate labelled itself `1.0.0` ahead
+of the kernel Trovato ships, and manifests copied from it were rejected at enable
+time with `requires API 1.0 but kernel provides API 0.99`.)
+
+To build against a different contract revision:
+
+```bash
+scripts/sync-kernel-release.sh --set-version X.Y.Z
+```
+
+That resolves the tag against the public Trovato repository, refuses a tag that
+does not exist, writes the version and the commit into `kernel-release.toml`, and
+rewrites every derived location: both `rev`s and the pin block above in
+`Cargo.toml`, `api_version` in all five plugin manifests, the kernel image on
+both demo services, `RELEASE` in `scripts/check-tutorial-templates.sh`, and the
+generated blocks in this file and `docs/INSTALL.md`. Review the diff.
+`cargo test --workspace` fails if any of those disagree with
+`kernel-release.toml`, so a missed location is a test failure rather than
+something a reader discovers.
 
 
 ### Verifying a build

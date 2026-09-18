@@ -15,12 +15,17 @@ scripts/serve-demo.sh
 ```
 
 That brings up Postgres and Redis, compiles the five plugins to WebAssembly in a
-throwaway container, starts the **released** kernel image
-(`ghcr.io/jeremyandrews/trovato:0.102.0`) with the Ritrovo overlay on its search
-paths, completes the installer over HTTP, imports the tutorial config set, enables
-the plugins, drains the conference import queue, loads the Italian seed content,
-points the front page at `/conferences`, and then checks the result and prints
-what it saw. `http://localhost:3000` is a populated site when it returns.
+throwaway container, and starts the **released** kernel image with the Ritrovo
+overlay on its search paths:
+
+<!-- kernel-release:begin image -->
+    ghcr.io/jeremyandrews/trovato:0.102.0
+<!-- kernel-release:end image -->
+
+It then completes the installer over HTTP, imports the tutorial config set,
+enables the plugins, drains the conference import queue, loads the Italian seed
+content, points the front page at `/conferences`, and checks the result and
+prints what it saw. `http://localhost:3000` is a populated site when it returns.
 
 The demo is the compose file, so this reaches the same site on its own — it just
 does not report when it has finished:
@@ -62,11 +67,16 @@ just has fewer conferences in it than it will have. `serve-demo.sh` waits for th
 
 ## API version
 
+<!-- kernel-release:begin api -->
 Each plugin declares `api_version = "0.102"` in its `.info.toml`, matching the
-`KERNEL_API_VERSION` of `(0, 102)` at the commit the SDK is pinned to, the
-`v0.102.0` tag. The value lives in the manifest, not the compiled `.wasm`, and the
-kernel reads it at install time, so it is a plain declaration, not something
-baked in at build.
+`KERNEL_API_VERSION` of (0, 102) at the commit the SDK is pinned to, the
+`v0.102.0` tag of Trovato 0.102.0.
+<!-- kernel-release:end api -->
+
+That value lives in the manifest, not the compiled `.wasm`, and the kernel reads
+it at install time, so it is a plain declaration, not something baked in at
+build. It is written by `scripts/sync-kernel-release.sh` from
+`kernel-release.toml`, along with every other place the release is named.
 
 The kernel accepts a plugin when the plugin's major equals the kernel's and the
 plugin's minor is less than or equal to the kernel's. A manifest therefore states
@@ -74,8 +84,8 @@ the oldest kernel a plugin is promised to run on, and the honest value is the
 contract the plugins were compiled and tested against. On 2026-08-21 that was
 `0.99`, and the plugins ran unchanged on the `0.101` kernel. On 2026-09-17 the SDK
 pin moved to `v0.102.0`, so the manifests moved with it. The consequence is
-deliberate: these plugins now refuse a kernel older than 0.102, which is a kernel
-they were never built or verified against.
+deliberate: these plugins refuse any kernel older than the release named above,
+which is a kernel they were never built or verified against.
 
 (Earlier revisions of these manifests declared `1.0`, copied from an SDK crate
 that labelled itself `1.0.0` ahead of the released kernel. That mismatch made the
