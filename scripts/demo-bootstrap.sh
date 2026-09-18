@@ -49,6 +49,23 @@ RITROVO_DEMO_CONFIG_DIR="${RITROVO_DEMO_CONFIG_DIR:-/ritrovo/demo/config}"
 # on the kernel's trovato_content_translation.
 RITROVO_PLUGINS="ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_notify ritrovo_translate"
 
+# Kernel plugins the demo switches on. These ship in the image and are installed
+# automatically at first start, but they declare default_enabled = false, so a
+# stock kernel comes up without them.
+#
+#   trovato_search  builds the Pagefind index. Without it /search is blank in a
+#                   browser: the page always loads scolta.js, which imports
+#                   /static/pagefind/pagefind.js, and when that 404s the script
+#                   clears the results the server had already rendered
+#                   (G-SEARCH-PAGE-BLANK-WITHOUT-INDEX). The plugin's tap_cron
+#                   compares the newest published item against last_indexed_at and
+#                   asks for a rebuild when content has moved on, and the rebuild
+#                   runs later in that same cron cycle — so enabling it here is the
+#                   whole fix: the index is built on the first cron poke after this
+#                   script hands over, and rebuilt after every import cycle that
+#                   changes anything, with no further wiring.
+KERNEL_PLUGINS="trovato_search"
+
 say() { printf '\n==> %s\n' "$*"; }
 
 # The install-check middleware redirects every path to /install until the site is
@@ -135,6 +152,15 @@ say "importing the tutorial config set from $RITROVO_CONFIG_DIR"
 
 say "enabling the Ritrovo plugins"
 for plugin in $RITROVO_PLUGINS; do
+    ./trovato plugin enable "$plugin"
+done
+
+# Enabled here rather than anywhere later because the kernel snapshots the enabled
+# set when it builds its state: CronService reads it once at startup, and enabling
+# trovato_search on a server that is already running leaves the Pagefind rebuild
+# switched off until the next restart. Step 6 is that restart.
+say "enabling the kernel plugins the demo uses"
+for plugin in $KERNEL_PLUGINS; do
     ./trovato plugin enable "$plugin"
 done
 

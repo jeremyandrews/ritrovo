@@ -448,13 +448,76 @@ the script then takes over the container.
 
 Observed in the demo in Chrome: `/search?q=rust` requests `pagefind.js`, gets 404,
 and shows an empty page under the search box, while the HTML the server sent
-contains "37 results for" (which is what `scripts/verify-demo.sh` checks, so the
-check passes for a page no visitor can use).
+contains "37 results for".
+
+The demo now enables `trovato_search` in `scripts/demo-bootstrap.sh`, so an index
+exists and this page works there. That is a demo fix, not a kernel fix: the kernel
+still throws working server results away whenever the index is missing, which is
+every site that has not enabled the plugin, every site between install and the
+first cron run, and any site whose index build failed. `scripts/verify-demo.sh` now
+checks that `pagefind.js` answers 200 and that the index contains a known
+conference, because the previous check grepped the server-rendered HTML and so
+passed for a page no visitor could use.
 
 **Blocks.** E4.5, 34.5, D14.
 
 **Recommendation.** Leave the server results in place unless the index loads. That is
 the progressive enhancement the search design promises.
+
+### G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT: **[Medium, NEW]** a template cannot render its own fields and keep plugin render output, because the kernel hands it both in one string
+
+The item route builds `children_html` in two passes and inserts the result under a
+single name. First it walks `item.fields` and appends a generic
+`<div class="field field-{name}"><strong class="field__label">{label}</strong>: {value}</div>`
+for every scalar (`crates/kernel/src/routes/item.rs:536-575`). Then it appends the
+output of every plugin's `tap_item_view` (`:578-581`, collected by
+`content/item_service.rs:587-591`). The concatenation is inserted as `children`
+(`routes/item.rs:684`), and nothing else in the context carries the plugin half.
+
+So a template has two options and no third. Render `children`, and every scalar
+field prints a second time under whatever the template already laid out, internal
+fields included: on the demo's conference pages that was `source id`,
+`editor notes` and `editor notes format` in a stack of `label: value` lines.
+Or drop `children`, and lose every plugin's contribution to the page with it.
+Ritrovo's conference template took the second option
+(`docs/tutorial/templates/elements/item--conference.html`), which costs it the
+`ritrovo_cfp` days-left badge, the `ritrovo_translate` language switcher and the
+kernel `trovato_seo` plugin's `application/ld+json` block.
+
+Picking the plugin half back out of the string by pattern is possible and wrong:
+the field divs come first and the plugin output last, but a field value rendered
+through the `filtered_html` pipeline can itself contain a closing `</div>`, so any
+split is one description away from cutting the page in the wrong place.
+
+**Blocks.** 34.1, D5; and it is why P5 and P14 no longer render on a conference
+detail page.
+
+**Recommendation.** Insert the plugin outputs into the template context under their
+own name as well, for example `plugin_output`, leaving `children` exactly as it is
+for the templates that want the generic rendering. One line of context, no
+behaviour change for anything that exists.
+
+### G-FRONTEND-ITEM-FORM-STORES-EVERY-FIELD-AS-A-STRING: **[Low, NEW]** the non-admin item form writes every value as a JSON string and runs none of the typed processing the admin form runs
+
+`ItemSubmission::from_form` inserts every posted value as
+`serde_json::Value::String` with no reference to the field's declared type
+(`crates/kernel/src/routes/item.rs:193-200`), and `routes/item.rs` never calls
+`process_blocks_fields`, `process_compound_fields` or `validate_required_fields` —
+all three are reached only from `routes/admin_content.rs` (`:248`, `:449`, `:254`,
+`:455`). The admin form parses a `Blocks` field's hidden input into a real JSON
+array and re-inserts it (`content/compound.rs:530-560`); `/item/{id}/edit` does not.
+
+Observed in the demo: one edit of "Gerrit User Summit" through `/item/{id}/edit`
+left `field_description`, declared `Blocks`, holding the JSON **string** `"[]"`
+(`jsonb_typeof` = `string`), which `render_blocks` then printed on the page as a
+literal `[]`. The same mechanism is why templates have to compare booleans against
+the string `"1"`.
+
+**Blocks.** 34.1 (the conference template now guards against it); 29.2, in that the
+form a non-administrator would use saves a shape the admin form would not.
+
+**Recommendation.** Have the two form paths share one typed submission builder, so
+the field's declared type decides the stored JSON in both.
 
 ### G-ADMIN-SCREENS-ARE-ADMIN-ONLY: **[Medium, NEW]** the content list, bulk actions and comment moderation require the administrator flag, whatever a role grants
 

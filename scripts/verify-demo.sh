@@ -110,9 +110,88 @@ done
 head_ "search"
 results="$(curl -s "$BASE/search?q=rust" | grep -o '[0-9]\+ results\? for' | head -n 1)"
 if [ -n "$results" ]; then
-    ok "/search?q=rust returns $results \"rust\""
+    ok "/search?q=rust returns $results \"rust\" in the server-rendered HTML"
 else
     bad "/search?q=rust returned no result count"
+fi
+# That count is not what a visitor sees. templates/search.html always loads
+# scolta.js, which imports the Pagefind index and CLEARS the server's results when
+# the import 404s (G-SEARCH-PAGE-BLANK-WITHOUT-INDEX). The check that matches the
+# browser is therefore whether the script the page asks for is actually there.
+pagefind_js="$(code /static/pagefind/pagefind.js)"
+if [ "$pagefind_js" = "200" ]; then
+    ok "/static/pagefind/pagefind.js answers 200 — the search page has an index to load"
+else
+    bad "/static/pagefind/pagefind.js answered $pagefind_js — /search is blank in a browser"
+fi
+# ...and whether the index has the site's content in it rather than being an empty
+# shell. Pagefind writes gzipped JSON fragments into the first STATIC_DIR entry,
+# which is the writable volume; gzip reads the concatenation of them as one stream.
+# INDEX_MARKER is a conference the Italian seed guarantees on any bootstrapped
+# demo, so its absence means the index is stale or empty, not that data varies.
+INDEX_MARKER="${INDEX_MARKER:-Codemotion Roma 2026}"
+# The marker is counted INSIDE the container, so only a number crosses back: the
+# fragments for 5,656 conferences are megabytes, and none of it is interesting
+# here. It travels as an environment variable rather than interpolated into the
+# shell string, so a marker with a quote in it cannot rewrite the command.
+# No output at all means the compose stack is not the one running, which is a
+# skip; "0" means the stack answered and the index does not have the conference.
+indexed="$( (cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T \
+    -e MARKER="$INDEX_MARKER" trovato sh -c \
+    'cat /var/lib/ritrovo/index/pagefind/fragment/*.pf_fragment 2>/dev/null | gzip -dc 2>/dev/null | grep -c "$MARKER"') 2>/dev/null )"
+if [ -z "$indexed" ]; then
+    note "skipped the index content check: needs the $COMPOSE_FILE stack"
+elif [ "$indexed" -gt 0 ]; then
+    ok "the Pagefind index contains \"$INDEX_MARKER\""
+else
+    bad "the Pagefind index does not contain \"$INDEX_MARKER\" — it is empty or stale"
+fi
+
+head_ "conference detail page"
+# The seeded conference, so the name, dates and city are fixed rather than whatever
+# confs.tech happened to return today.
+conf_id="$(sql "select id from item where type='conference' and title='$INDEX_MARKER' limit 1")"
+if [ -z "$conf_id" ]; then
+    note "skipped: needs the $COMPOSE_FILE stack to find \"$INDEX_MARKER\""
+else
+    conf_page="$(curl -s "$BASE/item/$conf_id")"
+    # The kernel renders every scalar field a second time as `label: value` inside
+    # `children`, wrapped in this class. A template that renders its fields in
+    # their own places must not also print that.
+    if [[ "$conf_page" == *'field__label'* ]]; then
+        bad "the conference page dumps its fields raw (found class=\"field__label\")"
+    else
+        ok "the conference page prints no raw field dump"
+    fi
+    for want in "$INDEX_MARKER" "2026-03-25" "Roma"; do
+        if [[ "$conf_page" == *"$want"* ]]; then
+            ok "the conference page shows \"$want\""
+        else
+            bad "the conference page does not show \"$want\""
+        fi
+    done
+fi
+
+head_ "navigation"
+# Every seeded menu link, followed as rendered. A link in the site chrome that
+# 404s is the one defect a visitor meets before any content loads.
+nav_page="$(curl -s "$BASE/conferences")"
+nav_links="$(printf '%s\n' "$nav_page" \
+    | grep -o 'href="[^"]*"[^>]*>[^<]*</a>' \
+    | grep -E 'Call for Papers|Conferences</a>|Speakers</a>|Topics</a>' \
+    | sed 's/href="//; s/"[^>]*>/ /; s/<\/a>//; s/&#x2F;/\//g')"
+if [ -z "$nav_links" ]; then
+    bad "no main-menu links rendered on /conferences"
+else
+    while read -r href label; do
+        [ -n "$href" ] || continue
+        status="$(code "$href")"
+        if [ "$status" = "200" ]; then
+            ok "main menu \"$label\" -> $href is $status"
+        else
+            bad "main menu \"$label\" -> $href is $status"
+        fi
+    done <<< "$nav_links"
 fi
 
 head_ "Italian"

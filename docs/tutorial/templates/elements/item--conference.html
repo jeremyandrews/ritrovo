@@ -1,3 +1,23 @@
+{# Conference detail page.
+
+   This template renders the conference's fields in their own places. It
+   deliberately does NOT render `children`.
+
+   `children` is one string in which the kernel has concatenated two unrelated
+   things: a generic dump of every scalar field as `<strong>label</strong>: value`,
+   and the output of every plugin's tap_item_view
+   (crates/kernel/src/routes/item.rs, the field loop then `for output in
+   render_outputs`, inserted at `:684`). Rendering it printed every field a second
+   time — internal ones included, `source id` and `editor notes format` among them —
+   under the fields this template had already laid out.
+
+   There is no handle on the second half alone, so dropping the dump drops the
+   plugin output with it: the CFP badge, the language switcher and the kernel SEO
+   plugin's JSON-LD block are gone from this page until the kernel separates the
+   two. That is G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT in FRICTION.md,
+   and it is the reason this file renders no plugin output at all rather than
+   picking the plugin half back out of the string by pattern, which would break on
+   the first field value containing a closing tag. #}
 <article class="item item--conference">
     <header class="item__header">
         <h1 class="item__title">{{ item.title }}</h1>
@@ -11,8 +31,14 @@
             <span class="conf-detail__location">
                 {{ item.fields.field_city }}{% if item.fields.field_country %}, {{ item.fields.field_country }}{% endif %}
             </span>
-            {% elif item.fields.field_online is defined and item.fields.field_online == "1" %}
-            <span class="conf-detail__location">Online</span>
+            {% endif %}
+            {# Online is its own fact, not a fallback for a missing city: a
+               conference can be in Roma and online at the same time. #}
+            {% if item.fields.field_online is defined and (item.fields.field_online == "1" or item.fields.field_online == true) %}
+            <span class="conf-detail__online">Online</span>
+            {% endif %}
+            {% if item.fields.field_language %}
+            <span class="conf-detail__language" lang="{{ item.fields.field_language | lower }}">{{ item.fields.field_language | upper }}</span>
             {% endif %}
         </div>
     </header>
@@ -23,10 +49,19 @@
     </div>
     {% endif %}
 
-    {% if item.fields.field_description %}
+    {# Render the description only when it renders to something. A Blocks field
+       saved through the admin form with no blocks in it comes back as the STRING
+       "[]" rather than an empty array, and printing that put a literal [] on the
+       page (G-EMPTY-BLOCKS-FIELD-SAVES-AS-A-STRING). The seed's per-language
+       description object renders to nothing here for a different reason, and an
+       empty box is not worth drawing either way. #}
+    {% if item.fields.field_description is defined and item.fields.field_description %}
+    {% set description_html = item.fields.field_description | render_blocks | trim %}
+    {% if description_html and description_html != "[]" %}
     <div class="conf-detail__description">
-        {{ item.fields.field_description | render_blocks | safe }} {# SAFE: render_blocks output is sanitized by ammonia #}
+        {{ description_html | safe }} {# SAFE: render_blocks output is sanitized by ammonia #}
     </div>
+    {% endif %}
     {% endif %}
 
     {% if item.fields.field_venue_photo %}
@@ -60,10 +95,6 @@
         </ul>
     </div>
     {% endif %}
-
-    <div class="item__content">
-        {{ children | safe }} {# SAFE: kernel render pipeline output — child elements already rendered and sanitized #}
-    </div>
 </article>
 
 {# Conference detail styles live in static/css/theme.css #}

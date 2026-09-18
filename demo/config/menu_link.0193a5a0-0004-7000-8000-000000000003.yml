@@ -1,0 +1,24 @@
+# Main menu — Call for Papers link, corrected.
+#
+# Trovato's tutorial set ships this link pointing at /open-cfps, which is not a
+# route and not an alias: the gather it means is ritrovo.open_cfps, whose
+# canonical_url and url_alias are both /cfps. So the link 404s on a stock import,
+# on the first click, from the site's own main menu.
+#
+# This file is a same-uuid copy with the path corrected. Config import upserts by
+# id and scripts/demo-bootstrap.sh imports this directory after the tutorial set,
+# so this row replaces the tutorial's rather than adding a second link. Every other
+# key is the tutorial's, byte for byte, so the only difference is the path.
+#
+# Written here rather than in Trovato because Ritrovo does not make Trovato
+# changes; the kernel-side defect is G-TUTORIAL-CONFIG-SET-DEFECTS in FRICTION.md.
+id: 0193a5a0-0004-7000-8000-000000000003
+menu_name: main
+path: /cfps
+title: Call for Papers
+weight: 10
+hidden: false
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1767225600

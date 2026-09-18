@@ -186,6 +186,89 @@ fn demo_config_sets_the_front_page_to_the_conference_listing() {
 }
 
 #[test]
+fn the_bootstrap_enables_the_plugin_that_builds_the_search_index() {
+    // Without trovato_search nothing ever builds a Pagefind index, and /search is
+    // blank in a browser however many results the server found: the page always
+    // loads scolta.js, which clears the container when the index 404s
+    // (G-SEARCH-PAGE-BLANK-WITHOUT-INDEX). The plugin ships in the image and
+    // declares default_enabled = false, so the demo has to ask for it.
+    //
+    // It has to be asked for BEFORE the final serve, too: the kernel reads the
+    // enabled set once when it builds its state, so enabling this on a running
+    // server leaves the rebuild switched off until the next restart.
+    let bootstrap = read("scripts/demo-bootstrap.sh");
+    assert!(
+        bootstrap.contains("trovato_search"),
+        "scripts/demo-bootstrap.sh never enables trovato_search, so the demo's \
+         search page has no index to load"
+    );
+    let enable = bootstrap
+        .rfind("plugin enable")
+        .expect("demo-bootstrap.sh never enables a plugin");
+    let serve = bootstrap
+        .rfind("exec ./trovato serve")
+        .expect("demo-bootstrap.sh never execs the server");
+    assert!(
+        enable < serve,
+        "demo-bootstrap.sh enables a plugin after the final serve, which the \
+         kernel will not notice until the next restart"
+    );
+}
+
+#[test]
+fn the_demo_corrects_the_tutorials_call_for_papers_link() {
+    // Trovato's tutorial set points the main menu's "Call for Papers" at
+    // /open-cfps, which is not a route and not an alias: the gather is at /cfps.
+    // The demo overrides the row by importing a same-uuid copy after the tutorial
+    // set, so the id has to match and the path has to be the corrected one.
+    let link = read("demo/config/menu_link.0193a5a0-0004-7000-8000-000000000003.yml");
+    assert!(
+        link.contains("id: 0193a5a0-0004-7000-8000-000000000003"),
+        "the corrected menu link must carry the tutorial row's id, or it adds a \
+         second link instead of replacing the broken one, got:\n{link}"
+    );
+    // The `path:` line, not the whole file: the comment above it names the broken
+    // path on purpose, to say what is being corrected and why.
+    let path_line = link
+        .lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("path:"))
+        .unwrap_or_else(|| panic!("the corrected menu link declares no path:\n{link}"));
+    assert_eq!(
+        path_line, "path: /cfps",
+        "the corrected menu link must point at /cfps, the gather's canonical url"
+    );
+}
+
+#[test]
+fn the_conference_template_renders_its_own_fields_and_not_the_kernels_dump() {
+    // The kernel concatenates a generic `label: value` dump of every scalar field
+    // and every plugin's tap_item_view output into one `children` string
+    // (G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT). Rendering it printed
+    // every conference field twice, internal ones included. This template renders
+    // its fields in their own places instead, so it must not reach for `children`.
+    let template = read("docs/tutorial/templates/elements/item--conference.html");
+    assert!(
+        !template.contains("{{ children"),
+        "elements/item--conference.html renders `children`, which puts the \
+         kernel's raw field dump back on the page"
+    );
+    for field in [
+        "field_start_date",
+        "field_end_date",
+        "field_city",
+        "field_country",
+        "field_language",
+    ] {
+        assert!(
+            template.contains(field),
+            "elements/item--conference.html no longer renders {field}, which the \
+             kernel's dump used to cover for"
+        );
+    }
+}
+
+#[test]
 fn every_tutorial_template_the_demo_needs_is_vendored() {
     for name in TUTORIAL_TEMPLATES {
         let path: PathBuf = repo_root().join("docs/tutorial/templates").join(name);
