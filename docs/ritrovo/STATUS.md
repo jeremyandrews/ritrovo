@@ -4,6 +4,15 @@ Every promise in the design brief, set against the running demo and the kernel i
 runs on, with the prompt in the build series that closes it.
 
 **Audited:** 2026-09-17. Ritrovo `main` at `9d5dd35` (CI green on that commit).
+
+**Partly superseded, 2026-09-18.** Two pull requests have landed against this
+audit. The first fixed the three defects a visitor met on the demo: the blank
+search page, the raw field dump on every conference page and the 404 "Call for
+Papers" link. The second moved the configuration set into `demo/config` and built
+the brief's content model on it. Rows they closed say **done (A4)** with the
+evidence; rows they proved impossible on this kernel say **blocked** and name the
+`FRICTION.md` entry. Three of the audit's own conclusions were wrong and are
+corrected below, each marked **[corrected]**.
 Trovato `v0.102.0`, `rev 20baa121810b5c656b3f80028335770069fab5e0`, the image
 `ghcr.io/jeremyandrews/trovato:0.102.0` the demo pins.
 
@@ -92,7 +101,20 @@ P1 to P19.
 
 ## Where the content model lives
 
-**Today.** `conference` and `speaker`, the `topics` category and its 32 tags, the
+**It moved, 2026-09-18.** The whole set is `demo/config/` in this repository: 94
+files, imported as one unit by `scripts/demo-bootstrap.sh` before any plugin is
+enabled, and imported by the host-in-the-loop suites too, so
+`tests/host/tutorial-config/` is retired. The kernel image still ships
+`docs/tutorial/config/` and its tutorial still imports it;
+`scripts/check-tutorial-templates.sh` now compares the kernel's copy against
+Ritrovo's and **warns without failing** when they differ, which they do and are
+meant to. It becomes an error, or goes away, when the kernel stops shipping a
+copy. The kernel-side half is its own pull request.
+
+The rest of this section is the audit's reasoning for the move, kept because it
+is still why the set has to travel together.
+
+**Before the move.** `conference` and `speaker`, the `topics` category and its 32 tags, the
 six gathers, the roles, the stages, the menu links, the tiles, the aliases, the
 search field configs, the languages, the Italian seed and the locale file are all
 in the kernel's `docs/tutorial/config/` (79 entries). The image ships that
@@ -294,9 +316,9 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| 29.1 | `conference` type with every field in the content model | config | **Ritrovo must build it** | The type at `/admin/structure/types/conference/fields` has 14 fields; `topics`, `speakers`, `schedule_pdf` and multi-value `venue_photos` are missing, `description` is `Blocks`. A form save drops the undeclared `field_topics` (seen). See "Where the content model lives". | A4 |
+| 29.1 | `conference` type with every field in the content model | config | **blocked on the kernel** | **done in A4 except `topics`.** `demo/config/item_type.conference.yml` declares 16 fields: `speakers` and `schedule_pdf` added, `venue_photo` now multi-value `venue_photos`, `editor_notes` plain text. `description` stays `Blocks`, which is the kernel's rich text and the only kind its editor edits. `topics` is deliberately NOT declared: no field kind is taxonomic (`G-NO-CATEGORY-REFERENCE-FIELD-KIND`), and declaring it as `Text` would put a text widget over a uuid array. **[corrected]** the audit read the save that dropped `field_topics` as a consequence of the field being undeclared; it is not. Either form replaces the whole field set with what it rendered (`G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER`), so declaring it changes nothing. `cardinality: -1` on the two multi-value fields is recorded and read by nothing (`G-CARDINALITY-IS-INERT`). | A4 |
 | 29.2 | Admin form for manual conference creation, dates, checkbox, required fields | kernel | **done** | `/item/add/conference` and `/item/{id}/edit` render every declared field with date inputs, a checkbox and required markers; an edit saved. Data loss on save is 29.1's. | A4 |
-| 29.3 | Upcoming Conferences gather, paged, at `/conferences` | config | **done** | `/conferences` renders 20 cards sorted by start date from today, with a pager; `?page=2` renders. The brief's page size is 25. | A4 |
+| 29.3 | Upcoming Conferences gather, paged, at `/conferences` | config | **done** | `/conferences` renders 25 cards sorted by start date from today, with a pager. Page size is the brief's 25 now, here and on the topic and location gathers; `verify-demo.sh` counts the cards. | A4 |
 
 ### Epic 2: Search That Thinks
 
@@ -332,8 +354,8 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | :- | :- | :- | :- | :- | :- |
 | E4.1 | Plugin scaffold and SDK basics | plugin | **done** | All five plugins build against the public SDK and are enabled (`scripts/verify-demo.sh` plugin checks passed); `/admin/plugins` lists them. | A4 |
 | E4.2 | Cron-driven conference import | plugin | **done** | 263 batches queued, drained by cron, 5,656 conferences; `/admin/config/importer` shows state and "Jobs waiting 0". Caveats are P3's. | A4 |
-| E4.3 | Hierarchical topic taxonomy | config | **Ritrovo must build it** | 32 tags; three levels under Languages only; the brief's terms differ (see "Where the content model lives"). Descendant queries work: `/topics/languages` lists conferences tagged with its descendant terms (20 on page one, with a pager). `field_topics` is undeclared (`G-TUTORIAL-CONFIG-SET-DEFECTS`). | A4 |
-| E4.4 | Advanced gathers with exposed and contextual filters | config, template | **Ritrovo must build it** | Exposed filters work: `fields.field_country=Italy`, `fields.field_online=true`, `fields.field_language=it`, topic select. Contextual `/topics/{slug}` works. `/location/Germany` filters but renders a raw table of every item column, `search_vector` included: no template exists for `ritrovo.by_country` or `by_city`. The two tile gathers do not exist. | A4 |
+| E4.3 | Hierarchical topic taxonomy | config | **done** | The brief's tree exactly: 44 terms in `demo/config/tag.*.yml`, three levels, with Kotlin cross-listed under both JVM and Mobile. `verify-demo.sh` counts the terms, asserts a grandchild link exists and asserts a term with two parents exists. The confs.tech mapping is a data file, `plugins/ritrovo_importer/data/confs-tech-topics.json`; three feeds (general, opensource, testing) map to no term because the brief's tree has none, and the importer's admin screen names them rather than counting them as failures. | A4 |
+| E4.4 | Advanced gathers with exposed and contextual filters | config, template | **done except the speaker relationship** | `/location/{country}` and `/location/{country}/{city}` have templates of their own and render conference cards; the raw column dump is gone, and `verify-demo.sh` asserts `search_vector` is absent and cards are present. The two tile gathers exist, with templates and aliases of their own: `/conferences/this-month` and `/cfps/closing-soon`. Both are bounded by count rather than by the brief's date window, because a gather can express "today" and nothing else (`G-NO-RELATIVE-DATE-FILTER-VALUES`). The brief's speaker relationship on the upcoming gather is not expressible either: `QueryRelationship` joins a table on two columns (`crates/kernel/src/gather/types.rs:432-450`) and the reference is a uuid array inside JSONB. | A4 |
 | E4.5 | Full-text search | config | **kernel has it, Ritrovo does not use it** | Server search works (`/api/search?q=rust`, `/api/v1/search?q=rust`); the page visitors use is blank in a browser until `trovato_search` builds an index (`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`). | A9 |
 
 ### Epic 5: Look and Feel (Part 3)
@@ -341,8 +363,8 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
 | 34.1 | Render tree and conference templates | template | **Ritrovo must build it** | `docs/tutorial/templates/elements/item--conference.html` renders the header and links, then `{{ children }}` dumps every field again as `: value` lines (seen on "Gerrit User Summit"). Seeded Italian conferences render no description. `/cfps` cards render correctly. | A9 |
-| 34.2 | File uploads with security validation | config | **kernel has it, Ritrovo does not use it** | Kernel upload, magic-byte check and lifecycle (`crates/kernel/src/file/service.rs:42-45`, `:504-602`); logo and venue photo inputs render. No file uploaded in the demo. | A4 |
-| 34.3 | Speaker type with RecordReference | config | **Ritrovo must build it** | Type exists; `/speakers` renders "No speakers found."; 0 speaker items. Reverse references in the conference template have nothing to show. | A4 |
+| 34.2 | File uploads with security validation | config | **blocked on the kernel** | **[corrected]** the audit recorded this as available and unused. A demo cannot use it: no config entity can create a file (`G-NO-FILE-CONFIG-ENTITY`), and a file uploaded any other way is never promoted out of temporary and is deleted six hours later, because `mark_permanent_batch` is called only from the admin content form (`G-CONFIG-IMPORT-NEVER-PROMOTES-A-FILE`). So an image reaches a Trovato site only by a human using the admin UI. `logo`, `venue_photos`, `schedule_pdf` and `headshot` are declared and their templates render them when present. | A4 |
+| 34.3 | Speaker type with RecordReference | config | **done** | `demo/config/item_type.speaker.yml` is the brief's: bio, headshot, website, and no forward `field_conferences`, which duplicated a reverse reference. The conference holds `field_speakers`; a speaker page lists its conferences through `reverse_references`. Six speakers are seeded and `/speakers` renders them. `verify-demo.sh` follows a seeded conference to a speaker and back. | A4 |
 | 34.4 | Slots, tiles, navigation and breadcrumbs | config, template | **blocked on the kernel** | Header, sidebar and footer tiles and breadcrumbs render; the two `gather_query` tiles render empty (`G-TILE-GATHER-QUERY-RENDERS-NOTHING`). Ritrovo's part: the 404 menu links (`G-TUTORIAL-CONFIG-SET-DEFECTS`). | A9 |
 | 34.5 | Weighted full-text search page | config | **kernel has it, Ritrovo does not use it** | Six `search_field_config` rows imported; weights at `/admin/structure/types/conference/search`; `/search` blank with JavaScript (`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`). | A9 |
 | 34.6 | Premium theme with design tokens | template | **Ritrovo must build it** | Kernel `theme.css` styles the site; `docs/tutorial/static/css/ritrovo.css` is served and linked by no page; no CSS for `.cfp-badge` or `.lang-badge` exists anywhere; `page--front.html` is never rendered because `/` redirects to `/conferences`. | A9 |
@@ -407,17 +429,17 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| D1 | Item Types and CCK: two types, JSONB fields, RecordReference, file fields | config | **Ritrovo must build it** | See 29.1 and 34.3. | A4 |
-| D2 | Categories: three-level topics, nested queries, breadcrumbs, browsing | config, template | **Ritrovo must build it** | See E4.3. Category breadcrumbs exist as an API only (`crates/kernel/src/routes/category.rs:76`); item breadcrumbs are Home, type, title. | A4 |
+| D1 | Item Types and CCK: two types, JSONB fields, RecordReference, file fields | config | **blocked on the kernel** | Two types, JSONB fields and RecordReference are done (29.1, 34.3). File fields are declared and unusable (34.2). | A4 |
+| D2 | Categories: three-level topics, nested queries, breadcrumbs, browsing | config, template | **blocked on the kernel** | The tree, the nested queries and the browsing are done (E4.3). The breadcrumb on a conference page is not: an item template can print a topic's uuid and nothing else, because the item route resolves record references but never a category tag (`G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS`). The gather side has breadcrumbs. | A4 |
 | D3 | Stages and Revisions: workflow, draft, preview, revert, stage a new version | kernel | **blocked on the kernel** | 35.3, 35.4. | A5 |
-| D4 | Gather: six definitions, exposed and contextual filters, relationships, paging | config | **Ritrovo must build it** | See E4.4. No speaker relationship on the upcoming gather. | A4 |
+| D4 | Gather: six definitions, exposed and contextual filters, relationships, paging | config | **done except relationships** | Eight definitions now, the brief's six plus its two tile gathers, all with templates and routes. Paging is the brief's 25. The speaker relationship is not expressible (E4.4). | A4 |
 | D5 | Render Tree: conference card, detail page, speaker card, CFP badge, topic pills, profile | template | **Ritrovo must build it** | Conference cards render; the detail page dumps raw fields; no topic pills; no speaker cards to show; the badge is unstyled text. | A9 |
 | D6 | Form API: edit form, multi-step submission, profile form, subscription form | kernel | **blocked on the kernel** | 36.1, 36.4, 36.7. | A6 |
 | D7 | WYSIWYG for descriptions and bios, AJAX add another | config | **kernel has it, Ritrovo does not use it** | 36.2, 36.3. | A6 |
 | D8 | Five plugins demonstrating the full tap lifecycle | plugin | **blocked on the kernel** | All five install and enable; of the brief's 19 intended taps, 4 work and 9 are blocked (P1 to P19). | A7 |
 | D9 | Plugin-to-plugin through the notifications queue | plugin | **blocked on the kernel** | 37.5. | A7 |
 | D10 | Cron: daily import, digest emails, temp file cleanup | plugin | **blocked on the kernel** | Import and cleanup run (P1; `crates/kernel/src/cron/tasks.rs:181-184`); digests are 37.4. | A7 |
-| D11 | Queue: import validation queue with `tap_queue_info` and `tap_queue_worker` | plugin | **done** | 263 import jobs queued and drained; "Jobs waiting in the import queue 0". The worker's error handling is P3. | A4 |
+| D11 | Queue: import validation queue with `tap_queue_info` and `tap_queue_worker` | plugin | **done** | 269 import jobs queued and drained on the current demo. The worker's error handling is fixed: see P3. | A4 |
 | D12 | Tiles: CFPs closing soon, this month, topic cloud, recent comments, my subscriptions | config, plugin | **blocked on the kernel** | 34.4; the topic cloud is a sentence with no topics in it; recent comments and my subscriptions need tile types plugins cannot add. | A9 |
 | D13 | Slots and the admin UI for placing tiles, with role and path visibility | config | **kernel has it, Ritrovo does not use it** | `/admin/structure/tiles` places tiles by region and weight; visibility exists in the model (`crates/kernel/src/models/tile.rs:211-243`) and is importable, and no demo tile uses it. | A9 |
 | D14 | Search: weighted fields, stage-aware, across conferences and speakers | config | **kernel has it, Ritrovo does not use it** | E4.5, 34.5. | A9 |
@@ -439,7 +461,7 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | :- | :- | :- | :- | :- | :- |
 | P1 | `ritrovo_importer` `tap_cron`: daily fetch, diff, queue | plugin | **done** | `plugins/ritrovo_importer/src/lib.rs:682`, gated to once a day by `should_import` (`:1094-1099`); the importer screen shows "Minimum interval between runs 86400 seconds". | A4 |
 | P2 | `ritrovo_importer` `tap_queue_info`: declares `ritrovo_import` | plugin | **done** | `lib.rs:804`; the kernel reads its concurrency (`crates/kernel/src/cron/mod.rs:179-193`). | A4 |
-| P3 | `ritrovo_importer` `tap_queue_worker`: validate, create in Incoming, log bad data | plugin | **Ritrovo must build it** | Creates on Live by raw SQL (`lib.rs:1228`, `:1261`), bypassing revisions and taps; returns error objects from a `#[plugin_tap]`, so bad batches are deleted without retry (`G-QUEUE-WORKER-ERROR-IS-SUCCESS`). Landing in Incoming must wait for `G-NO-ITEM-STAGE-TRANSITION`, or the public site empties. | A5 |
+| P3 | `ritrovo_importer` `tap_queue_worker`: validate, create in Incoming, log bad data | plugin | **blocked on the kernel** | **"logged and skipped, not silently dropped" is done in A4.** The worker is a `#[plugin_tap_result]`, so a malformed batch returns `Err`, and the kernel's retry, backoff and dead-letter tier takes it: five attempts, then `status = 'dead'` with the row kept. A host-in-the-loop test drives a batch through all five attempts and asserts the row survives. The kernel's `last_error` is a constant, so the worker writes the reason into its own state and the admin screen reads it back (`G-QUEUE-DEAD-LETTER-DISCARDS-THE-PLUGINS-ERROR`). Still creates on Live by raw SQL: landing in Incoming waits for `G-NO-ITEM-STAGE-TRANSITION`, or the public site empties. | A5 |
 | P4 | `ritrovo_importer` `tap_plugin_install`: full historical import and category seeding | plugin, config | **done** | `tap_install` (`lib.rs:232`) queued 263 batches across 12 years. The terms come from config import rather than the plugin, which has no category host call. | A4 |
 | P5 | `ritrovo_cfp` `tap_item_view`: days-left badge, green, yellow, red | plugin | **done** | "CFP Urgent, 1 day left" renders on Gerrit User Summit, classed `cfp-badge--urgent` (`plugins/ritrovo_cfp/src/lib.rs:26`). The colours need CSS (34.6). | A6 |
 | P6 | `ritrovo_cfp` `tap_item_insert` and `tap_item_update`: validate dates, emit `cfp_closing_soon` | plugin | **blocked on the kernel** | Not implemented. `G-PRESAVE-CANNOT-REFUSE`, `G-ITEM-INSERT-OUTPUT-DISCARDED`, `G-QUEUE-NO-CROSS-PLUGIN`; imports fire neither tap (`G-ITEM-API-BYPASSES-ITEM-SERVICE`). | A6 |
@@ -464,6 +486,13 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 Each prompt's rows, in the order to do them. **[kernel: `G-...`]** marks a row that
 cannot close until that kernel change lands; a prompt does the Ritrovo half and
 leaves the row open, saying so.
+
+### Done, 2026-09-18
+
+Pull request #10 fixed the three visitor-facing defects (the blank search page,
+the raw field dump, the 404 menu link). The pull request after it moved the
+configuration set into `demo/config` and built the brief's model on it: A4 items
+1 to 8 below, except where a kernel gap stops them, and the first half of item 9.
 
 ### Before A4: re-land pull request #6
 

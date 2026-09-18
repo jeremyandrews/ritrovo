@@ -176,8 +176,14 @@ jobs:
       - name: Vendored tutorial files match the release
         run: scripts/check-tutorial-templates.sh
 
+      # Pinned. ubuntu-latest's shellcheck moves with the runner image, and the
+      # versions disagree about real findings: 0.9.0 reports SC2015 on a
+      # `x="$(a && b || c)"` assignment and 0.11.0 does not, so the same script
+      # passed on a developer's machine and failed here. A version bump should be
+      # a commit that can be reviewed, not a Tuesday.
       - name: Shellcheck
-        run: shellcheck scripts/*.sh
+        run: |
+          docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 scripts/*.sh
 
       - name: Compose file parses
         run: docker compose -f docker-compose.demo.yml config >/dev/null

@@ -1,0 +1,25 @@
+# Seeded speaker: Chiara Ferri.
+#
+# Generated content, so the demo shows speaker pages and the conference-to-speaker
+# relationship without anyone typing one in. The bio is a Blocks field, which is
+# the kernel's rich text.
+#
+# No headshot. Nothing in the config format can create a file: there is no file
+# config entity, and a file uploaded any other way is never promoted out of
+# temporary and is deleted six hours later. See FRICTION.md,
+# G-NO-FILE-CONFIG-ENTITY and G-CONFIG-IMPORT-NEVER-PROMOTES-A-FILE.
+id: a680768d-5bca-541c-9d8c-edf7f4e482cb
+type: speaker
+title: Chiara Ferri
+language: en
+status: 1
+created: 1774000000
+changed: 1774000000
+fields:
+  field_bio:
+  - type: paragraph
+    weight: 0
+    data:
+      text: Accessibility lead. Audits interfaces for a living and would like everyone to stop using a
+        div as a button.
+  field_website: https://example.org/chiara

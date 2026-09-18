@@ -1,0 +1,48 @@
+# "Conferences This Month" — one of the brief's two tile gathers.
+#
+# The brief bounds it to the calendar month: start_date >= :first_of_month and
+# start_date < :first_of_next_month. Neither bound can be written here. The
+# kernel resolves exactly four contextual values — current_user, current_time,
+# current_date and a url argument — so there is no way to say "the first of this
+# month" in a gather definition, and a literal date in a config file is wrong the
+# day after it is written (G-NO-RELATIVE-DATE-FILTER-VALUES).
+#
+# What it does instead: the next five conferences, soonest first. In a month with
+# five or more conferences that is the same list the brief describes; in a quiet
+# month it reaches past the month end rather than showing an empty tile. The row
+# in docs/ritrovo/STATUS.md stays blocked and names the entry above, and the tile
+# itself renders nothing on this kernel either
+# (G-TILE-GATHER-QUERY-RENDERS-NOTHING), which is why this gather has a canonical
+# url of its own: it can be seen, and verified, through its own route.
+query_id: ritrovo.conferences_this_month
+label: Conferences This Month
+description: The next five conferences, soonest first. Bounded by count, not by month; see the file comment.
+definition:
+  base_table: item
+  fields: []
+  filters:
+  - exposed: false
+    exposed_label: null
+    field: fields.field_start_date
+    operator: greater_or_equal
+    value: current_date
+  includes: {}
+  item_type: conference
+  relationships: []
+  sorts:
+  - direction: asc
+    field: fields.field_start_date
+    nulls: last
+  stage_aware: true
+display:
+  canonical_url: /conferences/this-month
+  empty_text: No conferences coming up.
+  footer: null
+  format: list
+  header: null
+  items_per_page: 5
+  pager:
+    enabled: false
+    show_count: false
+    style: full
+plugin: ritrovo_importer

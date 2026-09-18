@@ -90,7 +90,7 @@ fn it_registers_no_route_button_queue_or_permission() {
     serial(async {
         let pool = host::fresh_pool().await;
         host::install_and_enable(&pool, PLUGIN).await.unwrap();
-        host::import_tutorial_config(&pool).await;
+        host::import_demo_config(&pool).await;
 
         let disp = host::dispatcher(PLUGIN);
         let compiled = disp.runtime().get_plugin(PLUGIN).unwrap();

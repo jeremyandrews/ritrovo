@@ -1,0 +1,10 @@
+id: '60ab6826-35a8-5a41-93e2-cc99facee9ae'
+category_id: topics
+label: WebAssembly
+description: null
+slug: webassembly
+weight: 3
+created: 1772772163
+changed: 1772772163
+parents:
+- 8ad812c0-2305-5c02-adca-dffcd1f4a996

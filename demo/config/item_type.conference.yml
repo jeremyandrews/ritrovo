@@ -1,0 +1,113 @@
+# The conference type, as docs/ritrovo/overview.md "Content Model" defines it.
+#
+# Ritrovo owns this file. It began as Trovato's tutorial copy and is no longer
+# compared against it; see demo/config/README.md.
+#
+# Three of the brief's fields are not here, or not here as the brief writes them,
+# and each is a kernel limit rather than a decision:
+#
+#   topics    The brief calls for a multi-value category reference. The kernel
+#             has no field kind for one: FieldType is Text, TextLong, Integer,
+#             Float, Boolean, RecordReference, File, Date, Email, Compound,
+#             Blocks, PageBuilder, and none of them is taxonomic. The value is
+#             still written, read and queried — it is a JSONB array of tag uuids
+#             under `field_topics`, which is exactly what the gathers'
+#             has_tag_or_descendants filter matches — but it is DELIBERATELY not
+#             declared here. Declaring it as Text would put a single-line text
+#             widget on the edit form over a JSON array, and saving that form
+#             would replace the array with a string, which is worse than the
+#             field being invisible. G-NO-CATEGORY-REFERENCE-FIELD-KIND.
+#
+#   logo      Declared, but optional. The brief makes it required on the Live
+#             stage; imports land on Live and the importer has no logos, so
+#             requiring it would fail every import. G-NO-ITEM-STAGE-TRANSITION
+#             is why imports cannot land anywhere else yet.
+#
+#   cardinality
+#             venue_photos and speakers carry `cardinality: -1` because that is
+#             what the brief means and what the config format records. Nothing in
+#             the kernel reads it: no form renders a second widget, no submit
+#             handler collects one, and nothing validates a count. Seeded arrays
+#             work and render; the edit form cannot round-trip them.
+#             G-CARDINALITY-IS-INERT.
+type: conference
+label: Conference
+description: A tech conference or meetup event
+has_title: true
+title_label: Conference Name
+plugin: core
+settings:
+  fields:
+    - field_name: field_url
+      field_type:
+        Text:
+          max_length: null
+      label: Website URL
+    - field_name: field_start_date
+      field_type: Date
+      label: Start Date
+      required: true
+    - field_name: field_end_date
+      field_type: Date
+      label: End Date
+      required: true
+    - field_name: field_city
+      field_type:
+        Text:
+          max_length: null
+      label: City
+    - field_name: field_country
+      field_type:
+        Text:
+          max_length: null
+      label: Country
+    - field_name: field_online
+      field_type: Boolean
+      label: Online
+    - field_name: field_cfp_url
+      field_type:
+        Text:
+          max_length: null
+      label: CFP URL
+    - field_name: field_cfp_end_date
+      field_type: Date
+      label: CFP End Date
+    # Blocks, not a filtered_html string. Blocks is the kernel's rich text: it is
+    # the only kind the block editor edits, and render_blocks sanitizes its output
+    # through ammonia on the way to the page, which is what the brief's
+    # "filtered_html" asks for. A TextLong would be a plain textarea for ever.
+    - field_name: field_description
+      field_type: Blocks
+      label: Description
+    - field_name: field_logo
+      field_type: File
+      label: Logo
+    - field_name: field_venue_photos
+      field_type: File
+      label: Venue Photos
+      cardinality: -1
+    - field_name: field_schedule_pdf
+      field_type: File
+      label: Schedule (PDF)
+    - field_name: field_speakers
+      field_type:
+        RecordReference: speaker
+      label: Speakers
+      cardinality: -1
+    - field_name: field_language
+      field_type:
+        Text:
+          max_length: null
+      label: Language
+    - field_name: field_source_id
+      field_type:
+        Text:
+          max_length: null
+      label: Source ID
+    # Plain text, as the brief has it. A5 hides it from non-editors with
+    # tap_field_access; until then it is simply not rendered by any template.
+    - field_name: field_editor_notes
+      field_type:
+        Text:
+          max_length: null
+      label: Editor Notes

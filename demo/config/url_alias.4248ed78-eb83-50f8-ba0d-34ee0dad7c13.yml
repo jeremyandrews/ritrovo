@@ -1,0 +1,14 @@
+# /conferences/this-month -> the "Conferences This Month" tile gather.
+#
+# A gather's canonical_url only makes the kernel keep a redirect from
+# /gather/{query_id} to it; it does not create the path. The path is this alias.
+# Without it the tile gather is reachable only at /gather/ritrovo.conferences_this_month,
+# and since the tile itself renders nothing on this kernel
+# (G-TILE-GATHER-QUERY-RENDERS-NOTHING) that would leave it with no address a
+# visitor or a check could use.
+id: '4248ed78-eb83-50f8-ba0d-34ee0dad7c13'
+source: /gather/ritrovo.conferences_this_month
+alias: /conferences/this-month
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1774000000

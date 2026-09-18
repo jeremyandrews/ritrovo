@@ -1,0 +1,10 @@
+id: '30f473b8-3930-5e5b-9cab-bf6c72b87cd5'
+category_id: topics
+label: Data Engineering
+description: null
+slug: data-engineering
+weight: 2
+created: 1772772163
+changed: 1772772163
+parents:
+- e2c7c4b4-84c3-5844-b834-78f4a19e43b0

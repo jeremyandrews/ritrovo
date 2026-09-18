@@ -59,7 +59,7 @@ async fn clean_install(pool: &PgPool) {
     host::install_and_enable(pool, PLUGIN)
         .await
         .unwrap_or_else(|e| panic!("install {PLUGIN}: {e}"));
-    host::import_tutorial_config(pool).await;
+    host::import_demo_config(pool).await;
     sqlx::query("DELETE FROM item WHERE type = 'conference'")
         .execute(pool)
         .await

@@ -1,0 +1,27 @@
+# Giornata Nazionale del Testing — needs_translation (Italian only)
+id: 37c34d73-22b2-43ab-ae98-611aeed7a1c0
+type: conference
+title: Giornata Nazionale del Testing 2026
+language: it
+status: 1
+created: 1741824000
+changed: 1741824000
+fields:
+  field_description:
+    it:
+      value: <p>La Giornata Nazionale del Testing è dedicata al quality assurance e al testing del software.
+        Sessioni su test automation, TDD, testing in produzione, test di performance e accessibilità.</p>
+      format: filtered_html
+  field_start_date: '2026-05-08'
+  field_end_date: '2026-05-08'
+  field_city: Roma
+  field_country: IT
+  field_online: true
+  field_url: https://testingday.it
+  field_language: it
+  primary_language: it
+  translation_status: needs_translation
+  field_speakers:
+  - 17cd2da8-d4b3-5997-942d-70b5bc81af43
+  - 14958971-ffd3-56d6-9e09-1a66b345e755
+  field_editor_notes: Recurring event. Last year's CFP closed two weeks early, so watch the deadline.

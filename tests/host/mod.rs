@@ -38,8 +38,8 @@ use trovato_kernel::content::ItemService;
 use trovato_kernel::plugin::{PluginConfig, PluginRuntime};
 use trovato_kernel::tap::{RequestServices, RequestState, TapDispatcher, TapRegistry, UserContext};
 
-/// The two internal editorial stages, as `tutorial-config/stage.*.yml` identifies
-/// them. See [`import_tutorial_config`].
+/// The two internal editorial stages, as `demo/config/stage.*.yml` identifies
+/// them. See [`import_demo_config`].
 pub const INCOMING_STAGE: &str = "0193a5a0-0000-7000-8000-000000000002";
 pub const CURATED_STAGE: &str = "0193a5a0-0000-7000-8000-000000000003";
 
@@ -288,28 +288,33 @@ pub fn items(pool: &PgPool, disp: &Arc<TapDispatcher>) -> ItemService {
     )
 }
 
-/// Import the part of Trovato's tutorial config these suites depend on, through
-/// the kernel's own config importer.
+/// Import Ritrovo's configuration set, through the kernel's own config importer.
 ///
-/// `tests/host/tutorial-config/` is a verbatim subset of `docs/tutorial/config/`
-/// in the Trovato release the workspace pins: the `topics` category and its terms
-/// (which `ritrovo_importer` resolves by label), the `conference` item type (which
-/// every conference Item's `type` is a foreign key onto) and the four editorial
-/// stages (which `ritrovo_access` gates on). The demo gets the same files from
-/// the kernel image; a test has no image, so it keeps a copy, and
-/// `scripts/check-tutorial-templates.sh` diffs the copy against the release in CI
-/// exactly as it does the vendored templates.
+/// `demo/config/` is the set itself, not a copy of one: the `topics` category and
+/// its terms (which `ritrovo_importer` resolves by label), the `conference` and
+/// `speaker` types (which every Item's `type` is a foreign key onto), the four
+/// editorial stages (which `ritrovo_access` gates on), the gathers, roles, tiles,
+/// menu links and aliases. The demo imports this same directory.
+///
+/// It used to be `tests/host/tutorial-config/`, a hand-picked subset of the
+/// kernel image's copy that CI diffed against the release. That existed because
+/// the model was Trovato's; it is Ritrovo's now, so the tests read the real thing
+/// and there is no subset to drift.
+///
+/// The whole set imports or none of it does — references resolve across the
+/// directory and then the database, and one unresolved reference fails the import
+/// with nothing written — so a test that needs any of it gets all of it.
 ///
 /// Idempotent: the importer upserts.
-pub async fn import_tutorial_config(pool: &PgPool) {
+pub async fn import_demo_config(pool: &PgPool) {
     let storage = trovato_kernel::config_storage::DirectConfigStorage::new(pool.clone());
-    let dir = repo_root().join("tests/host/tutorial-config");
+    let dir = repo_root().join("demo/config");
     trovato_kernel::config_storage::yaml::import_config(&storage, pool, &dir, false)
         .await
         .unwrap_or_else(|e| panic!("import {}: {e:#}", dir.display()));
 }
 
-/// The id of a `topics` term, by the label the tutorial config gives it.
+/// The id of a `topics` term, by the label `demo/config` gives it.
 pub async fn topic_term(pool: &PgPool, label: &str) -> String {
     sqlx::query_scalar(
         "SELECT id::text FROM category_tag WHERE category_id = 'topics' AND label = $1",
@@ -533,6 +538,35 @@ pub async fn app() -> &'static App {
 /// Install and enable the named plugins and record their `tap_install` as done,
 /// so building the `AppState` loads them without firing any install tap.
 pub async fn prepare_app_database(pool: &PgPool, plugins: &[&str]) {
+    // Disable every Ritrovo plugin this app does not ask for, FIRST.
+    //
+    // `app()` builds a real AppState, which runs the migrations of whatever the
+    // database says is enabled. The database is shared by every test binary and
+    // cargo runs those binaries in parallel, so "whatever is enabled" includes
+    // anything another suite switched on and has not switched off. That bites on
+    // one plugin in particular: ritrovo_translate declares a dependency on the
+    // kernel's trovato_content_translation, which is not in the overlay these
+    // tests load, so an AppState built while translate happens to be enabled
+    // fails with "depends on 'trovato_content_translation' which is not in the
+    // enabled plugin set" — in a suite that has nothing to do with translation.
+    //
+    // Naming the set positively rather than hoping the database is clean.
+    for name in [
+        "ritrovo_importer",
+        "ritrovo_access",
+        "ritrovo_cfp",
+        "ritrovo_notify",
+        "ritrovo_translate",
+    ] {
+        if !plugins.contains(&name) {
+            let _ = trovato_kernel::plugin::status::set_status(
+                pool,
+                name,
+                trovato_kernel::plugin::status::STATUS_DISABLED,
+            )
+            .await;
+        }
+    }
     for name in plugins {
         install_and_enable(pool, name)
             .await

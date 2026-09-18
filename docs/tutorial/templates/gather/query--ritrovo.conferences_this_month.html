@@ -1,0 +1,18 @@
+{# The "Conferences This Month" tile gather, rendered as a page.
+
+   The tile that is meant to show this renders nothing on this kernel
+   (G-TILE-GATHER-QUERY-RENDERS-NOTHING), so the gather has a canonical url and
+   this template, which is how it can be seen and checked at all. #}
+{% extends "gather/query.html" %}
+
+{% block query_content %}
+<div class="card-list card-list--compact">
+    {% for row in rows %}
+    {% include "gather/includes/conf-card.html" %}
+    {% endfor %}
+</div>
+
+{% if not rows %}
+<p class="gather-empty">No conferences coming up.</p>
+{% endif %}
+{% endblock %}

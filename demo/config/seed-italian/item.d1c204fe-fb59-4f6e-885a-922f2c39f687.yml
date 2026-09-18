@@ -1,0 +1,28 @@
+# PyCon Italia — translated (both EN + IT complete)
+id: 'd1c204fe-fb59-4f6e-885a-922f2c39f687'
+type: conference
+title: PyCon Italia 2026
+language: it
+status: 1
+created: 1741824000
+changed: 1741824000
+fields:
+  field_description:
+    it:
+      value: "<p>PyCon Italia è la conferenza nazionale della comunità Python italiana. Tre giorni di conferenze, tutorial e sprint nella splendida cornice di Bologna.</p>"
+      format: filtered_html
+    en:
+      value: "<p>PyCon Italia is the national conference of the Italian Python community. Three days of talks, tutorials, and sprints in the beautiful setting of Bologna.</p>"
+      format: filtered_html
+  field_start_date: '2026-05-28'
+  field_end_date: '2026-05-30'
+  field_city: Bologna
+  field_country: IT
+  field_online: false
+  field_url: https://pycon.it
+  field_language: it
+  field_topics:
+    - e893d618-480e-5791-bbd4-ceecce8d13ee
+    - e2c7c4b4-84c3-5844-b834-78f4a19e43b0
+  primary_language: it
+  translation_status: translated

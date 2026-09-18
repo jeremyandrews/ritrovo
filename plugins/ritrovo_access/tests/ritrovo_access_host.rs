@@ -93,7 +93,7 @@ fn incoming_and_curated_conferences_are_gated_by_permission() {
     serial(async {
         let pool = host::fresh_pool().await;
         host::install_and_enable(&pool, PLUGIN).await.unwrap();
-        host::import_tutorial_config(&pool).await;
+        host::import_demo_config(&pool).await;
         sqlx::query("DELETE FROM item WHERE type = 'conference'")
             .execute(&pool)
             .await

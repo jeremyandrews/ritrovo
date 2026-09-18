@@ -45,6 +45,14 @@ sql() {
         psql -U trovato -d ritrovo -tAc "$1" 2>/dev/null | tr -d '[:space:]')
 }
 
+# The same, for values whose spaces matter. `sql` strips ALL whitespace, which is
+# right for a count or a uuid and wrong for a title: it turned "Cloudconf Torino
+# 2026" into "CloudconfTorino2026", which then matched nothing on the page.
+sql_text() {
+    (cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
+        psql -U trovato -d ritrovo -tAc "$1" 2>/dev/null | head -n 1 | sed 's/[[:space:]]*$//')
+}
+
 head_ "kernel"
 release="$(curl -s "$BASE/health" >/dev/null 2>&1 && echo up || echo down)"
 if [ "$release" = "up" ]; then ok "/health answers"; else bad "/health does not answer at $BASE"; fi
@@ -170,6 +178,86 @@ else
             bad "the conference page does not show \"$want\""
         fi
     done
+fi
+
+head_ "the content model"
+# A seeded conference: its editorial fields come from demo/config, so what it
+# shows is fixed rather than whatever confs.tech returned today.
+seeded_id="$(sql "select id from item where type='conference' and fields ? 'field_speakers' order by title limit 1")"
+seeded_title="$(sql_text "select title from item where id='$seeded_id'")"
+if [ -z "$seeded_id" ]; then
+    note "skipped: needs the $COMPOSE_FILE stack to find a seeded conference"
+else
+    seeded_page="$(curl -s "$BASE/item/$seeded_id")"
+    if [[ "$seeded_page" == *'conf-detail__speakers'* ]]; then
+        ok "the seeded conference \"$seeded_title\" lists its speakers"
+    else
+        bad "the seeded conference \"$seeded_title\" shows no speakers"
+    fi
+    # Follow the first speaker it names back to their own page, which must list
+    # this conference: the same one field, read forwards there and backwards here.
+    speaker_id="$(printf '%s' "$seeded_page" | tr '\n' ' ' \
+        | grep -o 'conf-detail__speaker-list.*' \
+        | grep -o '/item/[0-9a-f-]\{36\}' | head -n 1 | cut -d/ -f3)"
+    if [ -z "$speaker_id" ]; then
+        bad "the seeded conference names no speaker to follow"
+    else
+        speaker_page="$(curl -s "$BASE/item/$speaker_id")"
+        if [[ "$speaker_page" == *"$seeded_title"* ]]; then
+            ok "that speaker's page lists \"$seeded_title\" back"
+        else
+            bad "that speaker's page does not list \"$seeded_title\""
+        fi
+        if [[ "$speaker_page" == *'field__label'* ]]; then
+            bad "the speaker page dumps its fields raw"
+        else
+            ok "the speaker page prints no raw field dump"
+        fi
+    fi
+fi
+speakers_total="$(sql "select count(*) from item where type='speaker'")"
+[ -n "$speakers_total" ] && note "speakers in the database: $speakers_total"
+topic_terms="$(sql "select count(*) from category_tag where category_id='topics'")"
+[ -n "$topic_terms" ] && note "topic terms: $topic_terms"
+# The tree is three levels deep and one term hangs off two parents.
+depth3="$(sql "select count(*) from category_tag_hierarchy h join category_tag_hierarchy g on g.tag_id = h.parent_id")"
+[ -n "$depth3" ] && [ "$depth3" != "0" ] && ok "the topic tree is three levels deep ($depth3 grandchild link(s))"
+crosslisted="$(sql "select count(*) from (select tag_id from category_tag_hierarchy group by tag_id having count(*) > 1) t")"
+if [ -n "$crosslisted" ]; then
+    if [ "$crosslisted" -gt 0 ]; then ok "$crosslisted term(s) are cross-listed under two parents"; else bad "no term is cross-listed; Kotlin should be"; fi
+fi
+untagged_language="$(sql "select count(*) from item where type='conference' and not (fields ? 'field_language')")"
+if [ -n "$untagged_language" ]; then
+    if [ "$untagged_language" = "0" ]; then
+        ok "every conference carries a language"
+    else
+        bad "$untagged_language conference(s) have no language, so the language filter hides them"
+    fi
+fi
+
+head_ "the listings the model feeds"
+for path in /conferences /speakers /cfps /topics /conferences/this-month /cfps/closing-soon; do
+    status="$(code "$path")"
+    if [ "$status" = "200" ]; then ok "$path renders $status"; else bad "$path answered $status"; fi
+done
+# The location pages had no template of their own and fell back to the kernel's
+# generic table, which prints every column of every row including search_vector.
+country="$(sql "select fields->>'field_country' from item where type='conference' \
+    and fields->>'field_country' <> '' \
+    and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') \
+    group by 1 order by count(*) desc limit 1")"
+if [ -n "$country" ]; then
+    location_page="$(curl -s "$BASE/location/$country")"
+    if [[ "$location_page" == *'search_vector'* ]]; then
+        bad "/location/$country dumps raw item columns"
+    else
+        ok "/location/$country renders without a raw column dump"
+    fi
+    if [[ "$location_page" == *'card--conf'* ]]; then
+        ok "/location/$country renders conference cards"
+    else
+        bad "/location/$country renders no conference cards"
+    fi
 fi
 
 head_ "navigation"

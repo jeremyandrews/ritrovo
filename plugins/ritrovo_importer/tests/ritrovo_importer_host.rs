@@ -46,17 +46,19 @@ const UPSTREAM_PREFIX: &str = "/tech-conferences/conference-data/main/conference
 /// The 25 confs.tech topics the plugin walks, per year.
 const TOPIC_COUNT: usize = 25;
 
-/// Every taxonomy term `SLUG_TO_TERM` maps a confs.tech topic to is in the
-/// tutorial config; `sre` and `scala` have none. So `tap_install` resolves 23.
-const MAPPED_TERMS: i64 = 23;
+/// How many of the 25 confs.tech feeds `data/confs-tech-topics.json` points at a
+/// term in Ritrovo's topic tree. Three do not: the brief's tree has no General,
+/// Open Source or Testing term. `tap_install` resolves one term per mapped feed,
+/// counting the two that both point at Mobile separately, so it reports 22.
+const MAPPED_TERMS: i64 = 22;
 
 /// What the fixture files hold. `rust.json` and `data.json` are upstream
-/// verbatim; `testing.json` repeats one `rust.json` conference and adds one the
+/// verbatim; `css.json` repeats one `rust.json` conference and adds one the
 /// importer must reject. See `tests/fixtures/confs-tech/README.md`.
 const RUST_CONFERENCES: i64 = 5;
 const DATA_CONFERENCES: i64 = 98;
 const DISTINCT_VALID_CONFERENCES: i64 = RUST_CONFERENCES + DATA_CONFERENCES;
-/// `rust.json` is one batch, `data.json` two (50 per batch), `testing.json` one.
+/// `rust.json` is one batch, `data.json` two (50 per batch), `css.json` one.
 const FIXTURE_BATCHES: i64 = 4;
 
 async fn fixtures() -> FixtureServer {
@@ -82,7 +84,7 @@ async fn clean_install(pool: &PgPool) {
     }
     // Before `tap_install`, as in the demo: the plugin resolves the topic terms
     // by label once, at install, and caches the ids.
-    host::import_tutorial_config(pool).await;
+    host::import_demo_config(pool).await;
 }
 
 async fn run_tap_install(pool: &PgPool, server: &FixtureServer) -> serde_json::Value {
@@ -328,7 +330,7 @@ fn the_queue_worker_drains_the_fixture_batches_into_conferences() {
             0
         );
 
-        // TokioConf is in rust.json and testing.json: one Item, both topics.
+        // TokioConf is in rust.json and css.json: one Item, both topics.
         assert_eq!(
             count(
                 &pool,
@@ -339,7 +341,7 @@ fn the_queue_worker_drains_the_fixture_batches_into_conferences() {
         );
         let mut both = vec![
             host::topic_term(&pool, "Rust").await,
-            host::topic_term(&pool, "Testing").await,
+            host::topic_term(&pool, "CSS").await,
         ];
         both.sort();
         assert_eq!(topics_of(&pool, "TokioConf").await, both);
@@ -402,7 +404,7 @@ fn replaying_the_import_adds_no_conference_and_no_duplicate() {
         );
         let mut both = vec![
             host::topic_term(&pool, "Rust").await,
-            host::topic_term(&pool, "Testing").await,
+            host::topic_term(&pool, "CSS").await,
         ];
         both.sort();
         assert_eq!(topics_of(&pool, "TokioConf").await, both);
@@ -482,10 +484,12 @@ fn the_admin_screens_are_401_anonymous_and_200_html_for_an_administrator() {
             "{}",
             status.body
         );
+        // Terms, not feeds: 22 feeds map to 21 distinct terms, because android
+        // and ios both mean Mobile, and three feeds mean no term at all.
         assert!(
             status
                 .body
-                .contains("<dt>Resolved topic terms</dt><dd>23 of 25</dd>"),
+                .contains("<dt>Resolved topic terms</dt><dd>21 of 21</dd>"),
             "{}",
             status.body
         );
@@ -498,6 +502,18 @@ fn the_admin_screens_are_401_anonymous_and_200_html_for_an_administrator() {
             status
                 .body
                 .contains("<dt>Jobs waiting in the import queue</dt><dd>0</dd>"),
+            "{}",
+            status.body
+        );
+        assert!(
+            status.body.contains(
+                "<dt>Feeds with no topic term</dt><dd>3 (general, opensource, testing)</dd>"
+            ),
+            "the screen should name the feeds that import untagged: {}",
+            status.body
+        );
+        assert!(
+            status.body.contains("<dt>Failed batches</dt><dd>none</dd>"),
             "{}",
             status.body
         );
@@ -571,5 +587,107 @@ fn migration_004_restores_blanked_keys_and_merges_the_duplicates_they_let_in() {
         // And replaying the repair is a no-op.
         sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
         assert_eq!(keys(pool.clone()).await, good);
+    });
+}
+
+/// A batch the worker cannot process is retried and then dead-lettered, and the
+/// reason it failed is still readable afterwards.
+///
+/// This is the half of the brief's "bad data is logged and skipped, not silently
+/// dropped" that used to be false. The worker was a `#[plugin_tap]` returning
+/// `{"status": "error"}`, and the kernel counts any returned output as success
+/// (G-QUEUE-WORKER-ERROR-IS-SUCCESS), so a malformed batch had its job deleted on
+/// the first pass: no retry, no dead letter, no row to find afterwards. It is now
+/// a `#[plugin_tap_result]`, so an Err reaches the kernel's retry-and-dead-letter
+/// path, which already existed and was simply never reachable from here.
+///
+/// Time is moved rather than waited for: a failed job is rescheduled with
+/// exponential backoff, so the test clears `next_attempt_at` between drains to
+/// stand in for the minutes passing.
+#[test]
+fn a_batch_that_cannot_be_processed_retries_then_dead_letters_with_its_reason() {
+    host::serial(async {
+        let pool = host::fresh_pool().await;
+        clean_install(&pool).await;
+
+        // One job whose `conferences` payload is not JSON. Everything else about
+        // it is well formed, so it is the worker that rejects it, not the drain.
+        sqlx::query(
+            "INSERT INTO plugin_queue (plugin_name, queue_name, payload, created_at) \
+             VALUES ('ritrovo_importer', 'ritrovo_import', $1, $2)",
+        )
+        .bind(serde_json::json!({
+            "topic": "rust",
+            "year": 2026,
+            "conferences": "{ this is not the JSON array the worker expects",
+        }))
+        .bind(host::now())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let max_attempts: i32 = sqlx::query_scalar("SELECT max_attempts FROM plugin_queue LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(max_attempts > 1, "a single attempt is not a retry policy");
+
+        // Drain once per attempt, releasing the backoff each time.
+        let mut retried = 0u64;
+        let mut dead = 0u64;
+        for _ in 0..max_attempts {
+            let stats = drain(&pool).await;
+            retried += stats.retried;
+            dead += stats.dead_lettered;
+            assert_eq!(stats.succeeded, 0, "a malformed batch must not succeed");
+            sqlx::query("UPDATE plugin_queue SET next_attempt_at = 0 WHERE status = 'ready'")
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(
+            retried,
+            (max_attempts - 1) as u64,
+            "the job should have been retried up to its limit before dying"
+        );
+        assert_eq!(
+            dead, 1,
+            "the job should have been dead-lettered exactly once"
+        );
+
+        // The row is still there, marked dead, with its attempts spent. Never
+        // deleted: a job that vanishes is the thing this test exists to prevent.
+        let (status, attempts, last_error): (String, i32, Option<String>) = sqlx::query_as(
+            "SELECT status, attempts, last_error FROM plugin_queue \
+             WHERE plugin_name = 'ritrovo_importer'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("the dead-lettered job must still be on the queue");
+        assert_eq!(status, "dead");
+        assert_eq!(attempts, max_attempts);
+        assert!(
+            last_error.is_some(),
+            "a dead job with no error is not a report"
+        );
+
+        // The kernel's own last_error is a fixed string: a tap's Err value never
+        // crosses the ABI, only its negative length does
+        // (G-QUEUE-DEAD-LETTER-DISCARDS-THE-PLUGINS-ERROR). So the reason has to
+        // come from the plugin's own state, which is what it writes on the way out.
+        let reason: String =
+            sqlx::query_scalar("SELECT value FROM ritrovo_state WHERE name = 'failed.rust.2026'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap()
+                .expect("the importer must record why the batch failed");
+        assert!(
+            reason.contains("parse_error"),
+            "the recorded reason should say what went wrong, got: {reason}"
+        );
+
+        // And nothing was imported from it.
+        assert_eq!(conferences(&pool).await, 0);
     });
 }

@@ -64,9 +64,19 @@
     {% endif %}
     {% endif %}
 
-    {% if item.fields.field_venue_photo %}
+    {# venue_photos is multi-value, so it is iterated rather than printed. The
+       kernel renders one widget whatever the declared cardinality, so the only
+       way an array gets here is seeded configuration (G-CARDINALITY-IS-INERT),
+       and no file can be seeded at all yet (G-NO-FILE-CONFIG-ENTITY). The gallery
+       is therefore written and empty, which is the honest state of it. #}
+    {% if item.fields.field_venue_photos %}
     <div class="conf-detail__venue">
-        <img src="/file/{{ item.fields.field_venue_photo }}/download" alt="Venue photo" loading="lazy">
+        <h2>Venue</h2>
+        <div class="conf-detail__gallery">
+            {% for photo in item.fields.field_venue_photos %}
+            <img src="/file/{{ photo }}/download" alt="Venue photo" loading="lazy">
+            {% endfor %}
+        </div>
     </div>
     {% endif %}
 
@@ -85,16 +95,35 @@
     </div>
     {% endif %}
 
-    {% if reverse_references.speaker is defined and reverse_references.speaker %}
+    {% if item.fields.field_schedule_pdf %}
+    <div class="conf-detail__schedule">
+        <a href="/file/{{ item.fields.field_schedule_pdf }}/download">Schedule (PDF)</a>
+    </div>
+    {% endif %}
+
+    {# Forward references now, not reverse. The conference holds field_speakers
+       and the kernel resolves each target's title into `referenced_items`; the
+       speaker page reads the reverse of the same one field. This template used to
+       read `reverse_references.speaker`, which asked which SPEAKERS point at this
+       conference, and nothing ever did. #}
+    {% if referenced_items.field_speakers is defined and referenced_items.field_speakers %}
     <div class="conf-detail__speakers">
         <h2>Speakers</h2>
-        <ul>
-            {% for spk in reverse_references.speaker %}
+        <ul class="conf-detail__speaker-list">
+            {% for spk in referenced_items.field_speakers %}
             <li><a href="/item/{{ spk.id }}">{{ spk.title }}</a></li>
             {% endfor %}
         </ul>
     </div>
     {% endif %}
+
+    {# The brief asks for topic pills and a topic breadcrumb here. field_topics is
+       an array of tag uuids and the item route resolves RecordReference targets
+       and reverse references but never a category tag, so a template on this page
+       can print uuids and nothing else: no label, no link
+       (G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS). Printing uuids would be
+       worse than printing nothing, so nothing is what this renders. The topic
+       LISTINGS work: /topics/{slug} resolves the term on the gather route. #}
 </article>
 
 {# Conference detail styles live in static/css/theme.css #}

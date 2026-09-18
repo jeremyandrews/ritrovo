@@ -606,6 +606,185 @@ The set lives at `docs/tutorial/config/` and ships in the image (`Dockerfile:72`
 content model lives"), the fixes land in Ritrovo and the kernel keeps a fixture.
 Otherwise correct the three files in the kernel.
 
+### G-NO-CATEGORY-REFERENCE-FIELD-KIND: **[High, NEW]** a taxonomy reference cannot be declared as a field, so the one field the brief's model turns on is invisible to every form
+
+`FieldType` has twelve variants and none of them is taxonomic: `Text`, `TextLong`,
+`Integer`, `Float`, `Boolean`, `RecordReference(String)`, `File`, `Date`, `Email`,
+`Compound`, `Blocks`, `PageBuilder` (`crates/plugin-sdk/src/types.rs:180-207`).
+`RecordReference` targets an item type, not a category.
+
+Everything else about topics works. The value is a JSONB array of tag uuids, the
+gather operators `has_tag`, `has_any_tag`, `has_all_tags` and
+`has_tag_or_descendants` read it with `@>` containment and a recursive CTE
+(`crates/kernel/src/gather/query_builder.rs:826-894`, `:920-942`), `/topics/{slug}`
+resolves a slug to a tag on the gather route (`routes/gather_routes.rs:142-149`),
+and an exposed filter can offer a `CategorySelect` widget
+(`gather/types.rs:125-131`). Only the *declaration* is missing, and with it every
+form: neither content form has a tag widget
+(`crates/kernel/src/content/form.rs:221-495`, `templates/admin/content-form.html:56-127`)
+and the only autocomplete endpoint is for RecordReference items
+(`routes/api_v1.rs:73`).
+
+So Ritrovo's `conference` type deliberately does **not** declare `field_topics`.
+Declaring it as `Text`, the nearest kind, would put a single-line text widget over
+a JSON array, and saving that form would replace the array with a string, taking
+the conference out of every topic listing.
+
+**Blocks.** 29.1, E4.3, D1, D2; and the brief's claim that declaring the field is
+what stops a save dropping it, which is not true on this kernel (see the entry
+below).
+
+**Recommendation.** A `CategoryReference(category_id)` field kind with a tag
+autocomplete, storing the array shape the gather operators already read.
+
+### G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER: **[High, NEW]** saving an item through either form replaces its whole field set, so anything the form cannot show is destroyed
+
+`extract_content_fields` builds a **fresh** map from the POST body alone
+(`crates/kernel/src/routes/admin_content.rs:23-33`): no whitelist against the
+type's declared fields, no reference to the item being edited. It becomes
+`input.fields`, and `Item::update` does `let fields = input.fields.unwrap_or(current.fields)`
+(`crates/kernel/src/models/item.rs:326`) — a whole-value replace, under a comment
+that says "Merge updates with current values". The non-admin form builds its map
+the same way (`routes/item.rs:193-200`).
+
+The consequence is not limited to undeclared keys. Any key the form did not render
+is gone on save: a multi-value field (only one widget is ever rendered, see
+`G-CARDINALITY-IS-INERT`), a field removed by `tap_field_access` for that viewer,
+or a key written by a plugin. The audit saw `field_topics` disappear after one
+save and read it as a consequence of the field being undeclared; declaring it
+would not have helped.
+
+The fix is not one line, because the two cases have to be told apart: a checkbox
+posts nothing when unchecked, and that absence legitimately means false. Only the
+route knows which fields it rendered, so preserving unrendered keys means seeding
+the map from the existing item and then explicitly zeroing the declared fields the
+form showed. That is a real change, in two form paths.
+
+**Blocks.** 29.1, 36.1, and every editorial row that depends on an edit being safe.
+
+**Recommendation.** Have both form paths share one typed submission builder that
+takes the existing item, the content type and the rendered field list, and writes
+back only what the form was actually capable of showing.
+
+### G-CARDINALITY-IS-INERT: **[Medium, NEW]** `cardinality` round-trips through configuration and is read by nothing that renders, collects or validates
+
+`FieldDefinition.cardinality` exists, defaults to 1, and `-1` means unlimited
+(`crates/plugin-sdk/src/types.rs:229-244`; the only place the convention is
+enforced is the admin field form, `routes/admin_content_type.rs:575-578`). It
+survives config import and shows in the field-edit screen.
+
+Nothing else reads it. `render_field` never looks at it
+(`crates/kernel/src/content/form.rs:221-495`) and neither does
+`templates/admin/content-form.html`, so one widget is rendered whatever the value;
+no submit handler collects repeated inputs; and the only save-time field check is
+`validate_required_fields` (`content/compound.rs:287-324`), which counts nothing.
+Not implemented for `File` or for `RecordReference` in particular.
+
+**Impact for Ritrovo.** `venue_photos` and `speakers` are declared `cardinality: -1`
+because that is what the brief means and what the config format records. Seeded
+arrays store, query and render correctly; an editor opening the form sees one box,
+and saving through it collapses the array (`G-FORM-SAVE-DROPS-...`, above).
+
+**Blocks.** 29.1, D1, 34.3.
+
+**Recommendation.** Render `cardinality != 1` as a repeating widget with the
+add-another the AJAX layer already has, collect indexed inputs into an array, and
+validate the count on save.
+
+### G-NO-FILE-CONFIG-ENTITY: **[Medium, NEW]** a configuration set cannot ship a file, so a demo cannot show an image without a human uploading one
+
+Config import handles thirteen entity types in dependency order
+(`crates/kernel/src/config_storage/yaml.rs:51-65`) and none of them is a file. An
+`item.*.yml` can carry a file's uuid in `fields` — `ConfigItem.fields` is an
+unconstrained `serde_json::Value` (`config_storage/mod.rs:79-80`) — but the
+`file_managed` row it names has to already exist, and the only way to create one
+is `POST /file/upload` (`routes/file.rs:25`), which needs a session and a CSRF
+header (`routes/file.rs:60-80`).
+
+**Blocks.** 34.2, D17, and the brief's "logo required on Live".
+
+**Recommendation.** A `file` config entity that carries its bytes, or a CLI
+`file import` that takes a path and a uuid.
+
+### G-CONFIG-IMPORT-NEVER-PROMOTES-A-FILE: **[Medium, NEW]** a file referenced by imported configuration stays temporary and is deleted six hours later
+
+Uploads land as `FileStatus::Temporary` and are promoted only by
+`promote_file_ids`, called from the admin content routes and nowhere else
+(`crates/kernel/src/routes/admin_content.rs:62-78`, the single `mark_permanent_batch`
+call site at `:69`). Cron deletes temporary files older than six hours
+(`cron/tasks.rs:176-184`, `TEMP_FILE_MAX_AGE_SECS`).
+
+So even the workaround for the entry above fails: a script that logs in, uploads
+the images and imports items referencing them produces a site whose images all
+disappear that afternoon. Together the two entries mean an image can reach a
+Trovato site only by a human using the admin form.
+
+**Blocks.** 34.2, D17, and the seeded logo, gallery and headshot in `demo/config`.
+
+**Recommendation.** Promote files referenced by imported items, the way the admin
+routes do.
+
+### G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS: **[Medium, NEW]** an item template can print a topic's uuid and nothing else
+
+The item route resolves forward `RecordReference` targets into `referenced_items`
+and computes `reverse_references` for every referring type
+(`crates/kernel/src/routes/item.rs:583-650`), and inserts `safe_urls`,
+`breadcrumbs` and the rest. It never looks at a category tag, and there is no Tera
+filter or function for one either: the registered filters are `text_format`,
+`format_date`, `safe_html`, `render_blocks`, `markdown`, `responsive_image`,
+`field_type_label` and `trans` (`crates/kernel/src/theme/engine.rs:347-548`).
+
+So a conference page holding `field_topics: ["<uuid>", "<uuid>"]` can render those
+uuids and nothing else: no label, no link, no breadcrumb. The gather side is fine
+— `/topics/{slug}` resolves the term on the route and the kernel supplies
+breadcrumbs (`routes/gather.rs:432`).
+
+**Blocks.** D5 (topic pills), D2 (the topic breadcrumb on an item page).
+
+**Recommendation.** Resolve an item's category references the way forward record
+references are resolved, into a `referenced_tags` map of label, slug and url.
+
+### G-NO-RELATIVE-DATE-FILTER-VALUES: **[Low, NEW]** a gather can say "today" and nothing else, so a date window cannot be expressed
+
+`ContextualValue` is `CurrentUser`, `CurrentTime`, `CurrentDate` and `UrlArg`
+(`crates/kernel/src/gather/types.rs:335-351`). There is no first-of-month,
+end-of-month or today-plus-N, and a literal date in a config file is wrong the day
+after it is written.
+
+**Impact for Ritrovo.** Both of the brief's tile gathers are defined as date
+windows: "Conferences This Month" between the first of this month and the first of
+next, and "CFPs Closing Soon" between today and today plus fourteen days. Neither
+window is expressible. Both gathers exist, bounded by count instead of by date,
+and each file says so.
+
+**Blocks.** 34.4, D12.
+
+**Recommendation.** A relative date contextual value, for example
+`current_date_plus(days)` and a month-boundary pair.
+
+### G-QUEUE-DEAD-LETTER-DISCARDS-THE-PLUGINS-ERROR: **[Low, NEW]** a dead-lettered job records that the worker failed, never what it said
+
+The queue's retry and dead-letter tier is complete and works: `attempts`,
+`max_attempts` (5), exponential backoff, `status = 'dead'`, `dead_reason`,
+`last_error` (`crates/kernel/migrations/20260403000001_plugin_queue_v2.sql`,
+`crates/kernel/src/cron/mod.rs:254-300`). What it records is a constant:
+`let err = "tap_queue_worker failed (trap or error result)"` (`cron/mod.rs:235`).
+
+It cannot record more, because a tap's `Err` value never crosses the ABI — the SDK
+signals failure with a negative length and drops the payload
+(`crates/plugin-sdk-macros/src/lib.rs:247-291`), so `dispatch_to_plugin` returns
+`None` and there is nothing to write down.
+
+**Impact for Ritrovo.** `ritrovo_importer` writes the reason into its own
+`ritrovo_state` before returning `Err`, and its admin screen reads those back, so
+"logged and skipped, not silently dropped" is true. Every plugin has to invent
+that for itself.
+
+**Blocks.** P3, in the sense that the queue alone cannot answer why a batch died.
+
+**Recommendation.** Carry the `Err` string across as the failure payload and store
+it in `last_error`.
+
 ### G-QUEUE-WORKER-ERROR-IS-SUCCESS: **[Low, NEW]** a worker written with `#[plugin_tap]` that returns an error object has succeeded
 
 A worker's result is success whenever the tap returns output, and failure only when

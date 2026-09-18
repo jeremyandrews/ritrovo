@@ -21,18 +21,43 @@ const KERNEL_IMAGE: &str = "ghcr.io/jeremyandrews/trovato:0.102.0";
 /// The compose file the demo is driven from.
 const COMPOSE: &str = "docker-compose.demo.yml";
 
-/// The tutorial templates the demo needs on its `TEMPLATES_DIR` search path.
-/// Vendored from the Trovato release; see `scripts/check-tutorial-templates.sh`.
+/// Every template on the demo's `TEMPLATES_DIR` search path.
+///
+/// Some are vendored from the Trovato release and some are Ritrovo's own;
+/// `scripts/check-tutorial-templates.sh` holds the first kind to the release and
+/// names the second kind as owned. This list is what must EXIST, either way: a
+/// gather whose template is missing falls back to the kernel's generic table,
+/// which prints every column of every row including `search_vector`.
 const TUTORIAL_TEMPLATES: &[&str] = &[
     "page--front.html",
     "elements/item--conference.html",
     "elements/item--speaker.html",
     "gather/includes/conf-card.html",
     "gather/query--ritrovo.all_speakers.html",
+    "gather/query--ritrovo.by_city.html",
+    "gather/query--ritrovo.by_country.html",
     "gather/query--ritrovo.by_topic.html",
+    "gather/query--ritrovo.cfps_closing_soon.html",
+    "gather/query--ritrovo.conferences_this_month.html",
     "gather/query--ritrovo.open_cfps.html",
     "gather/query--ritrovo.upcoming_conferences.html",
     "gather/query--upcoming_conferences.html",
+];
+
+/// Every gather that has a route of its own must have a template of its own.
+///
+/// The kernel falls back to a generic table that prints every column of every
+/// row, `search_vector` included, which is what /location/Germany rendered before
+/// this repository owned the location templates.
+const ROUTED_GATHERS: &[&str] = &[
+    "ritrovo.all_speakers",
+    "ritrovo.by_city",
+    "ritrovo.by_country",
+    "ritrovo.by_topic",
+    "ritrovo.cfps_closing_soon",
+    "ritrovo.conferences_this_month",
+    "ritrovo.open_cfps",
+    "ritrovo.upcoming_conferences",
 ];
 
 fn read(relative: &str) -> String {
@@ -91,24 +116,137 @@ fn every_plugin_is_in_the_demo_enable_list() {
     }
 }
 
+/// The line number of the first line that RUNS the given trovato subcommand.
+///
+/// Commands only, never comments. Matching the bare strings found both in the
+/// header comment, which explains the ordering, and in the code that implements
+/// it, and the header happens to mention them in the right order, so the test
+/// passed by reading prose rather than by reading the script.
+fn first_command_line(script: &str, subcommand: &str) -> usize {
+    script
+        .lines()
+        .position(|line| {
+            let line = line.trim_start();
+            line.starts_with("./trovato") && line.contains(subcommand)
+        })
+        .unwrap_or_else(|| panic!("demo-bootstrap.sh never runs `trovato {subcommand}`"))
+}
+
 #[test]
 fn config_is_imported_before_any_plugin_is_enabled() {
     // The install-order trap: ritrovo_importer resolves the topic taxonomy once,
     // in tap_install, and tap_install fires when the plugin is first enabled and
     // the server restarts. Enable it before the taxonomy exists and it imports
-    // every conference untagged. Line order in the script is the fix, so line
-    // order is what this pins.
+    // every conference untagged, recoverable only by resetting
+    // tap_install_called and restarting. Line order in the script is the fix, so
+    // line order is what this pins.
     let bootstrap = read("scripts/demo-bootstrap.sh");
-    let import = bootstrap
-        .find("config import")
-        .expect("demo-bootstrap.sh never imports the config set");
-    let enable = bootstrap
-        .find("plugin enable")
-        .expect("demo-bootstrap.sh never enables a plugin");
+    let import = first_command_line(&bootstrap, "config import");
+    let enable = first_command_line(&bootstrap, "plugin enable");
     assert!(
         import < enable,
-        "demo-bootstrap.sh enables a plugin before importing the config set; \
-         the importer will find zero taxonomy terms"
+        "demo-bootstrap.sh runs `plugin enable` (line {}) before `config import` \
+         (line {}); the importer will find zero taxonomy terms",
+        enable + 1,
+        import + 1
+    );
+}
+
+#[test]
+fn the_bootstrap_imports_ritrovos_own_configuration_set() {
+    // The set used to come from the kernel image's tutorial directory. It is this
+    // repository's now, and the demo has to be reading the copy that the model is
+    // built in rather than the one the image still ships.
+    let bootstrap = read("scripts/demo-bootstrap.sh");
+    assert!(
+        bootstrap.contains("RITROVO_CONFIG_DIR:-/ritrovo/demo/config"),
+        "demo-bootstrap.sh does not default its config directory to demo/config"
+    );
+    assert!(
+        !bootstrap.contains("/app/docs/tutorial/config"),
+        "demo-bootstrap.sh still reads the config set out of the kernel image"
+    );
+    let compose = read(COMPOSE);
+    assert!(
+        compose.contains("RITROVO_CONFIG_DIR: /ritrovo/demo/config"),
+        "{COMPOSE} does not point the kernel at demo/config"
+    );
+}
+
+#[test]
+fn every_routed_gather_has_a_template_of_its_own() {
+    for query_id in ROUTED_GATHERS {
+        let config: PathBuf = repo_root()
+            .join("demo/config")
+            .join(format!("gather_query.{query_id}.yml"));
+        assert!(
+            config.is_file(),
+            "{} is routed but has no gather definition",
+            config.display()
+        );
+        let template: PathBuf = repo_root()
+            .join("docs/tutorial/templates/gather")
+            .join(format!("query--{query_id}.html"));
+        assert!(
+            template.is_file(),
+            "gather {query_id} has no template, so its route renders the kernel's \
+             generic table: every column of every row, search_vector included"
+        );
+    }
+}
+
+#[test]
+fn the_conference_type_declares_the_fields_the_templates_and_importer_use() {
+    // The type, the templates and the importer have to agree on field names.
+    // A rename that reaches two of the three is invisible until a page renders
+    // blank, which is how field_venue_photo and field_photo survived a model
+    // change in the first place.
+    let conference = read("demo/config/item_type.conference.yml");
+    for field in [
+        "field_url",
+        "field_start_date",
+        "field_end_date",
+        "field_city",
+        "field_country",
+        "field_online",
+        "field_cfp_url",
+        "field_cfp_end_date",
+        "field_description",
+        "field_logo",
+        "field_venue_photos",
+        "field_schedule_pdf",
+        "field_speakers",
+        "field_language",
+        "field_source_id",
+        "field_editor_notes",
+    ] {
+        assert!(
+            conference.contains(field),
+            "the conference type does not declare {field}"
+        );
+    }
+    // Deliberately absent: the kernel has no category-reference field kind, and
+    // declaring topics as anything else puts a widget on the edit form that
+    // replaces the uuid array with a string on save.
+    assert!(
+        !conference.contains("field_name: field_topics"),
+        "field_topics must not be declared; see the comment in the type file"
+    );
+
+    let speaker = read("demo/config/item_type.speaker.yml");
+    for field in ["field_bio", "field_headshot", "field_website"] {
+        assert!(
+            speaker.contains(field),
+            "the speaker type does not declare {field}"
+        );
+    }
+    // The declaration, not the word: both type files explain in their comments
+    // what they deliberately do NOT declare, and a bare substring match reads
+    // those explanations as declarations.
+    assert!(
+        !speaker.contains("field_name: field_conferences"),
+        "speaker must not hold a forward conference reference: the conference \
+         holds field_speakers and the kernel computes the reverse"
     );
 }
 
@@ -284,8 +422,8 @@ fn every_tutorial_template_the_demo_needs_is_vendored() {
 
 #[test]
 fn no_stray_files_in_the_vendored_template_tree() {
-    // A file here that the release does not have is drift in the other
-    // direction: it would render in the demo and nowhere else.
+    // A file here that this list does not have would render in the demo and be
+    // accounted for nowhere.
     let root = repo_root().join("docs/tutorial/templates");
     let mut found = Vec::new();
     let mut stack = vec![root.clone()];
