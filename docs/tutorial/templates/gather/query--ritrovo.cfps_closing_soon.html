@@ -1,0 +1,27 @@
+{# The "CFPs Closing Soon" tile gather, rendered as a page. Same reason as the
+   template beside it: the tile renders nothing, the route renders this. #}
+{% extends "gather/query.html" %}
+
+{% block query_content %}
+<div class="card-list card-list--compact">
+    {% for row in rows %}
+    <article class="card card--cfp">
+        <h3 class="card__title">
+            <a href="/item/{{ row.id }}">{{ row.title }}</a>
+        </h3>
+        <div class="card__meta">
+            {% if row.fields.field_cfp_end_date %}
+            <span class="card__deadline"><strong>Closes:</strong> {{ row.fields.field_cfp_end_date }}</span>
+            {% endif %}
+            {% if row.fields.field_start_date %}
+            <span class="card__dates">{{ row.fields.field_start_date }}</span>
+            {% endif %}
+        </div>
+    </article>
+    {% endfor %}
+</div>
+
+{% if not rows %}
+<p class="gather-empty">No calls for papers are closing soon.</p>
+{% endif %}
+{% endblock %}

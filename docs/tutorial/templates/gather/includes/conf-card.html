@@ -1,8 +1,13 @@
-{# Shared conference card component.
-   Used by: query--ritrovo.upcoming_conferences.html,
-            query--ritrovo.by_topic.html
-   Expects `row` variable from the enclosing {% for row in rows %} loop. #}
+{# Shared conference card.
+   Used by the upcoming, by-topic, by-country, by-city and this-month listings.
+   Expects `row` from the enclosing {% for row in rows %} loop. #}
 <article class="card card--conf">
+    {% if row.fields.field_logo %}
+    <div class="card__logo">
+        <img src="/file/{{ row.fields.field_logo }}/download" alt="{{ row.title }} logo" loading="lazy">
+    </div>
+    {% endif %}
+
     <h3 class="card__title">
         <a href="/item/{{ row.id }}">{{ row.title }}</a>
     </h3>
@@ -18,13 +23,19 @@
             {{ row.fields.field_city }}{% if row.fields.field_country %}, {{ row.fields.field_country }}{% endif %}
         </span>
         {% endif %}
-        {% if row.fields.field_online is defined and row.fields.field_online == "1" and not row.fields.field_city %}
-        <span class="card__location">Online</span>
+        {% if row.fields.field_online is defined and (row.fields.field_online == "1" or row.fields.field_online == true) %}
+        <span class="card__online">Online</span>
+        {% endif %}
+        {% if row.fields.field_language %}
+        <span class="card__language" lang="{{ row.fields.field_language | lower }}">{{ row.fields.field_language | upper }}</span>
         {% endif %}
     </div>
 
     {% if row.fields.field_description %}
-    <div class="card__desc">{{ row.fields.field_description | render_blocks | safe }}</div> {# SAFE: render_blocks output is sanitized by ammonia #}
+    {% set card_desc = row.fields.field_description | render_blocks | striptags | trim %}
+    {% if card_desc and card_desc != "[]" %}
+    <div class="card__desc">{{ card_desc | truncate(length=180) }}</div>
+    {% endif %}
     {% endif %}
 
     <div class="card__actions">

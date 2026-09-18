@@ -36,7 +36,7 @@ display:
   footer: null
   format: table
   header: null
-  items_per_page: 20
+  items_per_page: 25
   pager:
     enabled: true
     show_count: true

@@ -1,0 +1,49 @@
+# "CFPs Closing Soon" — the second of the brief's two tile gathers.
+#
+# The brief bounds this one to a fortnight: cfp_end_date between :current_date
+# and :current_date_plus_14. The lower bound is expressible and the upper one is
+# not, for the same reason as the tile beside it
+# (G-NO-RELATIVE-DATE-FILTER-VALUES).
+#
+# It matters less here. Sorted by deadline and cut to five, this is "the five
+# calls for papers closing soonest", which is what the tile is for; the missing
+# upper bound only means that in a quiet fortnight it shows deadlines further out
+# instead of showing nothing. The STATUS row stays blocked all the same, because
+# the tile that renders it renders nothing (G-TILE-GATHER-QUERY-RENDERS-NOTHING).
+query_id: ritrovo.cfps_closing_soon
+label: CFPs Closing Soon
+description: The five calls for papers closing soonest. Bounded by count, not by a fortnight; see the file comment.
+definition:
+  base_table: item
+  fields: []
+  filters:
+  - exposed: false
+    exposed_label: null
+    field: fields.field_cfp_end_date
+    operator: greater_or_equal
+    value: current_date
+  - exposed: false
+    exposed_label: null
+    field: fields.field_cfp_url
+    operator: is_not_null
+    value: null
+  includes: {}
+  item_type: conference
+  relationships: []
+  sorts:
+  - direction: asc
+    field: fields.field_cfp_end_date
+    nulls: last
+  stage_aware: true
+display:
+  canonical_url: /cfps/closing-soon
+  empty_text: No calls for papers are closing soon.
+  footer: null
+  format: list
+  header: null
+  items_per_page: 5
+  pager:
+    enabled: false
+    show_count: false
+    style: full
+plugin: ritrovo_importer

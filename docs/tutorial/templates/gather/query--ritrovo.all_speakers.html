@@ -4,11 +4,14 @@
 <div class="speaker-list">
     {% for row in rows %}
     <article class="card card--speaker">
-        {% if row.fields.field_photo %}
+        {% if row.fields.field_headshot %}
         <div class="speaker-card__photo">
-            <img src="/files/{{ row.fields.field_photo }}" alt="{{ row.title }}" loading="lazy">
+            <img src="/file/{{ row.fields.field_headshot }}/download" alt="{{ row.title }}" loading="lazy">
         </div>
         {% else %}
+        {# No headshot is the normal case, not a broken one: nothing can attach a
+           file from configuration on this kernel (G-NO-FILE-CONFIG-ENTITY), so
+           every seeded speaker lands here. An initial reads better than a gap. #}
         <div class="speaker-card__photo speaker-card__photo--placeholder">
             <span>{{ row.title | truncate(length=1, end="") }}</span>
         </div>
@@ -17,11 +20,8 @@
             <h3 class="speaker-card__name">
                 <a href="/item/{{ row.id }}">{{ row.title }}</a>
             </h3>
-            {% if row.fields.field_company %}
-            <span class="speaker-card__company">{{ row.fields.field_company }}</span>
-            {% endif %}
             {% if row.fields.field_bio %}
-            <p class="speaker-card__bio">{{ row.fields.field_bio | truncate(length=120) }}</p>
+            <p class="speaker-card__bio">{{ row.fields.field_bio | render_blocks | striptags | trim | truncate(length=120) }}</p>
             {% endif %}
         </div>
     </article>

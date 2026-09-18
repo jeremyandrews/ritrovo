@@ -1,21 +1,33 @@
+{# Speaker detail page.
+
+   Like the conference template beside it, this renders its own fields and does
+   NOT render `children`: the kernel builds that string from a generic dump of
+   every scalar field followed by every plugin's tap_item_view output, with no
+   way to take the second half alone
+   (G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT).
+
+   The conference list is a REVERSE reference. The speaker type holds no
+   `field_conferences`; the conference type holds `field_speakers`, and the
+   kernel answers "which items point at this one" in `reverse_references`. One
+   place says who spoke where, so the two cannot disagree. #}
 <article class="item item--speaker">
     <header class="item__header">
         <h1 class="item__title">{{ item.title }}</h1>
-        {% if item.fields.field_company %}
-        <div class="speaker-detail__company">{{ item.fields.field_company }}</div>
-        {% endif %}
     </header>
 
-    {% if item.fields.field_photo %}
+    {% if item.fields.field_headshot %}
     <div class="speaker-detail__photo">
-        <img src="/file/{{ item.fields.field_photo }}/download" alt="{{ item.title }}" loading="lazy">
+        <img src="/file/{{ item.fields.field_headshot }}/download" alt="{{ item.title }}" loading="lazy">
     </div>
     {% endif %}
 
-    {% if item.fields.field_bio %}
+    {% if item.fields.field_bio is defined and item.fields.field_bio %}
+    {% set bio_html = item.fields.field_bio | render_blocks | trim %}
+    {% if bio_html and bio_html != "[]" %}
     <div class="speaker-detail__bio">
-        {{ item.fields.field_bio }}
+        {{ bio_html | safe }} {# SAFE: render_blocks output is sanitized by ammonia #}
     </div>
+    {% endif %}
     {% endif %}
 
     {% if safe_urls.field_website is defined and safe_urls.field_website %}
@@ -24,20 +36,14 @@
     </div>
     {% endif %}
 
-    {% if referenced_items.field_conferences is defined and referenced_items.field_conferences %}
+    {% if reverse_references.conference is defined and reverse_references.conference %}
     <div class="speaker-detail__conferences">
         <h2>Conferences</h2>
-        <ul>
-            {% for conf in referenced_items.field_conferences %}
+        <ul class="speaker-detail__conference-list">
+            {% for conf in reverse_references.conference %}
             <li><a href="/item/{{ conf.id }}">{{ conf.title }}</a></li>
             {% endfor %}
         </ul>
     </div>
     {% endif %}
-
-    <div class="item__content">
-        {{ children | safe }} {# SAFE: kernel render pipeline output — child elements already rendered and sanitized #}
-    </div>
 </article>
-
-{# Speaker detail styles live in static/css/theme.css #}

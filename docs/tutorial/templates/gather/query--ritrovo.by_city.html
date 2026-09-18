@@ -1,0 +1,15 @@
+{# Conferences in one city: /location/{country}/{city}. Same card as the country
+   listing above it; the difference is how many arguments the route carries. #}
+{% extends "gather/query.html" %}
+
+{% block query_content %}
+<div class="card-list card-list--location">
+    {% for row in rows %}
+    {% include "gather/includes/conf-card.html" %}
+    {% endfor %}
+</div>
+
+{% if not rows %}
+<p class="gather-empty">No upcoming conferences here.</p>
+{% endif %}
+{% endblock %}

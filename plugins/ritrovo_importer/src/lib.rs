@@ -1622,7 +1622,11 @@ mod tests {
                  with nothing saying so"
             );
         }
-        assert_eq!(map.len(), TOPICS.len(), "the map and the feed list disagree");
+        assert_eq!(
+            map.len(),
+            TOPICS.len(),
+            "the map and the feed list disagree"
+        );
     }
 
     #[test]
@@ -1672,7 +1676,10 @@ mod tests {
         let input = serde_json::json!({"topic": "rust", "conferences": "[]"});
         let err = __inner_tap_queue_worker(input).expect_err("must be an Err");
         assert!(err.contains("missing_year"), "unexpected: {err}");
-        assert!(err.starts_with("rust/"), "the reason should name the batch: {err}");
+        assert!(
+            err.starts_with("rust/"),
+            "the reason should name the batch: {err}"
+        );
     }
 
     #[test]
@@ -1680,7 +1687,10 @@ mod tests {
         let input = serde_json::json!({"topic": "rust", "year": 2026, "conferences": "not-json"});
         let err = __inner_tap_queue_worker(input).expect_err("must be an Err");
         assert!(err.contains("parse_error"), "unexpected: {err}");
-        assert!(err.starts_with("rust/2026:"), "the reason should name the batch: {err}");
+        assert!(
+            err.starts_with("rust/2026:"),
+            "the reason should name the batch: {err}"
+        );
     }
 
     #[test]

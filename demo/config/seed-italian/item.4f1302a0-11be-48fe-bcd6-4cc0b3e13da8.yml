@@ -1,5 +1,5 @@
 # JSDay Verona — translated (both EN + IT complete)
-id: '4f1302a0-11be-48fe-bcd6-4cc0b3e13da8'
+id: 4f1302a0-11be-48fe-bcd6-4cc0b3e13da8
 type: conference
 title: JSDay Verona 2026
 language: it
@@ -9,10 +9,12 @@ changed: 1741824000
 fields:
   field_description:
     it:
-      value: "<p>JSDay è la storica conferenza JavaScript italiana, organizzata da GrUSP a Verona. Una giornata di talk su JavaScript, TypeScript, Node.js e lo sviluppo web moderno.</p>"
+      value: <p>JSDay è la storica conferenza JavaScript italiana, organizzata da GrUSP a Verona. Una
+        giornata di talk su JavaScript, TypeScript, Node.js e lo sviluppo web moderno.</p>
       format: filtered_html
     en:
-      value: "<p>JSDay is the historic Italian JavaScript conference, organized by GrUSP in Verona. A full day of talks on JavaScript, TypeScript, Node.js, and modern web development.</p>"
+      value: <p>JSDay is the historic Italian JavaScript conference, organized by GrUSP in Verona. A full
+        day of talks on JavaScript, TypeScript, Node.js, and modern web development.</p>
       format: filtered_html
   field_start_date: '2026-04-15'
   field_end_date: '2026-04-15'
@@ -22,8 +24,12 @@ fields:
   field_url: https://jsday.it
   field_language: it
   field_topics:
-    - 8385ae29-5eb3-5a36-8b62-9aa71fe13776
-    - b056b0f9-014e-59c0-b96c-51d9a7c0472f
-    - 8ad812c0-2305-5c02-adca-dffcd1f4a996
+  - 8385ae29-5eb3-5a36-8b62-9aa71fe13776
+  - b056b0f9-014e-59c0-b96c-51d9a7c0472f
+  - 8ad812c0-2305-5c02-adca-dffcd1f4a996
   primary_language: it
   translation_status: translated
+  field_speakers:
+  - 17cd2da8-d4b3-5997-942d-70b5bc81af43
+  - 14958971-ffd3-56d6-9e09-1a66b345e755
+  field_editor_notes: Co-located with a smaller workshop day; only the main event is listed here.

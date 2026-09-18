@@ -186,11 +186,14 @@ done
 # the conferences the importer landed bare, so the demo shows a filled-in
 # conference without anyone typing one in.
 
+# Speakers first: the seeded conferences carry field_speakers referencing them,
+# and while nothing validates an item's field references, a conference imported
+# before its speakers renders a list of nothing until the next import.
+say "importing the seeded speakers"
+./trovato config import "$RITROVO_CONFIG_DIR/seed-content"
+
 say "importing the Italian seed content"
 ./trovato config import "$RITROVO_CONFIG_DIR/seed-italian"
-
-say "importing the seeded conference and speaker content"
-./trovato config import "$RITROVO_CONFIG_DIR/seed-content"
 
 # ── 6. Serve ─────────────────────────────────────────────────────────────────
 #

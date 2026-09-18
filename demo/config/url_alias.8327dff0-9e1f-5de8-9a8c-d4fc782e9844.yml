@@ -1,0 +1,8 @@
+# /cfps/closing-soon -> the "CFPs Closing Soon" tile gather. See the alias beside
+# this one for why a canonical_url is not enough on its own.
+id: '8327dff0-9e1f-5de8-9a8c-d4fc782e9844'
+source: /gather/ritrovo.cfps_closing_soon
+alias: /cfps/closing-soon
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1774000000

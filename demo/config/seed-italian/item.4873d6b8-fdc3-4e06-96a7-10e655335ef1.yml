@@ -1,7 +1,7 @@
 # IA per l'Italia — in_progress (Italian complete, English partial)
-id: '4873d6b8-fdc3-4e06-96a7-10e655335ef1'
+id: 4873d6b8-fdc3-4e06-96a7-10e655335ef1
 type: conference
-title: "IA per l'Italia 2026"
+title: IA per l'Italia 2026
 language: it
 status: 1
 created: 1741824000
@@ -9,10 +9,12 @@ changed: 1741824000
 fields:
   field_description:
     it:
-      value: "<p>IA per l'Italia è la conferenza nazionale sull'intelligenza artificiale applicata. Due giorni dedicati a machine learning, NLP, computer vision e AI etica, con un focus sulle startup e la ricerca italiana.</p>"
+      value: <p>IA per l'Italia è la conferenza nazionale sull'intelligenza artificiale applicata. Due
+        giorni dedicati a machine learning, NLP, computer vision e AI etica, con un focus sulle startup
+        e la ricerca italiana.</p>
       format: filtered_html
     en:
-      value: "<p>AI for Italy is the national applied artificial intelligence conference.</p>"
+      value: <p>AI for Italy is the national applied artificial intelligence conference.</p>
       format: filtered_html
   field_start_date: '2026-10-22'
   field_end_date: '2026-10-23'
@@ -22,7 +24,11 @@ fields:
   field_url: https://iaperitalia.it
   field_language: it
   field_topics:
-    - e2c7c4b4-84c3-5844-b834-78f4a19e43b0
-    - e893d618-480e-5791-bbd4-ceecce8d13ee
+  - e2c7c4b4-84c3-5844-b834-78f4a19e43b0
+  - e893d618-480e-5791-bbd4-ceecce8d13ee
   primary_language: it
   translation_status: in_progress
+  field_speakers:
+  - a680768d-5bca-541c-9d8c-edf7f4e482cb
+  - 57855d1c-deac-54ce-a43b-01c5afa042c1
+  field_editor_notes: Single track. Good for a first-time speaker to submit to.

@@ -626,11 +626,10 @@ fn a_batch_that_cannot_be_processed_retries_then_dead_letters_with_its_reason() 
         .await
         .unwrap();
 
-        let max_attempts: i32 =
-            sqlx::query_scalar("SELECT max_attempts FROM plugin_queue LIMIT 1")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let max_attempts: i32 = sqlx::query_scalar("SELECT max_attempts FROM plugin_queue LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert!(max_attempts > 1, "a single attempt is not a retry policy");
 
         // Drain once per attempt, releasing the backoff each time.
@@ -652,7 +651,10 @@ fn a_batch_that_cannot_be_processed_retries_then_dead_letters_with_its_reason() 
             (max_attempts - 1) as u64,
             "the job should have been retried up to its limit before dying"
         );
-        assert_eq!(dead, 1, "the job should have been dead-lettered exactly once");
+        assert_eq!(
+            dead, 1,
+            "the job should have been dead-lettered exactly once"
+        );
 
         // The row is still there, marked dead, with its attempts spent. Never
         // deleted: a job that vanishes is the thing this test exists to prevent.
@@ -665,19 +667,21 @@ fn a_batch_that_cannot_be_processed_retries_then_dead_letters_with_its_reason() 
         .expect("the dead-lettered job must still be on the queue");
         assert_eq!(status, "dead");
         assert_eq!(attempts, max_attempts);
-        assert!(last_error.is_some(), "a dead job with no error is not a report");
+        assert!(
+            last_error.is_some(),
+            "a dead job with no error is not a report"
+        );
 
         // The kernel's own last_error is a fixed string: a tap's Err value never
         // crosses the ABI, only its negative length does
         // (G-QUEUE-DEAD-LETTER-DISCARDS-THE-PLUGINS-ERROR). So the reason has to
         // come from the plugin's own state, which is what it writes on the way out.
-        let reason: String = sqlx::query_scalar(
-            "SELECT value FROM ritrovo_state WHERE name = 'failed.rust.2026'",
-        )
-        .fetch_optional(&pool)
-        .await
-        .unwrap()
-        .expect("the importer must record why the batch failed");
+        let reason: String =
+            sqlx::query_scalar("SELECT value FROM ritrovo_state WHERE name = 'failed.rust.2026'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap()
+                .expect("the importer must record why the batch failed");
         assert!(
             reason.contains("parse_error"),
             "the recorded reason should say what went wrong, got: {reason}"

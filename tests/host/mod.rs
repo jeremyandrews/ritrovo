@@ -538,6 +538,35 @@ pub async fn app() -> &'static App {
 /// Install and enable the named plugins and record their `tap_install` as done,
 /// so building the `AppState` loads them without firing any install tap.
 pub async fn prepare_app_database(pool: &PgPool, plugins: &[&str]) {
+    // Disable every Ritrovo plugin this app does not ask for, FIRST.
+    //
+    // `app()` builds a real AppState, which runs the migrations of whatever the
+    // database says is enabled. The database is shared by every test binary and
+    // cargo runs those binaries in parallel, so "whatever is enabled" includes
+    // anything another suite switched on and has not switched off. That bites on
+    // one plugin in particular: ritrovo_translate declares a dependency on the
+    // kernel's trovato_content_translation, which is not in the overlay these
+    // tests load, so an AppState built while translate happens to be enabled
+    // fails with "depends on 'trovato_content_translation' which is not in the
+    // enabled plugin set" — in a suite that has nothing to do with translation.
+    //
+    // Naming the set positively rather than hoping the database is clean.
+    for name in [
+        "ritrovo_importer",
+        "ritrovo_access",
+        "ritrovo_cfp",
+        "ritrovo_notify",
+        "ritrovo_translate",
+    ] {
+        if !plugins.contains(&name) {
+            let _ = trovato_kernel::plugin::status::set_status(
+                pool,
+                name,
+                trovato_kernel::plugin::status::STATUS_DISABLED,
+            )
+            .await;
+        }
+    }
     for name in plugins {
         install_and_enable(pool, name)
             .await
