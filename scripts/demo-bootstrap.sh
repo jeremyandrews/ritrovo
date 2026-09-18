@@ -50,10 +50,11 @@ DEMO_ADMIN_PASSWORD="${DEMO_ADMIN_PASSWORD:-ritrovo-demo-password}"
 DEMO_ADMIN_EMAIL="${DEMO_ADMIN_EMAIL:-admin@ritrovo.example}"
 RITROVO_CONFIG_DIR="${RITROVO_CONFIG_DIR:-/ritrovo/demo/config}"
 
-# The five plugins, in dependency order: the importer first because it is the one
+# The six plugins, in dependency order: the importer first because it is the one
 # whose tap_install needs the taxonomy, ritrovo_translate last because it depends
-# on the kernel's trovato_content_translation.
-RITROVO_PLUGINS="ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_notify ritrovo_translate"
+# on the kernel's trovato_content_translation. ritrovo_forms sits in the middle and
+# depends on nothing: it serves its own routes over its own table.
+RITROVO_PLUGINS="ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_forms ritrovo_notify ritrovo_translate"
 
 # Kernel plugins the demo switches on. These ship in the image and are installed
 # automatically at first start, but they declare default_enabled = false, so a
@@ -100,7 +101,7 @@ wait_for_health() {
 
 # ── 1. Bring the kernel up once, so it migrates and discovers plugins ─────────
 #
-# This start also auto-installs the five Ritrovo plugins into plugin_status. They
+# This start also auto-installs the six Ritrovo plugins into plugin_status. They
 # land DISABLED, because every Ritrovo manifest declares default_enabled = false,
 # which is exactly what step 4 needs: `plugin enable` requires an installed
 # plugin, and tap_install has not fired for a disabled one.
@@ -166,7 +167,7 @@ say "importing Ritrovo's config set from $RITROVO_CONFIG_DIR"
 ./trovato config import "$RITROVO_CONFIG_DIR" --dry-run
 ./trovato config import "$RITROVO_CONFIG_DIR"
 
-# ── 4. Enable the five plugins ───────────────────────────────────────────────
+# ── 4. Enable the six plugins ───────────────────────────────────────────────
 
 say "enabling the Ritrovo plugins"
 for plugin in $RITROVO_PLUGINS; do
@@ -205,7 +206,7 @@ say "importing the Italian seed content"
 
 # ── 6. Serve ─────────────────────────────────────────────────────────────────
 #
-# tap_install fires here, on this start, for the five plugins step 4 enabled.
+# tap_install fires here, on this start, for the six plugins step 4 enabled.
 # ritrovo_importer's runs in a background task: it fetches every confs.tech
 # topic/year file from 2015 to now and pushes the batches onto the ritrovo_import
 # queue, which takes minutes. The cron service drains the queue meanwhile.

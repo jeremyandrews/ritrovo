@@ -134,7 +134,7 @@ jobs:
       - name: The host-in-the-loop suites actually ran
         run: |
           status=0
-          for plugin in ritrovo_access ritrovo_cfp ritrovo_importer ritrovo_notify ritrovo_translate; do
+          for plugin in ritrovo_access ritrovo_cfp ritrovo_forms ritrovo_importer ritrovo_notify ritrovo_translate; do
             result="$(awk -v target="Running tests/${plugin}_host.rs" \
               'index($0, target) { found = 1 } found && /^test result:/ { print; exit }' test.log)"
             if [ -z "$result" ]; then
@@ -157,6 +157,10 @@ jobs:
             incoming_and_curated_conferences_are_gated_by_permission \
             an_italian_conference_is_marked_for_translation_and_an_english_one_is_not \
             each_deadline_renders_the_badge_for_its_distance \
+            saving_the_edit_form_keeps_rendered_fields_and_drops_the_rest \
+            the_kernel_saves_contradictory_cfp_dates_because_no_tap_can_refuse \
+            a_member_writes_a_bio_and_finds_it_again \
+            a_post_without_a_token_is_refused_and_writes_nothing \
             the_sdk_and_the_test_kernel_pin_the_same_trovato; do
             grep -q "^test .*${test} \.\.\. ok$" test.log \
               || { echo "::error::$test did not pass"; status=1; }

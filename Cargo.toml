@@ -4,6 +4,7 @@ members = [
     "demo/checks",
     "plugins/ritrovo_access",
     "plugins/ritrovo_cfp",
+    "plugins/ritrovo_forms",
     "plugins/ritrovo_importer",
     "plugins/ritrovo_notify",
     "plugins/ritrovo_translate",

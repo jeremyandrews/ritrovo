@@ -167,3 +167,60 @@ fn each_deadline_renders_the_badge_for_its_distance() {
         }
     });
 }
+
+/// The kernel saves a conference whose CFP closes after it ends, and the tap
+/// cannot stop it.
+///
+/// This is a **pin on a gap**, not a feature. `tap_item_presave` is dispatched —
+/// this test proves that much, because the plugin is loaded and the save goes
+/// through the real `ItemService` — and the kernel then reads a `fields` object
+/// out of the result, merges it, and writes the row regardless. There is no
+/// return value that means "no". See FRICTION.md, `G-PRESAVE-CANNOT-REFUSE`.
+///
+/// The rule itself is unit-tested in the plugin (`date_complaint`) and enforced
+/// by the submission form `ritrovo_forms` serves, which is allowed to say no.
+///
+/// **If this test starts failing because the create returned an error, the
+/// kernel has grown a veto and STATUS 36.5 / P6 should be reopened.**
+#[test]
+fn the_kernel_saves_contradictory_cfp_dates_because_no_tap_can_refuse() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::install_and_enable(&pool, PLUGIN).await.unwrap();
+        host::import_demo_config(&pool).await;
+        sqlx::query("DELETE FROM item WHERE type = 'conference'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let disp = host::dispatcher(PLUGIN);
+        let items = host::items(&pool, &disp);
+
+        // A CFP closing the day after the conference ends: the one thing the
+        // rule forbids.
+        let conference = host::create_conference(
+            &pool,
+            &items,
+            "Contradictory Conf",
+            None,
+            serde_json::json!({
+                "field_start_date": "2027-05-01",
+                "field_end_date": "2027-05-03",
+                "field_cfp_end_date": "2027-05-04",
+            }),
+        )
+        .await;
+
+        let stored: serde_json::Value = sqlx::query_scalar("SELECT fields FROM item WHERE id = $1")
+            .bind(conference.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            stored["field_cfp_end_date"],
+            serde_json::json!("2027-05-04"),
+            "the contradictory date was neither refused nor rewritten, which is \
+             what this test exists to record"
+        );
+    });
+}

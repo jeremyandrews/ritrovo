@@ -68,7 +68,7 @@ if [ -z "$plugin_list" ]; then
     note "skipped: needs the $COMPOSE_FILE stack. Check by hand with"
     note "\`trovato plugin list | grep ritrovo_\`"
 else
-    for plugin in ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_notify ritrovo_translate; do
+    for plugin in ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_forms ritrovo_notify ritrovo_translate; do
         line="$(printf '%s\n' "$plugin_list" | grep "^$plugin ")"
         if [[ "$line" == *enabled* ]]; then
             ok "$(printf '%s' "$line" | awk '{printf "%-20s %-8s %s", $1, $2, $3}')"

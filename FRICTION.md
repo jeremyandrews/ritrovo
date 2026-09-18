@@ -1,6 +1,6 @@
 # Ritrovo: Friction Log
 
-Produced by running Ritrovo's five plugins on the kernel they ship against:
+Produced by running Ritrovo's six plugins on the kernel they ship against:
 Trovato `v0.102.0`, `rev 20baa121810b5c656b3f80028335770069fab5e0`,
 `KERNEL_API_VERSION (0, 102)`, the same revision the workspace pins for both
 `trovato-sdk` and the test-only `trovato-kernel`. Ritrovo meets the kernel as a
@@ -933,6 +933,71 @@ a multipart upload to a plugin page is refused.
 
 **Recommendation.** Binary request bodies for plugin routes, or a host call that
 stores a temporary file and returns its id.
+
+### G-NO-TEXT-FORMAT-HOST-API: **[Medium, NEW]** a plugin cannot run the kernel's own HTML filter, so a plugin-served form cannot accept rich text
+
+The kernel has text formats and uses them: `plain_text` escapes, `filtered_html` runs
+the value through ammonia, `full_html` trusts it, and the permissions
+`use filtered_html` and `use full_html` decide which a user may pick. All of it is
+kernel-side. **No host interface exposes any of it to a plugin.** There is no
+`text_format` import in the WIT world, and nothing in
+`crates/plugin-sdk/src/host.rs` sanitizes, renders or filters: the imports are `db`,
+`http`, `queue`, `mail`, `crypto`, `user`, `variables`, `logging`, `ai` and
+`plugin-api`, and that is the whole list.
+
+So a plugin serving its own form has two options for a rich-text field, and both are
+wrong. It can accept HTML and render it, which is a stored-XSS hole, because the
+kernel explicitly does not sanitize a plugin's response body
+(`crates/kernel/src/routes/plugin_api.rs:60-66`). Or it can carry its own sanitizer
+inside the WASM module, which means a second implementation of a security-critical
+filter, shipped per plugin, versioned separately from the one the kernel applies to
+the same site's content.
+
+`ritrovo_forms` does neither: the member bio is plain text, rendered as escaped
+paragraphs (`plugins/ritrovo_forms/src/web.rs`, `paragraphs`). That is a real
+reduction against the brief, which asks for a bio with a WYSIWYG, and it is the only
+option that is not a hole or a fork.
+
+The same gap is why a plugin cannot offer the kernel's WYSIWYG at all: the editor is
+a static asset the kernel's admin template loads, and a plugin response cannot add a
+script tag to the page it is themed into.
+
+**Blocks.** 36.7 (bio as `filtered_html`), 36.2 where a plugin serves the form.
+
+**Recommendation.** A host call taking a string and a format name and returning the
+filtered result, refusing a format the current user may not use. The filter already
+exists and already knows the permission rule; only the seam is missing.
+
+### G-ITEM-EDIT-FORM-LOADS-NO-ASSETS: **[Medium, NEW]** the non-admin item form renders the block editor's container onto a page with no scripts, so rich text is administrator-only in practice
+
+`/item/{id}/edit` builds its response as a bare HTML document in
+`crates/kernel/src/routes/item.rs:1095-1115`: a `<style>` block, the form, and no
+`<script>` of any kind. It is not the site template and it loads no assets.
+
+`FormBuilder::render_field` nonetheless renders a `Blocks` field as
+`<input type="hidden">` plus `<div data-block-editor>`
+(`crates/kernel/src/content/form.rs:413-428`), which is exactly what the block
+editor attaches to on the administrator's content form, where
+`templates/admin/content-form.html` does load it. On this page nothing attaches. An
+editor sees a labelled empty div, the hidden input carries the stored JSON, and
+there is no way to change it.
+
+The consequence for Ritrovo is that `field_description` — a `Blocks` field precisely
+because that is the kernel's rich text — is not editable by the role the brief calls
+an editor. It is editable by an administrator, on a screen `G-ADMIN-SCREENS-ARE-ADMIN-ONLY`
+keeps editors off. Verified by
+`the_conference_edit_form_is_generated_from_the_type_and_has_no_editor` in
+`plugins/ritrovo_access/tests/ritrovo_access_host.rs`, which asserts the container is
+rendered and the page carries no script.
+
+Rendering a widget that cannot work is worse than rendering a textarea: a textarea
+would at least let an editor write something.
+
+**Blocks.** 36.2, D7 (WYSIWYG for descriptions, for any role but administrator).
+
+**Recommendation.** Serve the non-admin item form through the site template with the
+same assets the admin form gets, or have `FormBuilder` fall back to a textarea for
+`Blocks` when the response will not carry the editor.
 
 ### G-PLUGIN-ROUTE-NO-HEADERS: **[Low, NEW]** a plugin route sees no request headers and sets none
 

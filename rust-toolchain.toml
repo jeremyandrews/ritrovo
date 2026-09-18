@@ -15,7 +15,7 @@
 #
 # BUMP PROTOCOL: bump this only alongside the kernel's pin, and rerun
 #   cargo build --target wasm32-wasip1 --release
-# for all five plugins before committing.
+# for all six plugins before committing.
 
 [toolchain]
 channel = "1.96.0"

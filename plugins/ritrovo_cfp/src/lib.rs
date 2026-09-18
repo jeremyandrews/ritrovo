@@ -86,6 +86,101 @@ fn render_badge(item: &Item, now: i64) -> String {
     format!(r#"<span class="cfp-badge {color_class}">{label}</span>"#,)
 }
 
+// ─── The date rule ───────────────────────────────────────────────────
+
+/// Check a conference's dates, returning the complaint if there is one.
+///
+/// The rule is the brief's: **a call for papers cannot close after the
+/// conference it is calling for has ended.** A conference whose CFP closes the
+/// day it starts is odd and legal; one whose CFP closes after the last day is a
+/// typo, every time.
+///
+/// Pure, and takes the two dates rather than an `Item`, so the same rule can be
+/// applied to a form submission that has no Item yet. Both sides are read the
+/// way the kernel stores a `Date` field, `YYYY-MM-DD`, and compared as days:
+/// closing *on* the final day is allowed, closing the day after is not.
+///
+/// `None` when there is nothing to complain about, which includes every case
+/// where a date is missing or unreadable. A missing date is not this rule's
+/// business, and refusing to parse something is not the same as finding it
+/// wrong.
+pub fn date_complaint(cfp_end_date: Option<&str>, end_date: Option<&str>) -> Option<String> {
+    let (cfp_text, end_text) = (cfp_end_date?, end_date?);
+    let cfp = date_to_days(cfp_text)?;
+    let end = date_to_days(end_text)?;
+    (cfp > end).then(|| {
+        format!(
+            "The call for papers closes on {cfp_text}, after the conference ends \
+             on {end_text}. A CFP cannot close after the event it is for."
+        )
+    })
+}
+
+/// Report a conference whose dates contradict each other.
+///
+/// # What this tap cannot do
+///
+/// **It cannot refuse the save.** The kernel dispatches `tap_item_presave`,
+/// reads a `fields` object out of whatever comes back, merges it, and then saves
+/// unconditionally: there is no error path and no veto, for create or for
+/// update (`ItemService::create` and `::update` at the pinned release). Nor is
+/// there any way to put a message in front of the editor who typed the dates —
+/// `tap_form_validate` exists and is dispatched by a `FormService` that no route
+/// calls. So the brief's "validation error returned on save" is not available
+/// here. See FRICTION.md, `G-PRESAVE-CANNOT-REFUSE` and
+/// `G-FORM-TAPS-UNREACHABLE`.
+///
+/// # What it does instead, and why not more
+///
+/// It logs, naming the conference and both dates, and changes nothing.
+///
+/// Clamping the CFP date to the end date was the other candidate and is worse:
+/// the dates are each individually usable, so the plugin does not know which of
+/// the two the editor mistyped, and silently rewriting one of them would turn a
+/// visible contradiction into an invisible wrong answer. A record that is wrong
+/// and says so beats a record that is wrong and looks fine.
+///
+/// **Where the rule is actually enforced** is the submission form Ritrovo serves
+/// itself, which refuses the step before anything reaches the kernel. A rule can
+/// only be enforced where something is allowed to say no.
+#[plugin_tap]
+pub fn tap_item_presave(input: serde_json::Value) -> serde_json::Value {
+    let is_conference = input
+        .get("item_type")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|t| t == "conference");
+    if !is_conference {
+        return serde_json::json!({});
+    }
+
+    let fields = input.get("fields");
+    let read = |key: &str| -> Option<String> {
+        fields?
+            .get(key)
+            .and_then(|v| v.get("value").unwrap_or(v).as_str())
+            .map(str::to_string)
+    };
+
+    if let Some(complaint) = date_complaint(
+        read("field_cfp_end_date").as_deref(),
+        read("field_end_date").as_deref(),
+    ) {
+        let title = input
+            .get("title")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("(untitled)");
+        host::log(
+            "warn",
+            "ritrovo_cfp",
+            &format!("saving \"{title}\" anyway: {complaint}"),
+        );
+    }
+
+    // Nothing modified. An empty object is the "no changes" answer: the kernel
+    // merges the `fields` it finds, and there are none.
+    serde_json::json!({})
+}
+
 /// The instant the CFP closes, as a Unix timestamp, or `None` if the item has
 /// no usable deadline.
 ///
@@ -284,6 +379,115 @@ mod tests {
             let item = make_item("conference", Some(serde_json::json!(bad)), NOW);
             assert!(render_badge(&item, NOW).is_empty(), "{bad:?} rendered");
         }
+    }
+
+    // ─── The date rule ───────────────────────────────────────────
+
+    #[test]
+    fn a_cfp_closing_before_the_end_is_fine() {
+        assert_eq!(date_complaint(Some("2027-03-01"), Some("2027-05-03")), None);
+    }
+
+    #[test]
+    fn a_cfp_closing_on_the_final_day_is_fine() {
+        // The boundary is inclusive on purpose: a CFP that closes as the
+        // conference ends is unusual and it is not a mistake.
+        assert_eq!(date_complaint(Some("2027-05-03"), Some("2027-05-03")), None);
+    }
+
+    #[test]
+    fn a_cfp_closing_the_day_after_the_end_is_refused() {
+        let complaint = date_complaint(Some("2027-05-04"), Some("2027-05-03"))
+            .expect("a CFP closing after the end is the whole rule");
+        assert!(complaint.contains("2027-05-04"), "{complaint}");
+        assert!(complaint.contains("2027-05-03"), "{complaint}");
+    }
+
+    #[test]
+    fn a_cfp_closing_long_after_the_end_is_refused() {
+        assert!(date_complaint(Some("2028-01-01"), Some("2027-05-03")).is_some());
+    }
+
+    #[test]
+    fn a_missing_date_is_not_this_rules_business() {
+        assert_eq!(date_complaint(None, Some("2027-05-03")), None);
+        assert_eq!(date_complaint(Some("2027-05-04"), None), None);
+        assert_eq!(date_complaint(None, None), None);
+    }
+
+    #[test]
+    fn an_unreadable_date_is_not_reported_as_wrong() {
+        // Refusing to parse something is not the same as finding it wrong, and
+        // a complaint quoting "soon" would help nobody.
+        assert_eq!(date_complaint(Some("soon"), Some("2027-05-03")), None);
+        assert_eq!(date_complaint(Some("2027-05-04"), Some("whenever")), None);
+        assert_eq!(date_complaint(Some("2027-5-4"), Some("2027-05-03")), None);
+    }
+
+    // Across a year boundary, where a string comparison would also have worked,
+    // and across a month boundary, where it would not.
+    #[test]
+    fn the_comparison_is_by_date_not_by_string() {
+        assert!(date_complaint(Some("2027-09-02"), Some("2027-10-01")).is_none());
+        assert!(date_complaint(Some("2027-10-01"), Some("2027-09-02")).is_some());
+    }
+
+    // ─── The presave tap ──────────────────────────────────────────
+
+    fn presave(item_type: &str, cfp_end: &str, end: &str) -> serde_json::Value {
+        __inner_tap_item_presave(serde_json::json!({
+            "item_type": item_type,
+            "title": "Some Conf",
+            "fields": {
+                "field_cfp_end_date": cfp_end,
+                "field_end_date": end,
+            },
+        }))
+    }
+
+    /// The tap never changes a field, and that is the design rather than an
+    /// oversight: see `tap_item_presave`. An empty object is "no changes".
+    #[test]
+    fn the_presave_tap_modifies_nothing_whatever_the_dates_say() {
+        for (cfp, end) in [("2027-05-04", "2027-05-03"), ("2027-03-01", "2027-05-03")] {
+            let out = presave("conference", cfp, end);
+            assert_eq!(out, serde_json::json!({}), "cfp {cfp}, end {end}");
+        }
+    }
+
+    #[test]
+    fn the_presave_tap_ignores_other_item_types() {
+        assert_eq!(
+            presave("speaker", "2027-05-04", "2027-05-03"),
+            serde_json::json!({})
+        );
+    }
+
+    /// A field stored as `{"value": ...}` reads the same as a bare string.
+    ///
+    /// Both shapes exist in the wild: the admin stack writes one and the
+    /// importer the other, and a rule that only saw one of them would pass on
+    /// half the site's content.
+    #[test]
+    fn the_presave_tap_reads_both_stored_field_shapes() {
+        let wrapped = __inner_tap_item_presave(serde_json::json!({
+            "item_type": "conference",
+            "title": "Some Conf",
+            "fields": {
+                "field_cfp_end_date": {"value": "2027-05-04"},
+                "field_end_date": {"value": "2027-05-03"},
+            },
+        }));
+        assert_eq!(wrapped, serde_json::json!({}));
+    }
+
+    #[test]
+    fn the_presave_tap_survives_an_item_with_no_fields() {
+        let out = __inner_tap_item_presave(serde_json::json!({
+            "item_type": "conference",
+            "title": "Bare Conf",
+        }));
+        assert_eq!(out, serde_json::json!({}));
     }
 
     #[test]

@@ -6,7 +6,7 @@ Ritrovo is a conference management reference application built on [Trovato](http
 
 Extracted from the Trovato monorepo on 2026-04-14 via `git filter-repo`. History is preserved for all Ritrovo-specific commits.
 
-**Builds standalone, from public sources.** All five plugins compile to WebAssembly against the Trovato SDK as an external git dependency on the public Trovato repository, with no Trovato checkout anywhere on disk and no credentials. See "Building" below.
+**Builds standalone, from public sources.** All six plugins compile to WebAssembly against the Trovato SDK as an external git dependency on the public Trovato repository, with no Trovato checkout anywhere on disk and no credentials. See "Building" below.
 
 **Runs standalone, on the released kernel.** `scripts/serve-demo.sh` stands the
 whole site up against the pinned `ghcr.io/jeremyandrews/trovato` image, with
@@ -38,11 +38,11 @@ What it stands up, in order, because the order is the interesting part:
 | | |
 |---|---|
 | Postgres 16, Redis 7 | the kernel's two dependencies |
-| the five Ritrovo plugins | compiled to WebAssembly in a throwaway `rust:1-bookworm` container, staged into an overlay volume |
+| the six Ritrovo plugins | compiled to WebAssembly in a throwaway `rust:1-bookworm` container, staged into an overlay volume |
 | `ghcr.io/jeremyandrews/trovato` | the **released** kernel at the pinned version, unmodified, with the overlay appended to its three search paths |
 | the installer | completed over HTTP, so nobody has to fill in a form |
 | the tutorial config set | imported **before** the plugins are enabled, which is the trap: `ritrovo_importer` resolves the topic taxonomy once, in `tap_install` |
-| the five plugins | enabled, then a restart, which is when `tap_install` fires and the conference import begins |
+| the six plugins | enabled, then a restart, which is when `tap_install` fires and the conference import begins |
 | a cron poker | the kernel has no scheduler, so something has to `POST /cron/<key>` until the import queue drains |
 | the Italian seed content | Part 7's content-translation set |
 | the front page | pointed at `/conferences` |
