@@ -335,6 +335,53 @@ for the same reason as everything above.
 
 ---
 
+## Walkthrough 5: the field only editors can read
+
+`field_editor_notes` is declared on the `conference` type and is the brief's one
+example of field-level access: editors see the notes, everyone else does not.
+
+**It is hidden by `tap_field_access`, and that is real access control.** The
+kernel drops a denied field from the Item *before* it renders anything and before
+any view tap runs. A template never receives the value, so there is no markup to
+inspect and nothing a theme change could undo.
+
+This is worth stating precisely, because the demo alone cannot prove it. No
+template prints `field_editor_notes`, so "the note is not on the anonymous page"
+is true whether the field was stripped or merely never rendered. The proof is a
+host-in-the-loop test,
+`editor_notes_is_stripped_from_the_item_a_reader_is_given`, which never looks at
+HTML: it asks the kernel for the Item as `viewer_carol` sees it and asserts the
+key is absent from `fields` entirely, then asks as `editor_alice` and asserts the
+value is there. It also checks that `field_city` survives, so that hiding one
+field cannot quietly hide the item.
+
+### The two things about this tap that are easy to get wrong
+
+- **It fails open.** `NoOpinion`, an absent field, an unparseable answer and no
+  implementer all mean *visible*: field access refines item access rather than
+  replacing it. Hiding therefore takes an explicit `Deny`, and a tap that returns
+  nothing shows the field. A `Deny` from any plugin still wins over every Allow.
+- **It is type-level and batched.** The payload carries no item id, so a rule can
+  say "editor notes on a conference" and cannot say "on this conference". The
+  kernel caches decisions per permission set and asks only about fields it has
+  not resolved, so the tap gets a subset and must answer about what it was handed.
+
+### The hole, and where it is actually closed
+
+The kernel evaluates field access for `view` only, so a field hidden on the page
+is still rendered on the **edit form**. Nothing closes that in the field tap.
+What closes it is `tap_item_access`, which denies the `edit` operation to anyone
+without an editor's permission, so nobody who cannot read the notes can open the
+form that shows them. It is worth knowing that the guard is the item tap and not
+the field tap, because the hole reopens the moment that stops being true.
+
+The Pagefind index is a second place the field could escape, and it is held shut
+by configuration rather than by this tap: the indexer never runs field access, so
+a field listed in `search_field_config` is in the public index whatever any
+plugin says. `field_editor_notes` is not listed.
+
+---
+
 ## What the search index contains, and why
 
 **The Pagefind index an anonymous visitor searches holds published Live items
