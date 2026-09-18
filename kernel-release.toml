@@ -24,6 +24,14 @@
 # Cargo.toml has to carry the literal sha: cargo cannot read a git dependency's
 # `rev` out of another file, which is why this is a generator plus a test rather
 # than a variable.
+#
+# WHAT THIS DOES NOT OWN. The generator owns the places where naming the wrong
+# release BREAKS something: the two revs, the five manifests, the demo image, the
+# template checker's tag, and the marker blocks in README.md and docs/INSTALL.md.
+# Other files name the release in prose that is dated or narrative, and a bump
+# does not silently falsify them the way a stale manifest breaks an install. They
+# are left to their authors on purpose. `grep -rn 0\.10 --exclude-dir=.git` finds
+# every mention if you want to sweep them by hand.
 
 version = "0.102.0"
 rev = "20baa121810b5c656b3f80028335770069fab5e0"

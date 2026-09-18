@@ -3,8 +3,8 @@
 //! Each test here pins one thing that is invisible to the compiler and only
 //! shows up as a broken demo: a plugin missing from the enable list, a search
 //! path in the wrong order, the front-page config gone, one of the eleven places
-//! that name the pinned kernel release left behind by a bump. All of them read
-//! the real files.
+//! the kernel-release generator owns left behind by a bump. All of them read the
+//! real files.
 //!
 //! The release is the one case where this file is a generator's guard rather
 //! than a hand-written expectation: `kernel-release.toml` authors it,
