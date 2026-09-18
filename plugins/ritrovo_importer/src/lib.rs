@@ -80,6 +80,23 @@ const QUEUE_NAME: &str = "ritrovo_import";
 /// Category ID for the conference topics taxonomy.
 const TOPICS_CATEGORY_ID: &str = "topics";
 
+/// The Incoming stage, where an imported conference lands.
+///
+/// Ritrovo's own constant, matching `demo/config/stage.*.yml`, because the SDK
+/// exports only `LIVE_STAGE_UUID`: Live is the one stage the kernel knows by
+/// name, and every other stage is configuration a site defines for itself.
+///
+/// Imports used to land on Live, which meant nothing was ever reviewed and the
+/// brief's editorial pipeline had no input. They land here instead, and an
+/// editor promotes them. The kernel cannot do this itself: no route, form,
+/// bulk action or host call sets an item's stage, and `item-api`'s `save-item`
+/// hardcodes `stage_id: None` on create, which `Item::create` resolves to Live
+/// (`G-NO-ITEM-STAGE-TRANSITION`). The importer can only do it because it
+/// writes its own INSERT through the raw-SQL host call, where the column is
+/// just a column. A conference submitted through a form still lands on Live,
+/// for exactly the reason this comment exists.
+const INCOMING_STAGE_UUID: &str = "0193a5a0-0000-7000-8000-000000000002";
+
 /// State key prefix for topic term UUIDs: `"topic_term.{term_slug}"`.
 const STATE_TOPIC_TERM_PREFIX: &str = "topic_term";
 
@@ -1253,9 +1270,20 @@ fn detect_language(locales: Option<&str>) -> (String, bool) {
     }
 }
 
-/// Insert a new conference item, published, on the live stage.
+/// Insert a new conference item, published, on the Incoming stage.
 ///
 /// Returns true on success.
+///
+/// "Published" and "Incoming" are two different axes and both are deliberate.
+/// `status = 1` means the item is not a draft; the Incoming stage means no
+/// editor has looked at it yet. An anonymous visitor sees neither, because the
+/// kernel denies an unauthenticated viewer any item on a stage whose visibility
+/// is `internal`, whatever its status. Promotion to Live is what makes it
+/// public, and that is an editor's act, on the editorial screen.
+///
+/// The ON CONFLICT branch deliberately does NOT touch `stage_id`: a re-import
+/// refreshes a conference's source-derived fields, and must never drag an item
+/// an editor has already promoted back to Incoming.
 ///
 /// This plugin does not define the `conference` type it writes. The type, its
 /// fields and their types are Ritrovo's, in `demo/config/item_type.conference.yml`,
@@ -1314,7 +1342,7 @@ fn insert_conference(
                      )",
         &[
             serde_json::json!(conf.name),
-            serde_json::json!(LIVE_STAGE_UUID),
+            serde_json::json!(INCOMING_STAGE_UUID),
             serde_json::json!(now),
             serde_json::json!(fields.to_string()),
         ],

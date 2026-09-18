@@ -32,6 +32,14 @@
 #   PLUGINS_DIR, TEMPLATES_DIR, STATIC_DIR    the three search paths
 #   DEMO_ADMIN_USER / _PASSWORD / _EMAIL      the account the installer creates
 #   RITROVO_CONFIG_DIR                        Ritrovo's config set (this repo)
+#
+# The three editorial users — editor_alice, publisher_bob and viewer_carol — are
+# NOT created here. `ritrovo_access`'s tap_install creates them on the final
+# start, because the kernel has no route or CLI that makes an active user with a
+# role, and registration cannot make three of them: its rate limit is counted
+# twice per request, so one POST per hour succeeds
+# (FRICTION.md, G-RATE-LIMIT-COUNTED-TWICE). Their passwords are in
+# docs/EDITORIAL.md, next to the walkthrough that uses them.
 
 set -eu
 

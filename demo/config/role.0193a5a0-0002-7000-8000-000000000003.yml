@@ -1,16 +1,30 @@
-# Publisher role — editor permissions plus publish/unpublish.
+# Publisher role — promotes Curated to Live, held by publisher_bob.
 #
-# `config import` applies these permissions, replacing whatever the role holds:
-# the file is authoritative, so removing a line here revokes that permission on
-# the next import.
+# The brief's publisher is an editor who can also publish: promote Curated to
+# Live, bulk publish, revert revisions and manage categories. Everything the
+# editor role holds, plus deletion, full HTML and category administration.
 #
-# Four permissions this role is meant to hold are NOT listed, and cannot be:
-#   - view incoming conferences   (declared by ritrovo_access, Part 5)
-#   - view curated conferences    (declared by ritrovo_access, Part 5)
-#   - edit conferences            (declared by ritrovo_access, Part 5)
-#   - publish conferences         (declared by ritrovo_access, Part 5)
-# See the viewer role's file for why a plugin's permissions cannot be listed
-# until the plugin has granted them once.
+# `config import` applies these permissions with REPLACE semantics: the file is
+# authoritative, so removing a line here revokes that permission on the next
+# import.
+#
+# FOUR OF THE BRIEF'S PERMISSIONS ARE NOT HERE AND CANNOT BE:
+#   - view incoming conferences   (declared by ritrovo_access)
+#   - view curated conferences    (declared by ritrovo_access)
+#   - edit conferences            (declared by ritrovo_access)
+#   - publish conferences         (declared by ritrovo_access)
+# `tap_perm` is not dispatched at the pinned release. `FRICTION.md`,
+# `G-PERM-TAP-NOT-DISPATCHED`. The editor role's file explains the substitution
+# in full; the short version is that `edit any content` is the editorial signal
+# `ritrovo_access` reads instead.
+#
+# `publish conferences` has no kernel equivalent at all, because the kernel has
+# no notion of publishing as a permission: promoting a stage is not an operation
+# it models. What separates a publisher from an editor in this demo is therefore
+# `delete any content` plus the promote-to-Live control on the editorial screen,
+# which `ritrovo_access` gates on `delete any content` for exactly that reason.
+# It is a stand-in for a permission the kernel cannot express, and it is named as
+# one both here and on the screen itself.
 id: 0193a5a0-0002-7000-8000-000000000003
 name: publisher
 created: "2026-01-01T00:00:00Z"
@@ -22,5 +36,7 @@ permissions:
 - delete any content
 - access files
 - administer files
+- administer categories
 - use filtered_html
 - use full_html
+- view own profile
