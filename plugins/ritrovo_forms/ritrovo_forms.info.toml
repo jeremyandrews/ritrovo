@@ -1,6 +1,6 @@
 name = "ritrovo_forms"
 description = "The forms Ritrovo serves itself: the member profile, and conference submission"
-version = "0.1.0"
+version = "0.2.0"
 api_version = "0.102"
 default_enabled = false
 dependencies = []
@@ -27,6 +27,7 @@ weight = 0
 [migrations]
 files = [
     "migrations/001_create_ritrovo_profile.sql",
+    "migrations/002_create_ritrovo_form_state.sql",
 ]
 
 # Declared plugin capabilities (WASM-1, deny-unless-declared). The Trovato
@@ -38,10 +39,17 @@ files = [
 # extra field could be added through (G-USER-PROFILE-NOT-EXTENSIBLE), so a
 # member's bio lives in `ritrovo_profile` rather than on the user.
 #
-# `logging` so a failed write is visible in the site's log rather than only as a
+# `logging` so a failed write is visible in the site's log rather than only as an
 # apologetic page in one person's browser.
+#
+# `crypto` for one thing: the random ids this plugin writes. A plugin cannot read
+# back a row it inserted (query-raw refuses anything that is not read-only,
+# execute-raw returns a count, and the SDK does not wrap the structured insert
+# the WIT declares), so the writing side generates the key. A draft id is also a
+# capability — it names a row somebody can continue — so it comes from the
+# kernel's CSPRNG rather than from a counter.
 [capabilities]
-host_interfaces = ["db", "logging"]
+host_interfaces = ["crypto-api", "db", "logging"]
 # Uses the raw-SQL host functions query-raw and execute-raw. There is no typed
 # host API for a plugin-owned table; raw SQL is the only way to read or write
 # one, and every statement here is parameterized.
