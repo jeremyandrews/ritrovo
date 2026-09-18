@@ -1,0 +1,29 @@
+# The Trovato release this repository pins, and the only place it is authored.
+#
+# Everything else in the repository that names the release is DERIVED from these
+# two fields, written by scripts/sync-kernel-release.sh and checked by
+# demo/checks/tests/demo_wiring.rs. To move the pin:
+#
+#     scripts/sync-kernel-release.sh --set-version 0.103.0
+#
+# which resolves the tag against the real Trovato repository, rewrites this file,
+# and rewrites every derived location. Then review the diff. Editing a derived
+# location by hand is not wrong, it is just undone by the next sync and reported
+# by `cargo test --workspace` in the meantime.
+#
+# The derivations, so a reader does not have to open the script:
+#
+#     git tag             v{version}                      v0.102.0
+#     manifest api        major.minor of {version}        0.102
+#     KERNEL_API_VERSION  (major, minor) of {version}     (0, 102)
+#     demo kernel image   ghcr.io/jeremyandrews/trovato:{version}
+#     SDK and kernel rev  {rev}, verbatim
+#
+# `rev` is the commit the `v{version}` tag points at, which is the tree the
+# published container image of that release was built from. The dependency in
+# Cargo.toml has to carry the literal sha: cargo cannot read a git dependency's
+# `rev` out of another file, which is why this is a generator plus a test rather
+# than a variable.
+
+version = "0.102.0"
+rev = "20baa121810b5c656b3f80028335770069fab5e0"
