@@ -39,6 +39,20 @@ x-kernel-env: &kernel-env
   STATIC_DIR: /var/lib/ritrovo/index:/app/static:/ritrovo/docs/tutorial/static
   UPLOADS_DIR: /var/lib/ritrovo/uploads
   RUST_LOG: ${RUST_LOG:-info,sqlx=warn,tower_http=warn}
+  # How long the kernel keeps an Item in its in-process cache. Default 300.
+  #
+  # Lowered because Ritrovo's editorial screen changes an item's stage through
+  # the `db` host interface, which is the only way to change one at all, and a
+  # plugin has no way to invalidate that cache: it is keyed by item uuid inside
+  # ItemService, not by a cache tag, and the plugin cache host call namespaces
+  # every key under the plugin's own name. So a conference promoted to Live kept
+  # 404ing on its own page, for up to the cache lifetime, while already appearing
+  # in every listing (those query the database directly). Ten seconds makes the
+  # promotion look immediate to a person clicking through.
+  #
+  # This is a demo setting covering a kernel gap, not a recommendation: see
+  # FRICTION.md, G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE.
+  CACHE_TTL_ITEMS: ${CACHE_TTL_ITEMS:-10}
 
 services:
   postgres:

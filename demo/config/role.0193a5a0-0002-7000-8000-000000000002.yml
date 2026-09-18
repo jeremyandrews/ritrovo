@@ -1,15 +1,37 @@
-# Editor role — can create, edit and review conference content.
+# Editor role — reviews what the importer lands, held by editor_alice.
 #
-# `config import` applies these permissions, replacing whatever the role holds:
-# the file is authoritative, so removing a line here revokes that permission on
-# the next import.
+# The brief's editor sees the Incoming and Curated stages, edits any
+# conference, sees the editor_notes field, and promotes Incoming to Curated.
+# They do not publish: that is the publisher's job.
 #
-# Three permissions this role is meant to hold are NOT listed, and cannot be:
-#   - view incoming conferences   (declared by ritrovo_access, Part 5)
-#   - view curated conferences    (declared by ritrovo_access, Part 5)
-#   - edit conferences            (declared by ritrovo_access, Part 5)
-# See the viewer role's file for why a plugin's permissions cannot be listed
-# until the plugin has granted them once.
+# `config import` applies these permissions with REPLACE semantics: the file is
+# authoritative, so removing a line here revokes that permission on the next
+# import.
+#
+# THREE OF THE BRIEF'S PERMISSIONS ARE NOT HERE AND CANNOT BE:
+#   - view incoming conferences   (declared by ritrovo_access)
+#   - view curated conferences    (declared by ritrovo_access)
+#   - edit conferences            (declared by ritrovo_access)
+# `tap_perm` is not dispatched at the pinned release, so no role can hold a
+# plugin's permission. `FRICTION.md`, `G-PERM-TAP-NOT-DISPATCHED`.
+#
+# WHAT STANDS IN FOR THEM: `edit any content`, a kernel permission, is this
+# role's editorial signal. `ritrovo_access` treats it as equivalent to
+# `edit conferences` when it decides stage access, and the editorial screen at
+# /admin/content/editorial is gated on it. That is a deliberate, documented
+# substitution, not an accident, and it is coarser than the brief asks for:
+# `edit any content` is site-wide, so an editor can edit any item type, not
+# only a conference. The moment the kernel dispatches `tap_perm`, the four
+# permissions above can be listed here and the substitution can be dropped;
+# `ritrovo_access` already declares them and already prefers them when present.
+#
+# The brief's three comment permissions are not here either, for a different
+# reason: they belong to `trovato_comments`, and naming another plugin's
+# permission in a configuration set makes the set depend on that plugin being
+# installed first. It imported in the demo and failed in the host-in-the-loop
+# suites, which import this set into a bare database. The authenticated role's
+# file has the full account. Comments are Part 6 work; this set stays importable
+# anywhere.
 id: 0193a5a0-0002-7000-8000-000000000002
 name: editor
 created: "2026-01-01T00:00:00Z"
@@ -20,3 +42,4 @@ permissions:
 - edit any content
 - access files
 - use filtered_html
+- view own profile

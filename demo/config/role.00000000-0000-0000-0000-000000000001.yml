@@ -1,0 +1,22 @@
+# Anonymous role — an unauthenticated visitor.
+#
+# One of the two roles the kernel seeds itself (`roles` table, fixed uuid). It
+# is shipped here so the brief's five-role permission grid is visible as
+# configuration rather than as an invisible default, and so a reader can see
+# exactly what a visitor holds without querying the database.
+#
+# `config import` applies `permissions:` with REPLACE semantics: this file is
+# authoritative, and removing a line here revokes that permission on the next
+# import. Omitting the key entirely would leave the role's grants alone.
+#
+# Anonymous deliberately holds `access content` and nothing else. That single
+# permission is what the kernel's published-content fast path checks before it
+# consults any plugin, so it is what lets a visitor read a published conference
+# on the Live stage. It grants nothing on the internal stages: the kernel denies
+# an unauthenticated viewer any item on a stage whose visibility is `internal`,
+# before `ritrovo_access` is asked at all.
+id: 00000000-0000-0000-0000-000000000001
+name: anonymous user
+created: "2026-01-01T00:00:00Z"
+permissions:
+- access content

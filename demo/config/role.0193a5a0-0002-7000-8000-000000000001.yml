@@ -1,17 +1,28 @@
-# Viewer role — can view content on all editorial stages.
+# Viewer role — the brief's plain reader, held by the demo user viewer_carol.
 #
-# `config import` applies these permissions, replacing whatever the role holds:
-# the file is authoritative, so removing a line here revokes that permission on
-# the next import.
+# A viewer is an authenticated visitor with no editorial standing: everything
+# anonymous can do, plus commenting, and nothing on the internal stages. It
+# exists as a named role so the demo can show the difference between "signed in"
+# and "signed in with editorial access" side by side, which is the whole point
+# of logging in as viewer_carol and then as editor_alice.
 #
-# Two permissions this role is meant to hold are NOT listed, and cannot be:
-#   - view incoming conferences   (declared by ritrovo_access, Part 5)
-#   - view curated conferences    (declared by ritrovo_access, Part 5)
-# They belong to a plugin, and the kernel cannot enumerate a plugin's
-# permissions (`tap_perm` is declared but not dispatched), so import rejects a
-# permission it has never seen rather than granting a string that matches
-# nothing. Add them to this file once ritrovo_access is enabled and has granted
-# them once, or grant them at /admin/people/permissions.
+# `config import` applies these permissions with REPLACE semantics: the file is
+# authoritative, so removing a line here revokes that permission on the next
+# import.
+#
+# TWO OF THE BRIEF'S PERMISSIONS ARE NOT HERE AND CANNOT BE:
+#   - view incoming conferences   (declared by ritrovo_access)
+#   - view curated conferences    (declared by ritrovo_access)
+# Both are declared by `ritrovo_access` through `tap_perm`, and the kernel at
+# the pinned release never dispatches `tap_perm`, so its permissions exist
+# nowhere the kernel looks. Config import rejects a permission string it has
+# never seen rather than granting one that matches nothing, and the permission
+# grid cannot render one either. `FRICTION.md`, `G-PERM-TAP-NOT-DISPATCHED`.
+#
+# The consequence for this role is not a workaround but a real limitation: a
+# viewer genuinely cannot see the internal stages in this demo, which is what
+# the brief wants for a viewer anyway. The roles that need that access get it
+# through a kernel permission instead; see the editor and publisher files.
 id: 0193a5a0-0002-7000-8000-000000000001
 name: viewer
 created: "2026-01-01T00:00:00Z"
