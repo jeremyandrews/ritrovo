@@ -1,6 +1,6 @@
 name = "ritrovo_access"
 description = "Editorial workflow access control for conferences"
-version = "1.1.0"
+version = "1.2.0"
 api_version = "0.102"
 default_enabled = false
 dependencies = []
@@ -9,7 +9,7 @@ dependencies = []
 implements = [
     "tap_perm",
     "tap_item_access",
-    "tap_item_view",
+    "tap_field_access",
     # The editorial screen. tap_menu registers the two routes and tap_api serves
     # them; without tap_api the kernel has no export to dispatch to and both
     # paths 404 however they are declared.

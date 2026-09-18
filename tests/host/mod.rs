@@ -704,9 +704,40 @@ pub async fn create_conference(
 }
 
 /// A signed-in visitor holding exactly these permissions.
+///
+/// Synthetic: the permission set is handed over rather than resolved, which is
+/// right for testing a tap's own logic and wrong for testing whether anybody can
+/// actually hold those permissions. For that, use [`visitor_named`].
 pub async fn visitor(pool: &PgPool, permissions: &[&str]) -> UserContext {
     UserContext::authenticated(
         any_user(pool).await,
         permissions.iter().map(|p| (*p).to_string()).collect(),
     )
+}
+
+/// A real user, with the permissions their real roles really grant.
+///
+/// The difference from [`visitor`] is the whole point of it. `visitor` proves a
+/// tap decides correctly when handed a permission set; this proves the set a
+/// signed-in person actually carries, resolved the way the kernel resolves it
+/// for a request: `PermissionService::load_user_permissions` over the
+/// `user_roles` join, then `context_from_permissions`, which is also what adds
+/// the administrator marker.
+///
+/// So a test using this fails if `demo/config/role.*.yml` stops granting what
+/// the plugin reads — which is exactly the failure that a synthetic context
+/// cannot see, and the one that would take the demo's editorial workflow down.
+pub async fn visitor_named(pool: &PgPool, username: &str) -> UserContext {
+    let user = trovato_kernel::models::User::find_by_name(pool, username)
+        .await
+        .unwrap_or_else(|e| panic!("look up {username}: {e}"))
+        .unwrap_or_else(|| panic!("no user named {username}"));
+
+    let permissions =
+        trovato_kernel::permissions::PermissionService::new(pool.clone(), Duration::from_secs(60))
+            .load_user_permissions(&user)
+            .await
+            .unwrap_or_else(|e| panic!("load permissions for {username}: {e}"));
+
+    trovato_kernel::permissions::context_from_permissions(&user, permissions)
 }
