@@ -299,6 +299,135 @@ fi
 italian="$(sql "select count(*) from item where type='conference' and fields->>'primary_language'='it'")"
 [ -n "$italian" ] && note "conferences whose primary language is Italian: $italian"
 
+head_ "the editorial workflow"
+
+# The brief's pipeline, checked as a visitor and as each of the three editorial
+# users. This is the part of the demo that is Ritrovo's own: the kernel has no
+# way to move an item between stages, so the screen these checks exercise is
+# served by ritrovo_access (FRICTION.md, G-NO-ITEM-STAGE-TRANSITION).
+EDITORIAL_PATH="/admin/content/editorial"
+
+# One jar per user, because a session is what carries the role.
+editor_jar="$(mktemp)"
+publisher_jar="$(mktemp)"
+viewer_jar="$(mktemp)"
+trap 'rm -f "$JAR" "$editor_jar" "$publisher_jar" "$viewer_jar"' EXIT
+
+# Log in, retrying past the rate limiter.
+#
+# The kernel counts one login against the limit TWICE, once in the middleware and
+# once in the handler, so the documented five-per-minute is really two and a
+# script that logs in three users in a row trips it
+# (FRICTION.md, G-RATE-LIMIT-COUNTED-TWICE). Retrying is what makes these checks
+# about the editorial workflow rather than about the rate limiter.
+login_as() {
+    jar="$1"
+    username="$2"
+    password="$3"
+    attempt=0
+    while [ "$attempt" -lt 10 ]; do
+        if curl -s -c "$jar" -X POST "$BASE/user/login/json" \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$username\",\"password\":\"$password\"}" \
+            | grep -q '"success":true'; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        sleep 10
+    done
+    return 1
+}
+
+code_with() { curl -s -b "$1" -o /dev/null -w '%{http_code}' "$BASE$2"; }
+
+for account in \
+    "editor_alice:ritrovo-editor-demo:$editor_jar" \
+    "publisher_bob:ritrovo-publisher-demo:$publisher_jar" \
+    "viewer_carol:ritrovo-viewer-demo:$viewer_jar"; do
+    name="${account%%:*}"
+    rest="${account#*:}"
+    password="${rest%%:*}"
+    jar="${rest#*:}"
+    if login_as "$jar" "$name" "$password"; then
+        ok "$name can log in"
+    else
+        bad "$name could not log in (the account, or its password, is wrong)"
+    fi
+done
+
+# The Incoming listing: refused to a visitor, refused to a signed-in reader,
+# served to an editor.
+#
+# Anonymous is 401 and not 403 on purpose: a plugin route answers UNAUTHORIZED to
+# a caller with no session and FORBIDDEN to one that is signed in and lacks the
+# permission (crates/kernel/src/routes/plugin_api.rs:277-284). Both are checked,
+# because "refused" that cannot tell those two apart would pass while signed-in
+# readers were being let in.
+anon_code="$(code "$EDITORIAL_PATH")"
+viewer_code="$(code_with "$viewer_jar" "$EDITORIAL_PATH")"
+editor_code="$(code_with "$editor_jar" "$EDITORIAL_PATH")"
+if [ "$anon_code" = "401" ] && [ "$viewer_code" = "403" ] && [ "$editor_code" = "200" ]; then
+    ok "$EDITORIAL_PATH — anonymous $anon_code, viewer $viewer_code, editor $editor_code"
+else
+    bad "$EDITORIAL_PATH — anonymous $anon_code, viewer $viewer_code, editor $editor_code (want 401 / 403 / 200)"
+fi
+
+# A conference on Incoming: invisible to a visitor, visible to an editor.
+#
+# This is the access tap doing its job, not the screen's permission gate: the
+# kernel asks ritrovo_access before it will render an item on an internal stage,
+# and a Deny becomes the absence a 404 is built from.
+incoming_id="$(sql "select id from item where type='conference' and stage_id='0193a5a0-0000-7000-8000-000000000002' limit 1")"
+if [ -n "$incoming_id" ]; then
+    anon_item="$(code "/item/$incoming_id")"
+    viewer_item="$(code_with "$viewer_jar" "/item/$incoming_id")"
+    editor_item="$(code_with "$editor_jar" "/item/$incoming_id")"
+    if [ "$anon_item" = "404" ] && [ "$viewer_item" = "404" ] && [ "$editor_item" = "200" ]; then
+        ok "a conference on Incoming — anonymous $anon_item, viewer $viewer_item, editor $editor_item"
+    else
+        bad "a conference on Incoming — anonymous $anon_item, viewer $viewer_item, editor $editor_item (want 404 / 404 / 200)"
+    fi
+else
+    note "skipped the Incoming item check: nothing is on the Incoming stage"
+fi
+
+# Publishing is the publisher's, not the editor's.
+#
+# The button is drawn only for a viewer who may use it, and the handler re-checks
+# before it writes, so this asserts the visible half of a gate that is enforced
+# twice.
+publish_control='value="live"'
+if curl -s -b "$publisher_jar" "$BASE$EDITORIAL_PATH?stage=curated" | grep -q "$publish_control"; then
+    if curl -s -b "$editor_jar" "$BASE$EDITORIAL_PATH?stage=curated" | grep -q "$publish_control"; then
+        bad "the editor is offered Publish to Live, which is the publisher's transition"
+    else
+        ok "Publish to Live is offered to the publisher and not to the editor"
+    fi
+else
+    bad "the publisher is not offered Publish to Live on the Curated queue"
+fi
+
+for stage_name in incoming curated live; do
+    stage_uuid=""
+    case "$stage_name" in
+        incoming) stage_uuid="0193a5a0-0000-7000-8000-000000000002" ;;
+        curated)  stage_uuid="0193a5a0-0000-7000-8000-000000000003" ;;
+        live)     stage_uuid="0193a5a0-0000-7000-8000-000000000001" ;;
+    esac
+    count="$(sql "select count(*) from item where type='conference' and stage_id='$stage_uuid'")"
+    [ -n "$count" ] && note "conferences on $stage_name: $count"
+done
+
+# The importer lands on Incoming, which is the change that makes the pipeline
+# real: before it, every import went straight to Live and nothing was ever
+# reviewed.
+live_only="$(sql "select count(*) from item where type='conference' and stage_id='0193a5a0-0000-7000-8000-000000000002'")"
+if [ -n "$live_only" ] && [ "$live_only" != "0" ]; then
+    ok "the importer lands conferences on Incoming"
+else
+    bad "nothing is on Incoming; the importer is landing conferences somewhere else"
+fi
+
 printf '\n'
 if [ "$failures" -eq 0 ]; then
     echo "all checks passed"

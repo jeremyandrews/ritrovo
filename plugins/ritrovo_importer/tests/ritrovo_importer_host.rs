@@ -356,7 +356,10 @@ fn the_queue_worker_drains_the_fixture_batches_into_conferences() {
         .await
         .unwrap();
         assert_eq!(row.0, 1);
-        assert_eq!(row.1, trovato_sdk::prelude::LIVE_STAGE_UUID);
+        // Incoming, not Live: an import is unreviewed by definition, and the
+        // brief's pipeline starts there. The stage uuid is Ritrovo's own, from
+        // demo/config/stage.*.yml, because the SDK exports only Live.
+        assert_eq!(row.1, "0193a5a0-0000-7000-8000-000000000002");
         assert_eq!(row.2["field_start_date"], "2026-04-20");
         assert_eq!(row.2["field_cfp_end_date"], "2025-12-08");
         assert_eq!(row.2["field_city"], "Portland, OR");

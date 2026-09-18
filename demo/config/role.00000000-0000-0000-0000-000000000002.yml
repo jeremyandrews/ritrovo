@@ -1,0 +1,42 @@
+# Authenticated role — every signed-in user, whatever else they hold.
+#
+# The kernel's second seeded role. Its grants are additive to whatever named
+# role a user also carries, so anything here is held by viewer_carol,
+# editor_alice and publisher_bob alike.
+#
+# `view own profile` is not one of the kernel's own 21 permission constants; it
+# is seeded onto this role by a kernel migration. Config import accepts it for
+# exactly that reason: a permission validates if the kernel defines it OR some
+# role in the database already holds it. It is listed here because leaving it
+# out would revoke it.
+#
+# `post comments` and `edit own comments` are deliberately NOT here, though the
+# brief's grid lists them and this file held them for a while.
+#
+# They belong to the `trovato_comments` plugin. Config import accepts a
+# permission the kernel defines OR that some role in the database already holds,
+# and `trovato_comments` does seed these onto its own role when it installs — so
+# naming them here worked in the demo, where that install happens before this
+# import, and failed everywhere else. It broke the host-in-the-loop suites, which
+# import this set into a bare database: import is all-or-nothing, so three
+# ungrantable strings failed all 94 files and wrote nothing.
+#
+# That is the real lesson and it is why they are gone: naming a plugin's
+# permission in a configuration set makes the set depend on another plugin's
+# install order. This set now names only permissions the kernel itself defines,
+# so it imports into any Trovato database. See `FRICTION.md`,
+# `G-PERM-TAP-NOT-DISPATCHED`.
+#
+# To grant them anyway on a site running `trovato_comments`, add them at
+# /admin/people/permissions after that plugin is enabled — and read
+# `G-PERM-GRID-SAVE-REVOKES-PLUGIN-GRANTS` first, because the next save of that
+# screen takes them away again.
+id: 00000000-0000-0000-0000-000000000002
+name: authenticated user
+created: "2026-01-01T00:00:00Z"
+permissions:
+- access content
+- create content
+- edit own content
+- use filtered_html
+- view own profile

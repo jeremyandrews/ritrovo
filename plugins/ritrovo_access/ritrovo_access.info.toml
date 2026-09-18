@@ -1,6 +1,6 @@
 name = "ritrovo_access"
 description = "Editorial workflow access control for conferences"
-version = "1.0.0"
+version = "1.1.0"
 api_version = "0.102"
 default_enabled = false
 dependencies = []
@@ -10,6 +10,15 @@ implements = [
     "tap_perm",
     "tap_item_access",
     "tap_item_view",
+    # The editorial screen. tap_menu registers the two routes and tap_api serves
+    # them; without tap_api the kernel has no export to dispatch to and both
+    # paths 404 however they are declared.
+    "tap_menu",
+    "tap_api",
+    # The demo seed: one-shot editorial state so the public site is not empty.
+    "tap_cron",
+    # Activates the demo editorial users and assigns their roles.
+    "tap_install",
 ]
 weight = 0
 
@@ -18,4 +27,20 @@ weight = 0
 # exactly the host interfaces named here (plus baseline WASI). Derived from
 # the compiled .wasm import section.
 [capabilities]
-host_interfaces = ["logging"]
+host_interfaces = ["db", "logging", "user-api", "variables"]
+
+# Uses the raw-SQL host functions (query-raw/execute-raw).
+#
+# Needed rather than preferred. The structured `db.update` call builds
+# `SET col = $n` with no cast, and `item.stage_id` is a `uuid` column while a
+# JSON string parameter binds as text, so the structured call cannot write the
+# one column this plugin exists to write. The raw calls take `$1::uuid`. Every
+# statement here is a constant with bound parameters; no identifier and no value
+# is ever interpolated into the SQL.
+raw_sql = true
+
+# Tables this plugin touches. Inert while `raw_sql` is declared, because raw SQL
+# is not parsed against the allowlist, and written down anyway so the declaration
+# states what is true: the editorial screen reads `item` and `stage_config`, and
+# writes exactly one column of `item`.
+db_tables = ["item", "stage_config", "users", "user_roles", "roles"]
