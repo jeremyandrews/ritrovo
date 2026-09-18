@@ -204,21 +204,96 @@ fn has_any_permission(input: &ItemAccessInput, perms: &[&str]) -> bool {
         .any(|p| input.user_permissions.iter().any(|up| up == p))
 }
 
-/// Placeholder for future editor_notes stripping. Returns empty (no extra
-/// render HTML).
+/// The field only an editor may read.
 ///
-/// The view tap's input is the `Item` alone, with no viewer in it, which is why
-/// this was left empty. The viewer is not out of reach: the kernel dispatches
-/// the tap with the viewer's request state, so `current-user-has-permission`
-/// answers for them, though without the `administer site` bypass every kernel
-/// route applies. But a view tap can only add HTML to the page, never remove a
-/// field from it, so stripping `field_editor_notes` is not this tap's job at
-/// all: the kernel drops fields a viewer may not see before any view tap runs,
-/// as decided by `tap_field_access`. `FRICTION.md`,
-/// `G-VIEW-TAP-INPUT-CARRIES-NO-VIEWER`, has the evidence.
+/// Declared by `demo/config/item_type.conference.yml`, and the brief's one
+/// example of field-level access: "editors see CFP notes, anonymous don't".
+const EDITOR_ONLY_FIELD: &str = "field_editor_notes";
+
+/// Hide `field_editor_notes` from anyone who is not an editor.
+///
+/// # This is access control, not presentation
+///
+/// The kernel drops a denied field from the Item **before** it renders anything
+/// and before any view tap runs (`crates/kernel/src/content/item_service.rs:573`,
+/// dispatching this tap at `:1236`). A template never sees the value, so there
+/// is no markup to inspect, no API response carrying it, and nothing for a
+/// theme change to undo. That is the difference between this and hiding a field
+/// in a template, which would leave the value in every other representation of
+/// the item.
+///
+/// # Why this tap and not `tap_item_view`
+///
+/// `tap_item_view` was the plan and is the wrong tool twice over: its input is
+/// the `Item` alone with no viewer in it, and a view tap can only append HTML,
+/// never remove a field. The kernel's own documentation describes a signature
+/// (`tap_item_view(input: ItemViewInput) -> RenderElement`) that does not exist
+/// in the SDK, which is what sent the previous implementation to wait for a
+/// kernel change nobody needed. `FRICTION.md`,
+/// `G-VIEW-TAP-INPUT-CARRIES-NO-VIEWER`. The no-op stub it left behind is gone
+/// with this commit; it fired on every item view and did nothing.
+///
+/// # The three things this tap's contract makes non-obvious
+///
+/// **Fail open.** Field access refines item access, so the kernel treats
+/// `NoOpinion`, an absent field, an unparseable answer and no implementer alike:
+/// all mean visible (`aggregate_field_decisions`, `item_service.rs:274-293`).
+/// Hiding therefore requires an explicit `Deny`; returning nothing shows the
+/// field. Deny still wins over any other plugin's Allow.
+///
+/// **It is a batch, and a partial one.** The kernel caches decisions per
+/// `(permission set, type, field, operation)` and asks only about fields it has
+/// not already resolved, so this is handed some subset of the type's fields and
+/// must answer about what it was given rather than about what it expects.
+///
+/// **It is type-level.** There is no item id in the payload, so a rule can say
+/// "editor notes on a conference" and cannot say "on this conference". Nothing
+/// here needs per-item granularity; a rule that did could not be written.
+///
+/// An administrator never reaches this tap: the kernel returns before dispatch
+/// for `is_admin` (`item_service.rs:1194-1200`). So, unlike the editorial screen,
+/// this needs no administrator special case.
+///
+/// # Known hole, and it is the kernel's
+///
+/// The kernel evaluates field access for `view` only (`routes/item.rs:369`,
+/// `:1382`), so a field hidden on the page is still rendered on the **edit
+/// form** for anyone who can open it. Nobody who lacks an editor's permission
+/// can open a conference's edit form — `tap_item_access` denies the `edit`
+/// operation to them — so the hole is closed by the item-access tap rather than
+/// by this one, and it would open the moment that stopped being true.
 #[plugin_tap]
-pub fn tap_item_view(_item: Item) -> String {
-    String::new()
+pub fn tap_field_access(input: FieldAccessBatchInput) -> FieldAccessBatchResult {
+    let mut decisions = std::collections::HashMap::new();
+
+    // Say nothing about other people's content types.
+    if input.item_type != "conference" {
+        return FieldAccessBatchResult { decisions };
+    }
+
+    let is_editor = input
+        .user
+        .permissions
+        .iter()
+        .any(|held| EDITOR_PERMISSIONS.iter().any(|p| held == p));
+
+    // Answer only about the fields the kernel actually asked about, and only
+    // about the one field this plugin has a rule for. Every other field is left
+    // absent, which the kernel reads as NoOpinion.
+    for field in &input.fields {
+        if field == EDITOR_ONLY_FIELD {
+            decisions.insert(
+                field.clone(),
+                if is_editor {
+                    FieldAccessResult::Allow
+                } else {
+                    FieldAccessResult::Deny
+                },
+            );
+        }
+    }
+
+    FieldAccessBatchResult { decisions }
 }
 
 // ═══ The editorial screen ════════════════════════════════════════════
@@ -1204,21 +1279,374 @@ mod tests {
         assert_eq!(__inner_tap_item_access(input), AccessResult::Neutral);
     }
 
+    // ── The aggregation table ────────────────────────────────────────
+    //
+    // The tests above check one decision each. This checks the whole table in
+    // one place, so that a change to the rules shows up as a diff of the table
+    // rather than as a scatter of individually-plausible edits.
+    //
+    // Columns: who, which stage, which operation, what this tap must answer.
+    // "who" is the permission set, named for the role in demo/config that holds
+    // it. The kernel permissions are the ones those roles really carry; the
+    // `conference` permissions are the ones the brief asks for and no role can
+    // hold until `tap_perm` is dispatched. Both are here because the tap accepts
+    // either, and must keep accepting either.
+
+    /// The permission sets the five roles really resolve to.
+    fn anonymous_perms() -> Vec<&'static str> {
+        vec!["access content"]
+    }
+    fn viewer_perms() -> Vec<&'static str> {
+        vec!["access content"]
+    }
+    fn editor_perms() -> Vec<&'static str> {
+        vec!["access content", "edit any content"]
+    }
+    fn publisher_perms() -> Vec<&'static str> {
+        vec!["access content", "edit any content", "delete any content"]
+    }
+    /// What an editor would hold if `tap_perm` were dispatched.
+    fn brief_editor_perms() -> Vec<&'static str> {
+        vec!["access content", "edit conferences"]
+    }
+    /// A reader granted one internal stage and nothing else.
+    fn incoming_reader_perms() -> Vec<&'static str> {
+        vec!["access content", "view incoming conferences"]
+    }
+
     #[test]
-    fn view_empty_for_non_conference() {
-        let item = Item {
-            id: Uuid::nil(),
-            item_type: "blog".to_string(),
-            title: "Test".to_string(),
-            fields: std::collections::HashMap::new(),
-            status: 1,
-            author_id: Uuid::nil(),
-            current_revision_id: None,
-            stage_id: live_stage_id(),
-            created: 0,
-            changed: 0,
-            language: None,
-        };
-        assert!(__inner_tap_item_view(item).is_empty());
+    fn the_aggregation_table_holds() {
+        use AccessResult::{Deny, Grant, Neutral};
+
+        // Factored into an alias because the row is six columns wide and
+        // clippy rightly refuses the bare tuple type inline.
+        type Case = (
+            &'static str,
+            Vec<&'static str>,
+            &'static str,
+            Option<&'static str>,
+            &'static str,
+            AccessResult,
+        );
+
+        // (who, permissions, item type, stage, operation, expected)
+        let table: &[Case] = &[
+            // Live is the kernel's business, not this plugin's: it answers
+            // Neutral so the published-content fast path and the role fallback
+            // decide. In practice the kernel never even asks for a published
+            // Live item viewed by someone holding `access content`.
+            (
+                "viewer",
+                viewer_perms(),
+                "conference",
+                Some("live"),
+                "view",
+                Neutral,
+            ),
+            (
+                "editor",
+                editor_perms(),
+                "conference",
+                Some("live"),
+                "view",
+                Neutral,
+            ),
+            (
+                "viewer",
+                viewer_perms(),
+                "conference",
+                None,
+                "view",
+                Neutral,
+            ),
+            // An unknown stage is somebody else's; say nothing.
+            (
+                "editor",
+                editor_perms(),
+                "conference",
+                Some("legal_review"),
+                "view",
+                Neutral,
+            ),
+            // Another plugin's content type is never this plugin's business,
+            // whatever the stage or the operation.
+            (
+                "editor",
+                editor_perms(),
+                "blog",
+                Some("incoming"),
+                "view",
+                Neutral,
+            ),
+            (
+                "editor",
+                editor_perms(),
+                "speaker",
+                Some("curated"),
+                "edit",
+                Neutral,
+            ),
+            // Viewing an internal stage: denied to a plain reader, granted to an
+            // editor, and granted to a reader holding just that stage's
+            // permission — and only that stage's.
+            (
+                "viewer",
+                viewer_perms(),
+                "conference",
+                Some("incoming"),
+                "view",
+                Deny,
+            ),
+            (
+                "viewer",
+                viewer_perms(),
+                "conference",
+                Some("curated"),
+                "view",
+                Deny,
+            ),
+            (
+                "editor",
+                editor_perms(),
+                "conference",
+                Some("incoming"),
+                "view",
+                Grant,
+            ),
+            (
+                "editor",
+                editor_perms(),
+                "conference",
+                Some("curated"),
+                "view",
+                Grant,
+            ),
+            (
+                "publisher",
+                publisher_perms(),
+                "conference",
+                Some("incoming"),
+                "view",
+                Grant,
+            ),
+            (
+                "publisher",
+                publisher_perms(),
+                "conference",
+                Some("curated"),
+                "view",
+                Grant,
+            ),
+            (
+                "brief editor",
+                brief_editor_perms(),
+                "conference",
+                Some("incoming"),
+                "view",
+                Grant,
+            ),
+            (
+                "brief editor",
+                brief_editor_perms(),
+                "conference",
+                Some("curated"),
+                "view",
+                Grant,
+            ),
+            (
+                "incoming reader",
+                incoming_reader_perms(),
+                "conference",
+                Some("incoming"),
+                "view",
+                Grant,
+            ),
+            (
+                "incoming reader",
+                incoming_reader_perms(),
+                "conference",
+                Some("curated"),
+                "view",
+                Deny,
+            ),
+            // Changing anything needs an editor's permission, on every stage,
+            // including Live. Seeing an internal stage is not permission to
+            // change what is on it.
+            (
+                "viewer",
+                viewer_perms(),
+                "conference",
+                Some("live"),
+                "edit",
+                Deny,
+            ),
+            (
+                "viewer",
+                viewer_perms(),
+                "conference",
+                Some("incoming"),
+                "edit",
+                Deny,
+            ),
+            (
+                "incoming reader",
+                incoming_reader_perms(),
+                "conference",
+                Some("incoming"),
+                "edit",
+                Deny,
+            ),
+            (
+                "incoming reader",
+                incoming_reader_perms(),
+                "conference",
+                Some("incoming"),
+                "delete",
+                Deny,
+            ),
+            (
+                "editor",
+                editor_perms(),
+                "conference",
+                Some("incoming"),
+                "edit",
+                Grant,
+            ),
+            (
+                "editor",
+                editor_perms(),
+                "conference",
+                Some("curated"),
+                "delete",
+                Grant,
+            ),
+            (
+                "editor",
+                editor_perms(),
+                "conference",
+                Some("live"),
+                "edit",
+                Grant,
+            ),
+            (
+                "brief editor",
+                brief_editor_perms(),
+                "conference",
+                Some("curated"),
+                "edit",
+                Grant,
+            ),
+            // Anonymous never reaches this tap for an internal stage — the
+            // kernel denies first — but if it ever did, the answer is Deny.
+            (
+                "anonymous",
+                anonymous_perms(),
+                "conference",
+                Some("incoming"),
+                "view",
+                Deny,
+            ),
+        ];
+
+        let mut wrong = Vec::new();
+        for (who, perms, item_type, stage, operation, expected) in table {
+            let input = make_input_op(item_type, *stage, perms, *who != "anonymous", operation);
+            let got = __inner_tap_item_access(input);
+            if got != *expected {
+                wrong.push(format!(
+                    "{who} {operation} {item_type} on {}: got {got:?}, want {expected:?}",
+                    stage.unwrap_or("(no stage)")
+                ));
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "aggregation table wrong:\n{}",
+            wrong.join("\n")
+        );
+    }
+
+    // ── Field access ─────────────────────────────────────────────────
+
+    fn field_input(
+        item_type: &str,
+        permissions: &[&str],
+        fields: &[&str],
+    ) -> FieldAccessBatchInput {
+        FieldAccessBatchInput {
+            user: FieldAccessUser {
+                user_id: Uuid::nil(),
+                authenticated: true,
+                permissions: permissions.iter().map(|s| s.to_string()).collect(),
+            },
+            item_type: item_type.to_string(),
+            operation: "view".to_string(),
+            fields: fields.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn editor_notes_denied_to_a_reader_and_allowed_to_an_editor() {
+        let denied = __inner_tap_field_access(field_input(
+            "conference",
+            &viewer_perms(),
+            &[EDITOR_ONLY_FIELD],
+        ));
+        assert_eq!(
+            denied.decisions.get(EDITOR_ONLY_FIELD),
+            Some(&FieldAccessResult::Deny)
+        );
+
+        for who in [editor_perms(), publisher_perms(), brief_editor_perms()] {
+            let allowed =
+                __inner_tap_field_access(field_input("conference", &who, &[EDITOR_ONLY_FIELD]));
+            assert_eq!(
+                allowed.decisions.get(EDITOR_ONLY_FIELD),
+                Some(&FieldAccessResult::Allow),
+                "{who:?} should see {EDITOR_ONLY_FIELD}"
+            );
+        }
+    }
+
+    /// Every other field is left absent, which the kernel reads as NoOpinion.
+    ///
+    /// This is the test that stops a future edit from denying a whole type by
+    /// accident: the tap must speak about one field and stay silent about the
+    /// rest, because silence is what keeps the other fields visible.
+    #[test]
+    fn no_opinion_on_every_other_field() {
+        let result = __inner_tap_field_access(field_input(
+            "conference",
+            &viewer_perms(),
+            &["field_city", "field_start_date", EDITOR_ONLY_FIELD],
+        ));
+        assert_eq!(
+            result.decisions.len(),
+            1,
+            "answered about more than one field"
+        );
+        assert!(result.decisions.contains_key(EDITOR_ONLY_FIELD));
+    }
+
+    /// The kernel asks about a subset, so the tap must answer about what it was
+    /// handed rather than about what it expects to be handed.
+    #[test]
+    fn a_batch_without_the_field_gets_no_decisions() {
+        let result = __inner_tap_field_access(field_input(
+            "conference",
+            &viewer_perms(),
+            &["field_city", "field_country"],
+        ));
+        assert!(result.decisions.is_empty());
+    }
+
+    #[test]
+    fn says_nothing_about_another_content_type() {
+        let result =
+            __inner_tap_field_access(field_input("blog", &viewer_perms(), &[EDITOR_ONLY_FIELD]));
+        assert!(
+            result.decisions.is_empty(),
+            "this plugin must not speak about another type's fields"
+        );
     }
 }
