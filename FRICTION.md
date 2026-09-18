@@ -895,6 +895,21 @@ that field visibility belongs to `tap_field_access`. `tap_field_access` is evalu
 only for `view` (`routes/item.rs:369`, `:1382`), so an edit form still shows a field
 hidden on view; say that too, or evaluate `edit`.
 
+**Closed from Ritrovo's side, 2026-09-18 (A5). The documentation finding stands.**
+`ritrovo_access` now implements `tap_field_access` and denies
+`field_editor_notes` to anyone without an editor's permission, and the no-op
+`tap_item_view` stub is gone: it fired on every item view and did nothing. A
+host-in-the-loop test asserts the key is absent from `Item.fields` for a reader
+and present for an editor, so the hiding is the kernel removing a field rather
+than a template declining to print one.
+
+The `edit` half of the recommendation is unaddressed and is the kernel's: a field
+hidden on view is still rendered on the edit form. In Ritrovo nobody who lacks an
+editor's permission can open that form, because `tap_item_access` denies them the
+`edit` operation, so the guard is the item tap rather than the field tap. That is
+a property of this plugin's rules, not of the kernel, and it would not hold for a
+site whose field rule and item rule differed.
+
 ### G-USER-API-NO-ADMIN-BYPASS: **[Medium, RESIDUAL]** `current-user-has-permission` is a literal membership test, so an administrator fails a plugin's permission check
 
 Recorded by netgrasp-trovato; re-confirmed here. Every kernel route treats an
