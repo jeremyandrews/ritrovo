@@ -1,0 +1,27 @@
+# Codemotion Roma — translated (both EN + IT complete)
+id: '031e0e55-59d2-4f4c-a2e2-81c50bce5b62'
+type: conference
+title: Codemotion Roma 2026
+language: it
+status: 1
+created: 1741824000
+changed: 1741824000
+fields:
+  field_description:
+    it:
+      value: "<p>Codemotion è la più grande conferenza tech in Italia. Due giorni di talk, workshop e networking con oltre 2.000 sviluppatori da tutta Europa.</p>"
+      format: filtered_html
+    en:
+      value: "<p>Codemotion is the largest tech conference in Italy. Two days of talks, workshops, and networking with over 2,000 developers from across Europe.</p>"
+      format: filtered_html
+  field_start_date: '2026-03-25'
+  field_end_date: '2026-03-26'
+  field_city: Roma
+  field_country: IT
+  field_online: false
+  field_url: https://www.codemotion.com
+  field_language: it
+  field_topics:
+    - 8ad812c0-2305-5c02-adca-dffcd1f4a996
+  primary_language: it
+  translation_status: translated

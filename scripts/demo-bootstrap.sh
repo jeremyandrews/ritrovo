@@ -31,8 +31,7 @@
 #   PORT, DATABASE_URL, REDIS_URL, CRON_KEY   the kernel's own settings
 #   PLUGINS_DIR, TEMPLATES_DIR, STATIC_DIR    the three search paths
 #   DEMO_ADMIN_USER / _PASSWORD / _EMAIL      the account the installer creates
-#   RITROVO_CONFIG_DIR                        tutorial config set (in the image)
-#   RITROVO_DEMO_CONFIG_DIR                   this repo's own config set
+#   RITROVO_CONFIG_DIR                        Ritrovo's config set (this repo)
 
 set -eu
 
@@ -41,8 +40,7 @@ BASE="http://127.0.0.1:${PORT}"
 DEMO_ADMIN_USER="${DEMO_ADMIN_USER:-admin}"
 DEMO_ADMIN_PASSWORD="${DEMO_ADMIN_PASSWORD:-ritrovo-demo-password}"
 DEMO_ADMIN_EMAIL="${DEMO_ADMIN_EMAIL:-admin@ritrovo.example}"
-RITROVO_CONFIG_DIR="${RITROVO_CONFIG_DIR:-/app/docs/tutorial/config}"
-RITROVO_DEMO_CONFIG_DIR="${RITROVO_DEMO_CONFIG_DIR:-/ritrovo/demo/config}"
+RITROVO_CONFIG_DIR="${RITROVO_CONFIG_DIR:-/ritrovo/demo/config}"
 
 # The five plugins, in dependency order: the importer first because it is the one
 # whose tap_install needs the taxonomy, ritrovo_translate last because it depends
@@ -141,10 +139,22 @@ wait "$bootstrap_pid" 2>/dev/null || true
 
 # ── 3. Import the config set, BEFORE enabling anything ───────────────────────
 #
-# --dry-run first because import validates the whole set before it writes
-# anything: a preflight costs a second and names every offending file.
+# The set is Ritrovo's own, in this repository, mounted at /ritrovo/demo/config.
+# It used to be Trovato's tutorial copy inside the image; the content model is
+# Ritrovo's to define, so the whole set moved here and the image's copy is no
+# longer read. See demo/config/README.md.
+#
+# It imports as ONE set because import will not take it any other way: references
+# are resolved across the whole directory and then the database, and an
+# unresolved one fails the import with nothing written. The search field configs
+# name the conference and speaker types, the tiles and aliases name the gathers,
+# the tags name their category and their parents, and the seed's items name the
+# type and the stage.
+#
+# --dry-run first because that validation is the expensive half and runs either
+# way: a preflight costs a second and names every offending file.
 
-say "importing the tutorial config set from $RITROVO_CONFIG_DIR"
+say "importing Ritrovo's config set from $RITROVO_CONFIG_DIR"
 ./trovato config import "$RITROVO_CONFIG_DIR" --dry-run
 ./trovato config import "$RITROVO_CONFIG_DIR"
 
@@ -164,19 +174,23 @@ for plugin in $KERNEL_PLUGINS; do
     ./trovato plugin enable "$plugin"
 done
 
-# ── 5. The rest of the content and configuration ─────────────────────────────
+# ── 5. The seeded content ────────────────────────────────────────────────────
 #
-# Both are pure database writes, so they run here rather than against the live
-# server: the Italian seed is Part 7's content-translation demonstration, and the
-# set below is the two things Trovato's tutorial set does not carry — the front
-# page, and the Italian aliases stored the way the language middleware asks for
-# them. See demo/config/README.md for why the second one is necessary.
+# Its own directory and its own import because config import does not recurse:
+# it reads the .yml files in the directory it is given and skips subdirectories,
+# which is what keeps the seeds out of the configuration set proper.
+#
+# Two seeds, both pure database writes, so they run here rather than against the
+# live server. seed-italian is Part 7's content-translation demonstration.
+# seed-content is Ritrovo's: descriptions, speakers, topics and editor notes on
+# the conferences the importer landed bare, so the demo shows a filled-in
+# conference without anyone typing one in.
 
 say "importing the Italian seed content"
 ./trovato config import "$RITROVO_CONFIG_DIR/seed-italian"
 
-say "importing Ritrovo's own config set (front page, Italian aliases)"
-./trovato config import "$RITROVO_DEMO_CONFIG_DIR"
+say "importing the seeded conference and speaker content"
+./trovato config import "$RITROVO_CONFIG_DIR/seed-content"
 
 # ── 6. Serve ─────────────────────────────────────────────────────────────────
 #

@@ -1,0 +1,19 @@
+# Topics tile (machine_name: topic_cloud) — Sidebar.
+id: 0193a5a0-0003-7000-8000-000000000003
+machine_name: topic_cloud
+label: Topics
+region: sidebar
+tile_type: custom_html
+config:
+  body: |
+    <div class="topic-cloud" data-category="topics">
+      <p><em>Browse by topic to find conferences in your area of interest.</em></p>
+    </div>
+  format: full_html
+visibility: {}
+weight: 10
+status: 1
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1767225600

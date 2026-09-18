@@ -83,6 +83,17 @@ const TOPICS_CATEGORY_ID: &str = "topics";
 /// State key prefix for topic term UUIDs: `"topic_term.{term_slug}"`.
 const STATE_TOPIC_TERM_PREFIX: &str = "topic_term";
 
+/// Prefix for recorded batch failures: `"failed.{topic}.{year}"`.
+///
+/// The kernel's dead-letter row keeps `last_error = "tap_queue_worker failed
+/// (trap or error result)"` and nothing else: a tap's Err value never crosses
+/// the ABI, only its negative length does, so the reason a batch failed is not
+/// recoverable from the queue (G-QUEUE-DEAD-LETTER-DISCARDS-THE-PLUGINS-ERROR).
+/// The importer therefore writes the reason down on its own side before it
+/// returns Err, which is what makes "logged and skipped, not silently dropped"
+/// true rather than aspirational. The importer's admin screen reads these back.
+const STATE_FAILED_PREFIX: &str = "failed";
+
 /// Maximum number of conferences per queue payload.
 ///
 /// The WASM input buffer is 64 KB; a single confs.tech JSON file can exceed
@@ -92,39 +103,50 @@ const CONFERENCES_PER_BATCH: usize = 50;
 
 // ─── Topic slug → taxonomy label mapping ──────────────────────────────
 
-/// Maps confs.tech topic slugs to `(term_slug, term_label)` pairs.
+/// Which topic-tree term each confs.tech feed maps onto.
 ///
-/// The term_slug is the key used in `ritrovo_state` (`topic_term.{slug}`).
-/// The term_label is used to discover the `category_tag` UUID from the database
-/// during `tap_install`.
+/// The mapping is DATA, in `data/confs-tech-topics.json` beside this file, not a
+/// table in this source. The tree it points into is defined by
+/// `demo/config/tag.*.yml` and the feeds are whatever confs.tech publishes, so
+/// neither end of the mapping belongs to the importer; re-aiming a feed is an
+/// edit to that file and no Rust change at all. It is `include_str!`d rather than
+/// read at runtime because this plugin is a WASM module with no filesystem.
 ///
-/// Confs.tech slugs not listed here (`sre`, `scala`) have no taxonomy entry
-/// and will be stored with an empty `field_topics`.
-const SLUG_TO_TERM: &[(&str, &str, &str)] = &[
-    ("rust", "rust", "Rust"),
-    ("java", "java", "Java"),
-    ("kotlin", "kotlin", "Kotlin"),
-    ("javascript", "javascript", "JavaScript"),
-    ("typescript", "typescript", "TypeScript"),
-    ("php", "php", "PHP"),
-    ("python", "python", "Python"),
-    ("ruby", "ruby", "Ruby"),
-    ("dotnet", "dotnet", ".NET"),
-    ("android", "android", "Android"),
-    ("ios", "ios", "iOS"),
-    ("devops", "devops", "DevOps"),
-    ("networking", "networking", "Networking"),
-    ("data", "data", "Data Engineering"),
-    ("css", "css", "CSS"),
-    ("ux", "ux", "UX"),
-    ("accessibility", "accessibility", "Accessibility"),
-    ("security", "appsec", "AppSec"),
-    ("api", "api", "API"),
-    ("testing", "testing", "Testing"),
-    ("general", "general", "General"),
-    ("opensource", "opensource", "Open Source"),
-    ("cpp", "cpp", "C++"),
-];
+/// A feed may map to nothing. `general`, `opensource` and `testing` do today:
+/// the brief's tree has no term that means them, and those conferences import
+/// untagged rather than being filed under a term that is not what they are.
+const TOPIC_MAP_JSON: &str = include_str!("../data/confs-tech-topics.json");
+
+/// One topic-tree term: the label the `category_tag` row is found by, and the
+/// slug the resolved uuid is cached under in `ritrovo_state`.
+#[derive(Debug, Clone, serde::Deserialize)]
+struct TermRef {
+    label: String,
+    slug: String,
+}
+
+/// Parse `data/confs-tech-topics.json` into `confs.tech feed -> term or nothing`.
+///
+/// Returns the pairs in file order. A malformed file is a build-time mistake that
+/// would leave every conference untagged, so it is logged loudly and treated as
+/// an empty mapping rather than a panic that would take the whole plugin down.
+fn topic_map() -> Vec<(String, Option<TermRef>)> {
+    #[derive(serde::Deserialize)]
+    struct File {
+        mappings: std::collections::BTreeMap<String, Option<TermRef>>,
+    }
+    match serde_json::from_str::<File>(TOPIC_MAP_JSON) {
+        Ok(f) => f.mappings.into_iter().collect(),
+        Err(e) => {
+            host::log(
+                "error",
+                PLUGIN_NAME,
+                &format!("data/confs-tech-topics.json is unreadable: {e}"),
+            );
+            Vec::new()
+        }
+    }
+}
 
 // ─── Install ──────────────────────────────────────────────────────────
 
@@ -271,7 +293,10 @@ fn push_conference_batches(topic: &str, year: u16, body: &str) -> (u32, u32) {
 fn discover_taxonomy_uuids() -> u32 {
     let mut discovered = 0u32;
 
-    for &(_confs_slug, term_slug, term_label) in SLUG_TO_TERM {
+    for (_confs_slug, term) in topic_map() {
+        // A feed with no term needs no lookup and is not a failure to report.
+        let Some(term) = term else { continue };
+        let (term_slug, term_label) = (term.slug.as_str(), term.label.as_str());
         let state_key = format!("{STATE_TOPIC_TERM_PREFIX}.{term_slug}");
 
         // Skip if already cached in state.
@@ -310,13 +335,14 @@ fn discover_taxonomy_uuids() -> u32 {
         }
     }
 
+    // Counted against the terms actually looked for, not the number of feeds:
+    // a feed that maps to nothing was never a term to find, and counting it as a
+    // miss is what made this line read "23 of 25" on a healthy install.
+    let wanted = topic_map().into_iter().filter(|(_, t)| t.is_some()).count();
     host::log(
         "info",
         PLUGIN_NAME,
-        &format!(
-            "discover_taxonomy_uuids: {discovered}/{} terms found",
-            SLUG_TO_TERM.len()
-        ),
+        &format!("discover_taxonomy_uuids: {discovered}/{wanted} terms found"),
     );
 
     discovered
@@ -328,12 +354,12 @@ fn discover_taxonomy_uuids() -> u32 {
 /// or if the taxonomy term has not been discovered yet.
 fn topic_term_uuid(confs_tech_slug: &str) -> Option<String> {
     // Map the confs.tech slug to the taxonomy term slug.
-    let term_slug = SLUG_TO_TERM
-        .iter()
-        .find(|(src, _, _)| *src == confs_tech_slug)
-        .map(|(_, term, _)| *term)?;
+    let term = topic_map()
+        .into_iter()
+        .find(|(src, _)| src == confs_tech_slug)
+        .and_then(|(_, term)| term)?;
 
-    load_state_str(&format!("{STATE_TOPIC_TERM_PREFIX}.{term_slug}"))
+    load_state_str(&format!("{STATE_TOPIC_TERM_PREFIX}.{}", term.slug))
 }
 
 // ─── Permissions ─────────────────────────────────────────────────────
@@ -545,6 +571,50 @@ fn importer_config() -> ApiResponse {
         .map(|i| escape_html(TOPICS[(offset + i) % TOPICS.len()]))
         .collect();
 
+    // Terms, not feeds. The denominator used to be the number of confs.tech
+    // feeds, which made a healthy install read "23 of 25" for ever: feeds that
+    // map to no term were counted as terms that had not resolved, and two feeds
+    // pointing at one term were counted twice. Count the distinct terms the
+    // mapping actually asks for, and say separately how many feeds ask for none.
+    let map = topic_map();
+    let mut wanted: Vec<String> = map
+        .iter()
+        .filter_map(|(_, term)| term.as_ref().map(|t| t.slug.clone()))
+        .collect();
+    wanted.sort();
+    wanted.dedup();
+    let unmapped: Vec<String> = map
+        .iter()
+        .filter(|(_, term)| term.is_none())
+        .map(|(feed, _)| escape_html(feed))
+        .collect();
+
+    // Batches that failed and are not yet fixed. The kernel's dead-letter row
+    // keeps a fixed string rather than the worker's reason, so the reason is read
+    // back from the importer's own state, where the worker wrote it.
+    let failures = host::query_raw(
+        "SELECT name, value FROM ritrovo_state \
+         WHERE name LIKE 'failed.%' AND value <> '' ORDER BY name",
+        &[],
+    )
+    .ok()
+    .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).ok())
+    .unwrap_or_default();
+    let failed_batches = if failures.is_empty() {
+        "none".to_string()
+    } else {
+        failures
+            .iter()
+            .filter_map(|row| {
+                let name = row.get("name")?.as_str()?.trim_start_matches("failed.");
+                let value = row.get("value")?.as_str()?;
+                let reason = value.split_once(',').map(|(_, r)| r).unwrap_or(value);
+                Some(format!("{} ({})", escape_html(name), escape_html(reason)))
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
     let body = format!(
         "<h2>Import status</h2>\n\
          <dl>\n\
@@ -552,8 +622,10 @@ fn importer_config() -> ApiResponse {
          <dt>Topics per cron cycle</dt><dd>{per_cycle} of {total_topics}</dd>\n\
          <dt>Next topics</dt><dd>{next}</dd>\n\
          <dt>Cached ETags</dt><dd>{etags}</dd>\n\
-         <dt>Resolved topic terms</dt><dd>{resolved_terms} of {total_topics}</dd>\n\
+         <dt>Resolved topic terms</dt><dd>{resolved_terms} of {wanted_terms}</dd>\n\
+         <dt>Feeds with no topic term</dt><dd>{unmapped_feeds}</dd>\n\
          <dt>Jobs waiting in the import queue</dt><dd>{queued}</dd>\n\
+         <dt>Failed batches</dt><dd>{failed_batches}</dd>\n\
          <dt>Minimum interval between runs</dt><dd>{interval} seconds</dd>\n\
          </dl>\n\
          <p>Imports run from cron. There is no internal scheduler, so this only \
@@ -562,6 +634,12 @@ fn importer_config() -> ApiResponse {
         per_cycle = TOPICS_PER_CYCLE,
         total_topics = TOPICS.len(),
         next = next_topics.join(", "),
+        wanted_terms = wanted.len(),
+        unmapped_feeds = if unmapped.is_empty() {
+            "none".to_string()
+        } else {
+            format!("{} ({})", unmapped.len(), unmapped.join(", "))
+        },
         interval = IMPORT_INTERVAL_SECS,
     );
 
@@ -731,8 +809,8 @@ pub fn tap_queue_info() -> serde_json::Value {
 ///
 /// Each conference entry is validated, deduplicated against existing
 /// items via `field_source_id`, then inserted or updated.
-#[plugin_tap]
-pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
+#[plugin_tap_result]
+pub fn tap_queue_worker(input: serde_json::Value) -> Result<serde_json::Value, String> {
     let topic = match input.get("topic").and_then(|v| v.as_str()) {
         Some(t) => t.to_string(),
         None => {
@@ -741,7 +819,7 @@ pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
                 PLUGIN_NAME,
                 "tap_queue_worker: missing 'topic' field",
             );
-            return serde_json::json!({"status": "error", "reason": "missing_topic"});
+            return Err(record_batch_failure("(unknown)", 0, "missing_topic"));
         }
     };
 
@@ -753,7 +831,7 @@ pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
                 PLUGIN_NAME,
                 "tap_queue_worker: missing 'year' field",
             );
-            return serde_json::json!({"status": "error", "reason": "missing_year"});
+            return Err(record_batch_failure(&topic, 0, "missing_year"));
         }
     };
 
@@ -766,7 +844,7 @@ pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
                 PLUGIN_NAME,
                 "tap_queue_worker: missing 'conferences' field",
             );
-            return serde_json::json!({"status": "error", "reason": "missing_conferences"});
+            return Err(record_batch_failure(&topic, year, "missing_conferences"));
         }
     };
 
@@ -778,7 +856,11 @@ pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
                 PLUGIN_NAME,
                 &format!("JSON parse error for {topic}/{year}: {e}"),
             );
-            return serde_json::json!({"status": "error", "reason": "parse_error"});
+            return Err(record_batch_failure(
+                &topic,
+                year,
+                &format!("parse_error: {e}"),
+            ));
         }
     };
 
@@ -830,7 +912,11 @@ pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
         }
     }
 
-    serde_json::json!({
+    // A retry that succeeds clears the recorded failure, so the admin screen
+    // shows what is broken now rather than what was broken once.
+    clear_batch_failure(&topic, year);
+
+    Ok(serde_json::json!({
         "status": "ok",
         "topic": topic,
         "year": year,
@@ -838,7 +924,29 @@ pub fn tap_queue_worker(input: serde_json::Value) -> serde_json::Value {
         "updated": updated,
         "skipped": skipped,
         "invalid": invalid,
-    })
+    }))
+}
+
+/// Write down why a batch failed, and return the message for the Err value.
+///
+/// Called on the way out of `tap_queue_worker`, so the reason survives in
+/// `ritrovo_state` whether the kernel retries the job or dead-letters it.
+fn record_batch_failure(topic: &str, year: u16, reason: &str) -> String {
+    let message = format!("{topic}/{year}: {reason}");
+    host::log("warn", PLUGIN_NAME, &format!("batch failed — {message}"));
+    save_state(
+        &format!("{STATE_FAILED_PREFIX}.{topic}.{year}"),
+        &format!("{},{}", current_timestamp(), reason),
+    );
+    message
+}
+
+/// Forget a recorded failure for a batch that has since succeeded.
+fn clear_batch_failure(topic: &str, year: u16) {
+    let key = format!("{STATE_FAILED_PREFIX}.{topic}.{year}");
+    if load_state_str(&key).is_some() {
+        save_state(&key, "");
+    }
 }
 
 // ─── confs.tech JSON schema ──────────────────────────────────────────
@@ -867,10 +975,9 @@ struct ConfsTechEntry {
     cfp_end_date: Option<String>,
     #[serde(default)]
     locales: Option<String>,
-    #[serde(default)]
-    twitter: Option<String>,
-    #[serde(default)]
-    coc_url: Option<String>,
+    // `twitter` and `coc_url` are in the feed and are deliberately not read.
+    // The conference type declares no field for either and the brief asks for
+    // neither, and serde ignores unknown keys, so there is nothing to carry.
 }
 
 /// Info about an existing conference item in the database.
@@ -1103,17 +1210,47 @@ fn build_source_fields(
     if let Some(ref cfp_end_date) = conf.cfp_end_date {
         fields["field_cfp_end_date"] = serde_json::json!(cfp_end_date);
     }
-    if let Some(ref locales) = conf.locales {
-        fields["field_language"] = serde_json::json!(locales);
-    }
-    if let Some(ref twitter) = conf.twitter {
-        fields["field_twitter"] = serde_json::json!(twitter);
-    }
-    if let Some(ref coc_url) = conf.coc_url {
-        fields["field_coc_url"] = serde_json::json!(coc_url);
-    }
+    // Always set, never absent: the brief makes language part of the model, the
+    // upcoming gather exposes a filter on it, and a filter over a field that most
+    // items simply do not have is a filter that hides them. detect_language says
+    // whether the value came from the feed or from the default.
+    fields["field_language"] = serde_json::json!(detect_language(conf.locales.as_deref()).0);
+
+    // field_twitter and field_coc_url used to be written here. The conference
+    // type declares neither, the brief asks for neither, and no template reads
+    // either, so they were two undeclared keys riding along in every item's
+    // JSONB. Dropped rather than declared: adding a field to the model is the
+    // brief's call, not the importer's.
 
     fields
+}
+
+/// The conference's primary language as an ISO 639-1 code, and where it came from.
+///
+/// confs.tech publishes `locales` as a string like `"EN"`, absent on most
+/// entries. Normalised to lower case here because that is what the language
+/// column, the `lang` attribute and the gather's exposed filter all use, and
+/// because "EN" and "en" filtering as two different languages is the kind of
+/// split nobody notices until a listing is half empty.
+///
+/// Anything that is not a plausible two-letter code is treated as absent rather
+/// than stored: a regional tag like `en-GB` keeps its language half, and junk is
+/// dropped in favour of the default.
+///
+/// Returns the code and `true` when it was detected from the feed, `false` when
+/// it is the default.
+fn detect_language(locales: Option<&str>) -> (String, bool) {
+    const DEFAULT_LANGUAGE: &str = "en";
+
+    let Some(raw) = locales else {
+        return (DEFAULT_LANGUAGE.to_string(), false);
+    };
+    let head = raw.split([',', '-', '_']).next().unwrap_or("").trim();
+    if head.len() == 2 && head.chars().all(|c| c.is_ascii_alphabetic()) {
+        (head.to_ascii_lowercase(), true)
+    } else {
+        (DEFAULT_LANGUAGE.to_string(), false)
+    }
 }
 
 /// Insert a new conference item, published, on the live stage.
@@ -1121,14 +1258,15 @@ fn build_source_fields(
 /// Returns true on success.
 ///
 /// This plugin does not define the `conference` type it writes. The type, its
-/// fields and their types come from the Trovato tutorial config,
-/// `docs/tutorial/config/item_type.conference.yml` in the Trovato release, which
-/// the kernel image ships and the demo imports before enabling this plugin
-/// (`scripts/demo-bootstrap.sh`); the host-in-the-loop suites import the same
-/// file from `tests/host/tutorial-config/`. `item.type` is a foreign key onto that
-/// type, so an insert before the config is imported fails. `field_topics` is the
-/// one field written here that the type does not declare: the topic gathers read
-/// it straight from the JSONB.
+/// fields and their types are Ritrovo's, in `demo/config/item_type.conference.yml`,
+/// which the demo imports before enabling this plugin (`scripts/demo-bootstrap.sh`)
+/// and which the host-in-the-loop suites import too. `item.type` is a foreign key
+/// onto that type, so an insert before the config is imported fails.
+///
+/// `field_topics` is the one field written here that the type does not declare,
+/// and deliberately so: the kernel has no category-reference field kind, and
+/// declaring it as anything else would put a widget on the edit form that
+/// destroys the array on save. The gathers read it straight from the JSONB.
 fn insert_conference(
     conf: &ConfsTechEntry,
     source_id: &str,
@@ -1425,30 +1563,124 @@ mod tests {
         assert_eq!(result["status"], "completed", "unexpected: {result}");
     }
 
+    // ── language detection ────────────────────────────────────────────
+
+    #[test]
+    fn language_comes_from_the_feed_when_it_says_one() {
+        assert_eq!(detect_language(Some("EN")), ("en".to_string(), true));
+        assert_eq!(detect_language(Some("it")), ("it".to_string(), true));
+        assert_eq!(detect_language(Some(" DE ")), ("de".to_string(), true));
+    }
+
+    #[test]
+    fn language_keeps_the_language_half_of_a_regional_tag() {
+        assert_eq!(detect_language(Some("en-GB")), ("en".to_string(), true));
+        assert_eq!(detect_language(Some("pt_BR")), ("pt".to_string(), true));
+        assert_eq!(detect_language(Some("fr,en")), ("fr".to_string(), true));
+    }
+
+    #[test]
+    fn language_defaults_to_english_when_the_feed_is_silent_or_junk() {
+        assert_eq!(detect_language(None), ("en".to_string(), false));
+        assert_eq!(detect_language(Some("")), ("en".to_string(), false));
+        assert_eq!(detect_language(Some("english")), ("en".to_string(), false));
+        assert_eq!(detect_language(Some("12")), ("en".to_string(), false));
+    }
+
+    #[test]
+    fn every_conference_gets_a_language() {
+        // The upcoming gather exposes a language filter; a conference with no
+        // field_language at all would vanish from it rather than show up as
+        // English, which is the bug this guards.
+        let conf = ConfsTechEntry {
+            name: "NoLocaleConf".to_string(),
+            url: String::new(),
+            start_date: "2026-01-01".to_string(),
+            end_date: "2026-01-02".to_string(),
+            city: None,
+            country: None,
+            online: Some(true),
+            cfp_url: None,
+            cfp_end_date: None,
+            locales: None,
+        };
+        let fields = build_source_fields(&conf, "nolocaleconf-2026-01-01-online", &[]);
+        assert_eq!(fields["field_language"], "en");
+    }
+
+    // ── the confs.tech topic mapping (data/confs-tech-topics.json) ────
+
+    #[test]
+    fn the_topic_map_covers_every_feed_the_importer_fetches() {
+        let map = topic_map();
+        let keys: Vec<&str> = map.iter().map(|(k, _)| k.as_str()).collect();
+        for feed in TOPICS {
+            assert!(
+                keys.contains(feed),
+                "confs.tech feed '{feed}' is fetched but absent from \
+                 data/confs-tech-topics.json, so its conferences import untagged \
+                 with nothing saying so"
+            );
+        }
+        assert_eq!(map.len(), TOPICS.len(), "the map and the feed list disagree");
+    }
+
+    #[test]
+    fn the_topic_map_parses_and_names_its_unmapped_feeds() {
+        let map = topic_map();
+        assert!(!map.is_empty(), "the mapping file failed to parse");
+        let unmapped: Vec<&str> = map
+            .iter()
+            .filter(|(_, term)| term.is_none())
+            .map(|(k, _)| k.as_str())
+            .collect();
+        // The brief's tree has no General, Open Source or Testing term. If that
+        // changes, this test is the reminder to point these three somewhere.
+        assert_eq!(unmapped, vec!["general", "opensource", "testing"]);
+    }
+
+    #[test]
+    fn every_mapped_term_carries_both_a_label_and_a_slug() {
+        // The label is what the category_tag lookup matches on and the slug is
+        // the state key the resolved uuid caches under. One without the other
+        // resolves to nothing, silently.
+        for (feed, term) in topic_map() {
+            if let Some(term) = term {
+                assert!(!term.label.trim().is_empty(), "{feed} has an empty label");
+                assert!(!term.slug.trim().is_empty(), "{feed} has an empty slug");
+            }
+        }
+    }
+
     // ── tap_queue_worker ─────────────────────────────────────────────
 
+    // A malformed batch has to come back as Err, not as an Ok carrying
+    // {"status": "error"}. The kernel reads any Ok as success and deletes the
+    // job; only a negative length, which is what the SDK writes for an Err from
+    // a #[plugin_tap_result], reaches its retry-and-dead-letter path
+    // (G-QUEUE-WORKER-ERROR-IS-SUCCESS). So these assert the variant first and
+    // the message second.
     #[test]
     fn queue_worker_rejects_missing_topic() {
         let input = serde_json::json!({"year": 2026, "conferences": "[]"});
-        let result = __inner_tap_queue_worker(input);
-        assert_eq!(result["status"], "error");
-        assert_eq!(result["reason"], "missing_topic");
+        let err = __inner_tap_queue_worker(input).expect_err("must be an Err");
+        assert!(err.contains("missing_topic"), "unexpected: {err}");
     }
 
     #[test]
     fn queue_worker_rejects_missing_year() {
         let input = serde_json::json!({"topic": "rust", "conferences": "[]"});
-        let result = __inner_tap_queue_worker(input);
-        assert_eq!(result["status"], "error");
-        assert_eq!(result["reason"], "missing_year");
+        let err = __inner_tap_queue_worker(input).expect_err("must be an Err");
+        assert!(err.contains("missing_year"), "unexpected: {err}");
+        assert!(err.starts_with("rust/"), "the reason should name the batch: {err}");
     }
 
     #[test]
     fn queue_worker_rejects_bad_json() {
         let input = serde_json::json!({"topic": "rust", "year": 2026, "conferences": "not-json"});
-        let result = __inner_tap_queue_worker(input);
-        assert_eq!(result["status"], "error");
-        assert_eq!(result["reason"], "parse_error");
+        let err = __inner_tap_queue_worker(input).expect_err("must be an Err");
+        assert!(err.contains("parse_error"), "unexpected: {err}");
+        assert!(err.starts_with("rust/2026:"), "the reason should name the batch: {err}");
     }
 
     #[test]
@@ -1460,7 +1692,7 @@ mod tests {
             "year": 2026,
             "conferences": conferences,
         });
-        let result = __inner_tap_queue_worker(input);
+        let result = __inner_tap_queue_worker(input).expect("batch should succeed");
         assert_eq!(result["status"], "ok");
         assert_eq!(result["invalid"], 1);
         assert_eq!(result["imported"], 0);
@@ -1481,7 +1713,7 @@ mod tests {
             "year": 2026,
             "conferences": conferences,
         });
-        let result = __inner_tap_queue_worker(input);
+        let result = __inner_tap_queue_worker(input).expect("batch should succeed");
         assert_eq!(result["status"], "ok");
         // Stub execute_raw always returns Ok(0), so insert returns false (0 rows
         // affected != 1). The entry counts as invalid in the stub context.
@@ -1505,8 +1737,6 @@ mod tests {
             cfp_url: None,
             cfp_end_date: None,
             locales: None,
-            twitter: None,
-            coc_url: None,
         }
     }
 
@@ -1617,8 +1847,6 @@ mod tests {
             cfp_url: None,
             cfp_end_date: None,
             locales: None,
-            twitter: None,
-            coc_url: None,
         };
         assert_eq!(compute_source_id(&conf), "rustconf-2026-09-01-portland");
     }
@@ -1636,8 +1864,6 @@ mod tests {
             cfp_url: None,
             cfp_end_date: None,
             locales: None,
-            twitter: None,
-            coc_url: None,
         };
         assert_eq!(compute_source_id(&conf), "vue-js-nation-2025-01-29-online");
     }
@@ -1657,8 +1883,6 @@ mod tests {
             cfp_url: None,
             cfp_end_date: None,
             locales: None,
-            twitter: None,
-            coc_url: None,
         };
         let topics = vec!["rust".to_string()];
         let fields = build_source_fields(&conf, "testconf-2026-01-01-online", &topics);
@@ -1681,8 +1905,6 @@ mod tests {
             cfp_url: Some("https://rustconf.com/cfp".to_string()),
             cfp_end_date: Some("2026-06-01".to_string()),
             locales: Some("EN".to_string()),
-            twitter: Some("@rustconf".to_string()),
-            coc_url: Some("https://rustconf.com/coc".to_string()),
         };
         let topics = vec!["rust".to_string()];
         let fields = build_source_fields(&conf, "rustconf-2026-09-01-portland", &topics);
@@ -1691,9 +1913,13 @@ mod tests {
         assert_eq!(fields["field_country"], "U.S.A.");
         assert_eq!(fields["field_cfp_url"], "https://rustconf.com/cfp");
         assert_eq!(fields["field_cfp_end_date"], "2026-06-01");
-        assert_eq!(fields["field_language"], "EN");
-        assert_eq!(fields["field_twitter"], "@rustconf");
-        assert_eq!(fields["field_coc_url"], "https://rustconf.com/coc");
+        // Normalised: the feed says "EN", the model stores ISO 639-1 lower case.
+        assert_eq!(fields["field_language"], "en");
+        // The feed carries twitter and codeOfConduct and the model has no field
+        // for either, so neither is written. They used to ride along as
+        // undeclared keys in every item's JSONB.
+        assert!(fields.get("field_twitter").is_none());
+        assert!(fields.get("field_coc_url").is_none());
     }
 
     // ── merge_topics ──────────────────────────────────────────────────
@@ -1730,9 +1956,10 @@ mod tests {
 
     #[test]
     fn topic_term_uuid_returns_none_for_unmapped_slug() {
-        // sre and scala have no SLUG_TO_TERM entry.
-        assert!(topic_term_uuid("sre").is_none());
-        assert!(topic_term_uuid("scala").is_none());
+        // `general`, `opensource` and `testing` map to no term in the data file.
+        assert!(topic_term_uuid("general").is_none());
+        assert!(topic_term_uuid("opensource").is_none());
+        assert!(topic_term_uuid("testing").is_none());
     }
 
     #[test]

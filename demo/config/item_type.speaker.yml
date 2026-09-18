@@ -1,0 +1,36 @@
+# The speaker type, as docs/ritrovo/overview.md "Content Model" defines it.
+#
+# Ritrovo owns this file; see demo/config/README.md.
+#
+# The brief's `conferences` column is not a field here and must not become one.
+# It is a REVERSE reference: the conference type holds `field_speakers`, and a
+# speaker page lists the conferences that point at it. The kernel computes that
+# on the item route by asking, for every RecordReference field of every type,
+# which items reference this one, and hands the answer to the template as
+# `reverse_references.conference`. A forward `field_conferences` on the speaker,
+# which the tutorial's copy declared, would be a second place to say the same
+# thing and would disagree with the first the moment either was edited.
+#
+# `field_company` is gone for the same reason it was never in the brief: nothing
+# asked for it.
+type: speaker
+label: Speaker
+description: A conference speaker profile
+has_title: true
+title_label: Speaker Name
+plugin: core
+settings:
+  fields:
+    # Blocks for the same reason the conference description is Blocks: it is the
+    # kernel's rich text, sanitized on render.
+    - field_name: field_bio
+      field_type: Blocks
+      label: Bio
+    - field_name: field_headshot
+      field_type: File
+      label: Headshot
+    - field_name: field_website
+      field_type:
+        Text:
+          max_length: null
+      label: Website

@@ -1,0 +1,20 @@
+# Search tile (machine_name: search_box) — Header, visible on all pages.
+id: 0193a5a0-0003-7000-8000-000000000004
+machine_name: search_box
+label: Search
+region: header
+tile_type: custom_html
+config:
+  body: |
+    <form class="search-form" action="/search" method="get">
+      <input type="text" name="q" placeholder="Search conferences..." class="search-form__input" aria-label="Search">
+      <button type="submit" class="search-form__button">Search</button>
+    </form>
+  format: full_html
+visibility: {}
+weight: 10
+status: 1
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1767225600

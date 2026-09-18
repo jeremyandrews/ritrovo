@@ -1,0 +1,10 @@
+id: 'fe9619cb-a29f-5236-85ec-1c8052c3578b'
+category_id: topics
+label: JVM
+description: null
+slug: jvm
+weight: 1
+created: 1772772163
+changed: 1772772163
+parents:
+- 5a4988ec-5ef6-5235-8f03-c906f2184d74

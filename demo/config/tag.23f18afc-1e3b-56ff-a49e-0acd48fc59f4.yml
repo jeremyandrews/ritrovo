@@ -1,0 +1,10 @@
+id: '23f18afc-1e3b-56ff-a49e-0acd48fc59f4'
+category_id: topics
+label: GraphQL
+description: null
+slug: graphql
+weight: 2
+created: 1772772163
+changed: 1772772163
+parents:
+- 8ad812c0-2305-5c02-adca-dffcd1f4a996

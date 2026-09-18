@@ -38,8 +38,8 @@ use trovato_kernel::content::ItemService;
 use trovato_kernel::plugin::{PluginConfig, PluginRuntime};
 use trovato_kernel::tap::{RequestServices, RequestState, TapDispatcher, TapRegistry, UserContext};
 
-/// The two internal editorial stages, as `tutorial-config/stage.*.yml` identifies
-/// them. See [`import_tutorial_config`].
+/// The two internal editorial stages, as `demo/config/stage.*.yml` identifies
+/// them. See [`import_demo_config`].
 pub const INCOMING_STAGE: &str = "0193a5a0-0000-7000-8000-000000000002";
 pub const CURATED_STAGE: &str = "0193a5a0-0000-7000-8000-000000000003";
 
@@ -288,28 +288,33 @@ pub fn items(pool: &PgPool, disp: &Arc<TapDispatcher>) -> ItemService {
     )
 }
 
-/// Import the part of Trovato's tutorial config these suites depend on, through
-/// the kernel's own config importer.
+/// Import Ritrovo's configuration set, through the kernel's own config importer.
 ///
-/// `tests/host/tutorial-config/` is a verbatim subset of `docs/tutorial/config/`
-/// in the Trovato release the workspace pins: the `topics` category and its terms
-/// (which `ritrovo_importer` resolves by label), the `conference` item type (which
-/// every conference Item's `type` is a foreign key onto) and the four editorial
-/// stages (which `ritrovo_access` gates on). The demo gets the same files from
-/// the kernel image; a test has no image, so it keeps a copy, and
-/// `scripts/check-tutorial-templates.sh` diffs the copy against the release in CI
-/// exactly as it does the vendored templates.
+/// `demo/config/` is the set itself, not a copy of one: the `topics` category and
+/// its terms (which `ritrovo_importer` resolves by label), the `conference` and
+/// `speaker` types (which every Item's `type` is a foreign key onto), the four
+/// editorial stages (which `ritrovo_access` gates on), the gathers, roles, tiles,
+/// menu links and aliases. The demo imports this same directory.
+///
+/// It used to be `tests/host/tutorial-config/`, a hand-picked subset of the
+/// kernel image's copy that CI diffed against the release. That existed because
+/// the model was Trovato's; it is Ritrovo's now, so the tests read the real thing
+/// and there is no subset to drift.
+///
+/// The whole set imports or none of it does — references resolve across the
+/// directory and then the database, and one unresolved reference fails the import
+/// with nothing written — so a test that needs any of it gets all of it.
 ///
 /// Idempotent: the importer upserts.
-pub async fn import_tutorial_config(pool: &PgPool) {
+pub async fn import_demo_config(pool: &PgPool) {
     let storage = trovato_kernel::config_storage::DirectConfigStorage::new(pool.clone());
-    let dir = repo_root().join("tests/host/tutorial-config");
+    let dir = repo_root().join("demo/config");
     trovato_kernel::config_storage::yaml::import_config(&storage, pool, &dir, false)
         .await
         .unwrap_or_else(|e| panic!("import {}: {e:#}", dir.display()));
 }
 
-/// The id of a `topics` term, by the label the tutorial config gives it.
+/// The id of a `topics` term, by the label `demo/config` gives it.
 pub async fn topic_term(pool: &PgPool, label: &str) -> String {
     sqlx::query_scalar(
         "SELECT id::text FROM category_tag WHERE category_id = 'topics' AND label = $1",

@@ -59,7 +59,7 @@ fn each_deadline_renders_the_badge_for_its_distance() {
     serial(async {
         let pool = host::fresh_pool().await;
         host::install_and_enable(&pool, PLUGIN).await.unwrap();
-        host::import_tutorial_config(&pool).await;
+        host::import_demo_config(&pool).await;
         sqlx::query("DELETE FROM item WHERE type = 'conference'")
             .execute(&pool)
             .await
