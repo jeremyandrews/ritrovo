@@ -1,6 +1,6 @@
 name = "ritrovo_cfp"
 description = "CFP deadline badge and validation for conferences"
-version = "1.1.0"
+version = "1.2.0"
 api_version = "0.102"
 default_enabled = false
 dependencies = []
@@ -8,6 +8,13 @@ dependencies = []
 [taps]
 implements = [
     "tap_item_view",
+    # Checks that a CFP does not close after its conference ends. It can only
+    # report: the kernel reads a `fields` object back from this tap, merges it
+    # and saves regardless, so no tap can refuse a write
+    # (FRICTION.md, G-PRESAVE-CANNOT-REFUSE). The rule is enforced where
+    # something is allowed to say no, which is the submission form
+    # `ritrovo_forms` serves.
+    "tap_item_presave",
 ]
 weight = 0
 

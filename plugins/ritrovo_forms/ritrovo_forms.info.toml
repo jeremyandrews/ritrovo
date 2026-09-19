@@ -1,0 +1,48 @@
+name = "ritrovo_forms"
+description = "The forms Ritrovo serves itself: the member profile, and conference submission"
+version = "0.1.0"
+api_version = "0.102"
+default_enabled = false
+dependencies = []
+
+# `tap_api` is the only surface through which a plugin serves a request, and it
+# is the reason this plugin can exist at all. The kernel's own Form API
+# (`FormService`, `tap_form_alter`, `tap_form_validate`, `tap_form_submit`) is
+# dispatched by nothing, so a plugin cannot add a field to a kernel form or serve
+# one through the kernel's pipeline. See FRICTION.md, G-FORM-TAPS-UNREACHABLE.
+#
+# What `tap_api` does give is a route the plugin owns end to end, with a
+# kernel-minted CSRF token to render into a hidden `_token` input, so the form
+# works with JavaScript switched off. That is what every form here is built on.
+[taps]
+implements = [
+    "tap_menu",
+    "tap_api",
+]
+weight = 0
+
+# The kernel runs these at install and at every server start, in this order, and
+# records each as applied. A file that is not listed here is not a migration, it
+# is a file in a directory: the runner reads this list, never the directory.
+[migrations]
+files = [
+    "migrations/001_create_ritrovo_profile.sql",
+]
+
+# Declared plugin capabilities (WASM-1, deny-unless-declared). The Trovato
+# kernel builds this plugin's WASM linker from host_interfaces — it receives
+# exactly the host interfaces named here (plus baseline WASI). Derived from the
+# compiled .wasm import section.
+#
+# `db` because this plugin owns a table: the kernel's user record has no seam an
+# extra field could be added through (G-USER-PROFILE-NOT-EXTENSIBLE), so a
+# member's bio lives in `ritrovo_profile` rather than on the user.
+#
+# `logging` so a failed write is visible in the site's log rather than only as a
+# apologetic page in one person's browser.
+[capabilities]
+host_interfaces = ["db", "logging"]
+# Uses the raw-SQL host functions query-raw and execute-raw. There is no typed
+# host API for a plugin-owned table; raw SQL is the only way to read or write
+# one, and every statement here is parameterized.
+raw_sql = true

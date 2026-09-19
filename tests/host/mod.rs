@@ -20,7 +20,7 @@
 //!
 //! Every suite runs its tests one at a time ([`serial`]): they share one database,
 //! and a test that truncates the queue under another test's drain is a flake.
-//! Cargo runs the five test binaries one after another, never in parallel, so the
+//! Cargo runs the six test binaries one after another, never in parallel, so the
 //! database is only ever in one suite's hands at a time.
 
 #![allow(dead_code)]
@@ -511,6 +511,10 @@ pub async fn app() -> &'static App {
 
     let router = axum::Router::new()
         .merge(trovato_kernel::routes::auth::router())
+        // The kernel's own item routes, `/item/{id}/edit` among them. A6 tests
+        // what that form preserves and what it destroys, and the only honest way
+        // to find out is to drive the kernel's route rather than a reading of it.
+        .merge(trovato_kernel::routes::item::router())
         .merge(trovato_kernel::routes::plugin_api::build_plugin_api_router(
             &state.menu_registry().all().cloned().collect::<Vec<_>>(),
         ))
@@ -624,46 +628,163 @@ impl App {
         }
     }
 
+    /// Create an ordinary member holding the named demo roles, and log in.
+    ///
+    /// Returns the session cookie and the new user's id, because a test that
+    /// posts a form usually also has to read back the row the post wrote.
+    ///
+    /// **Not an administrator.** That is the whole point of it beside
+    /// [`Self::login_as_new_admin`]: the administrator flag bypasses access
+    /// checks and half the kernel's screens are gated on it, so a test that only
+    /// ever logs in as an administrator cannot tell a working permission from a
+    /// bypassed one. Every authenticated user additionally holds whatever the
+    /// `authenticated user` role grants, which is where `view own profile` and
+    /// `create content` come from; `demo/config` has to be imported for those to
+    /// exist.
+    ///
+    /// Roles are named as `demo/config` names them: `"editor"`, `"publisher"`,
+    /// `"viewer"`. An unknown name panics rather than silently producing a user
+    /// with fewer permissions than the test believes it asked for.
+    pub async fn login_as_new_member(&self, roles: &[&str]) -> (String, Uuid) {
+        let id = Uuid::now_v7();
+        let name = format!("ritrovo-test-member-{}", id.simple());
+        let cookies = self.create_and_log_in(id, &name, false).await;
+
+        for role in roles {
+            let role_id: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE name = $1")
+                .bind(role)
+                .fetch_optional(self.state.db())
+                .await
+                .unwrap()
+                .unwrap_or_else(|| {
+                    panic!("no role named {role}; import demo/config before asking for it")
+                });
+            sqlx::query("INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2)")
+                .bind(id)
+                .bind(role_id)
+                .execute(self.state.db())
+                .await
+                .unwrap();
+        }
+
+        // The role was granted after the session was established, and the
+        // permission service caches per user. Log in again so the session's
+        // context carries the roles this test just asked for.
+        if roles.is_empty() {
+            (cookies, id)
+        } else {
+            (self.log_in(&name).await, id)
+        }
+    }
+
     /// Create a site administrator and log in through `/user/login/json`,
     /// returning the session cookie.
     pub async fn login_as_new_admin(&self) -> String {
+        let id = Uuid::now_v7();
+        let name = format!("ritrovo-test-admin-{}", id.simple());
+        self.create_and_log_in(id, &name, true).await
+    }
+
+    /// POST a form-urlencoded body, the way a browser submits a `<form>`.
+    ///
+    /// `application/x-www-form-urlencoded` and no `X-CSRF-Token` header, because
+    /// that is what a plain HTML form sends and the no-JavaScript claim is only
+    /// worth anything if the tests submit the way a browser does. A token
+    /// travels in the body, under `_token` for a plugin-served route and `_csrf`
+    /// for a kernel one.
+    pub async fn post_form(&self, path: &str, body: &str, cookies: &str) -> Response {
+        let mut request = axum::http::Request::post(path)
+            .header("content-type", "application/x-www-form-urlencoded");
+        if !cookies.is_empty() {
+            request = request.header(axum::http::header::COOKIE, cookies);
+        }
+        self.send(
+            request
+                .body(axum::body::Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+    }
+
+    /// Insert a user with a known password, then log in as them.
+    async fn create_and_log_in(&self, id: Uuid, name: &str, is_admin: bool) -> String {
         use argon2::password_hash::{PasswordHasher, SaltString, rand_core::OsRng};
 
-        let name = format!("ritrovo-test-admin-{}", Uuid::now_v7().simple());
-        let password = "correct horse battery staple";
         let hash = argon2::Argon2::default()
-            .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+            .hash_password(TEST_PASSWORD.as_bytes(), &SaltString::generate(&mut OsRng))
             .unwrap()
             .to_string();
         sqlx::query(
             "INSERT INTO users (id, name, pass, mail, status, is_admin) \
-             VALUES ($1, $2, $3, $4, 1, true)",
+             VALUES ($1, $2, $3, $4, 1, $5)",
         )
-        .bind(Uuid::now_v7())
-        .bind(&name)
+        .bind(id)
+        .bind(name)
         .bind(&hash)
         .bind(format!("{name}@example.test"))
+        .bind(is_admin)
         .execute(self.state.db())
         .await
         .unwrap();
 
+        self.log_in(name).await
+    }
+
+    /// Log in an existing test user, returning the session cookie.
+    async fn log_in(&self, name: &str) -> String {
+        clear_rate_limits().await;
         let response = self
             .send(
                 axum::http::Request::post("/user/login/json")
                     .header("content-type", "application/json")
                     .body(axum::body::Body::from(
-                        serde_json::json!({ "username": name, "password": password }).to_string(),
+                        serde_json::json!({ "username": name, "password": TEST_PASSWORD })
+                            .to_string(),
                     ))
                     .unwrap(),
             )
             .await;
-        assert_eq!(
-            response.status, 200,
-            "administrator login failed: {}",
-            response.body
-        );
+        assert_eq!(response.status, 200, "login failed: {}", response.body);
         assert!(!response.cookies.is_empty(), "login set no session cookie");
         response.cookies
+    }
+}
+
+/// The password every user these suites create is given.
+const TEST_PASSWORD: &str = "correct horse battery staple";
+
+/// Forget every rate-limit counter in Redis.
+///
+/// **Not a workaround for the limiter; test isolation from it.** The kernel
+/// limits logins per client IP, and it is right to: a handful of attempts a
+/// minute from one address is what a person does and a lot more is what a
+/// password guesser does. But every request in these suites arrives from
+/// 127.0.0.1, and a suite that signs a fresh user in for each of its tests
+/// spends that budget in seconds — so without this the first few tests pass and
+/// the rest fail with 429, in an order that depends on how fast the machine is.
+/// That is a flake, and it hides real failures behind a fake one.
+///
+/// It clears counters rather than raising limits, so the limiter that ships is
+/// the limiter under test everywhere else, and a suite that wants to prove the
+/// limit works can still spend it deliberately.
+///
+/// Redis failures are ignored: the kernel's own limiter fails open on a Redis
+/// error, so a test run against a Redis that cannot be reached is one where
+/// nothing was counted in the first place.
+pub async fn clear_rate_limits() {
+    let Ok(client) = redis::Client::open(redis_url()) else {
+        return;
+    };
+    let Ok(mut conn) = client.get_multiplexed_async_connection().await else {
+        return;
+    };
+    let keys: Vec<String> = redis::cmd("KEYS")
+        .arg("rate:*")
+        .query_async(&mut conn)
+        .await
+        .unwrap_or_default();
+    for key in keys {
+        let _: Result<i64, _> = redis::cmd("DEL").arg(&key).query_async(&mut conn).await;
     }
 }
 

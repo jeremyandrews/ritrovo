@@ -4,7 +4,7 @@
 #
 #   scripts/serve-demo.sh
 #
-# What that gets you: Postgres and Redis, the five Ritrovo plugins compiled to
+# What that gets you: Postgres and Redis, the six Ritrovo plugins compiled to
 # WebAssembly in a throwaway container, the published Trovato image with the
 # Ritrovo overlay appended to its three search paths, the installer completed, the
 # tutorial config set imported, the plugins enabled in the order that matters, the

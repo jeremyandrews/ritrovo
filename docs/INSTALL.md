@@ -14,7 +14,7 @@ entries win, so Ritrovo is simply appended to the end.
 scripts/serve-demo.sh
 ```
 
-That brings up Postgres and Redis, compiles the five plugins to WebAssembly in a
+That brings up Postgres and Redis, compiles the six plugins to WebAssembly in a
 throwaway container, and starts the **released** kernel image with the Ritrovo
 overlay on its search paths:
 
@@ -150,7 +150,7 @@ export UPLOADS_DIR="/var/tmp/ritrovo-uploads"
 ./target/release/trovato config import docs/tutorial/config --dry-run
 ./target/release/trovato config import docs/tutorial/config
 
-# 6. Enable the five plugins. They install automatically but stay disabled,
+# 6. Enable the six plugins. They install automatically but stay disabled,
 #    because each declares default_enabled = false.
 for p in ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_notify ritrovo_translate; do
     ./target/release/trovato plugin enable $p

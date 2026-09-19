@@ -219,8 +219,8 @@ fn every_plugin_is_in_the_demo_enable_list() {
     let plugins = workspace_plugins();
     assert_eq!(
         plugins.len(),
-        5,
-        "expected five Ritrovo plugins: {plugins:?}"
+        6,
+        "expected six Ritrovo plugins: {plugins:?}"
     );
 
     for name in plugins {

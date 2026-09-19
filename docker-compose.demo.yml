@@ -77,7 +77,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # Compile the five plugins to WebAssembly and stage them where PLUGINS_DIR can
+  # Compile the six plugins to WebAssembly and stage them where PLUGINS_DIR can
   # reach them. Runs to completion, then exits; the kernel waits for it.
   #
   # The repository is mounted READ-ONLY and the sources are copied into a volume
