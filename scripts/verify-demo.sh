@@ -428,6 +428,125 @@ else
     bad "nothing is on Incoming; the importer is landing conferences somewhere else"
 fi
 
+head_ "submit a conference"
+
+# The three-step submission form, driven end to end as viewer_carol: a signed-in
+# member with no editorial standing, which is exactly who the form is for.
+#
+# Every POST here is form-urlencoded with the token in a `_token` body field and
+# NO X-CSRF-Token header, because that is all a plain HTML <form> can send. If
+# this passes, the form works with JavaScript switched off; there is no separate
+# way to check that, because there is no JavaScript in it to switch off.
+SUBMIT_PATH="/conferences/submit"
+
+# Pull the CSRF token out of a rendered form. Single-use, so every step reads the
+# one on the page it is answering.
+token_from() { printf '%s' "$1" | sed -n 's/.*name="_token" value="\([^"]*\)".*/\1/p' | head -1; }
+draft_from() { printf '%s' "$1" | sed -n 's/.*name="draft" value="\([^"]*\)".*/\1/p' | head -1; }
+
+submit_anon="$(code "$SUBMIT_PATH")"
+if [ "$submit_anon" = "401" ]; then
+    ok "$SUBMIT_PATH is 401 to an anonymous visitor"
+else
+    bad "$SUBMIT_PATH answered $submit_anon to an anonymous visitor, expected 401"
+fi
+
+step1_page="$(curl -s -b "$viewer_jar" "$BASE$SUBMIT_PATH")"
+if printf '%s' "$step1_page" | grep -q "Step 1 of 3"; then
+    ok "$SUBMIT_PATH serves step 1 to a signed-in member"
+else
+    bad "$SUBMIT_PATH did not serve step 1 to a signed-in member"
+fi
+
+# A name nothing else in the demo uses, so the assertions below cannot match an
+# imported conference.
+SUBMITTED_NAME="Verify Demo Conference"
+
+step2_page="$(curl -s -b "$viewer_jar" -X POST "$BASE$SUBMIT_PATH" \
+    --data-urlencode "_token=$(token_from "$step1_page")" \
+    --data 'step=1' --data 'draft=' \
+    --data-urlencode "name=$SUBMITTED_NAME" \
+    --data-urlencode 'url=https://example.org/verify' \
+    --data 'start_date=2029-06-01' --data 'end_date=2029-06-03' \
+    --data-urlencode 'city=Torino' --data-urlencode 'country=Italy')"
+draft="$(draft_from "$step2_page")"
+if printf '%s' "$step2_page" | grep -q "Step 2 of 3" && [ -n "$draft" ]; then
+    ok "step 1 validates and advances, with its state on the server"
+else
+    bad "step 1 did not advance to step 2"
+fi
+
+review_page="$(curl -s -b "$viewer_jar" -X POST "$BASE$SUBMIT_PATH" \
+    --data-urlencode "_token=$(token_from "$step2_page")" \
+    --data 'step=2' --data-urlencode "draft=$draft" \
+    --data-urlencode 'cfp_url=https://example.org/verify/cfp' \
+    --data 'cfp_end_date=2029-04-01' \
+    --data-urlencode 'description=Submitted by verify-demo.sh.')"
+if printf '%s' "$review_page" | grep -q "Step 3 of 3" \
+    && printf '%s' "$review_page" | grep -q "$SUBMITTED_NAME"; then
+    ok "step 2 validates and the review shows the answers back"
+else
+    bad "step 2 did not reach a review carrying the answers"
+fi
+
+done_page="$(curl -s -b "$viewer_jar" -X POST "$BASE$SUBMIT_PATH" \
+    --data-urlencode "_token=$(token_from "$review_page")" \
+    --data 'step=3' --data-urlencode "draft=$draft")"
+if printf '%s' "$done_page" | grep -q "not on the site yet"; then
+    ok "step 3 confirms, and says the submission is awaiting moderation"
+else
+    bad "step 3 did not confirm the submission"
+fi
+
+# It landed where an editor will find it, and nowhere a visitor will.
+submitted_stage="$(sql "select stage_id from item where type='conference' and title='$SUBMITTED_NAME' limit 1")"
+if [ "$submitted_stage" = "0193a5a0-0000-7000-8000-000000000002" ]; then
+    ok "the submitted conference is on Incoming"
+else
+    bad "the submitted conference is on stage '${submitted_stage:-nothing}', expected Incoming"
+fi
+
+submitted_author="$(sql "select u.name from item i join users u on u.id = i.author_id where i.type='conference' and i.title='$SUBMITTED_NAME' limit 1")"
+if [ "$submitted_author" = "viewer_carol" ]; then
+    ok "the submitter is recorded as the author (viewer_carol)"
+else
+    bad "the submitted conference is authored by '${submitted_author:-nobody}', expected viewer_carol"
+fi
+
+# A CFP that closes after the conference ends is refused, on the step that
+# collects it. This is the brief's rule, enforced where something is allowed to
+# say no: ritrovo_cfp's presave tap can only report it
+# (FRICTION.md, G-PRESAVE-CANNOT-REFUSE).
+bad_start="$(curl -s -b "$viewer_jar" "$BASE$SUBMIT_PATH")"
+bad_step2="$(curl -s -b "$viewer_jar" -X POST "$BASE$SUBMIT_PATH" \
+    --data-urlencode "_token=$(token_from "$bad_start")" \
+    --data 'step=1' --data 'draft=' \
+    --data-urlencode 'name=Late CFP Check' \
+    --data 'start_date=2029-06-01' --data 'end_date=2029-06-03' \
+    --data-urlencode 'country=Italy')"
+bad_draft="$(draft_from "$bad_step2")"
+refused="$(curl -s -b "$viewer_jar" -X POST "$BASE$SUBMIT_PATH" \
+    --data-urlencode "_token=$(token_from "$bad_step2")" \
+    --data 'step=2' --data-urlencode "draft=$bad_draft" \
+    --data 'cfp_end_date=2029-06-04')"
+if printf '%s' "$refused" | grep -q "cannot close after"; then
+    ok "a CFP closing after the conference ends is refused on step 2"
+else
+    bad "a CFP closing after the conference ends was accepted"
+fi
+
+# And a step posted without a token is refused by the kernel, before the plugin
+# is dispatched at all.
+notoken="$(curl -s -b "$viewer_jar" -o /dev/null -w '%{http_code}' -X POST "$BASE$SUBMIT_PATH" \
+    --data 'step=1' --data 'draft=' --data-urlencode 'name=No Token' \
+    --data 'start_date=2029-06-01' --data 'end_date=2029-06-03' \
+    --data-urlencode 'country=Italy')"
+if [ "$notoken" = "403" ]; then
+    ok "a submission step with no CSRF token is 403"
+else
+    bad "a submission step with no CSRF token answered $notoken, expected 403"
+fi
+
 printf '\n'
 if [ "$failures" -eq 0 ]; then
     echo "all checks passed"

@@ -26,6 +26,8 @@
 //!
 //! - [`profile`] — `/user/bio`, the member profile the kernel's `/user/profile`
 //!   has no room for.
+//! - [`submit`] — `/conferences/submit`, a three-step "Submit a Conference" for
+//!   signed-in members, with its state on the server between steps.
 //!
 //! # The rule every page here follows
 //!
@@ -43,7 +45,9 @@
 use trovato_sdk::prelude::*;
 use trovato_sdk::types::{ApiRequest, ApiResponse, MenuRoute};
 
+mod dates;
 mod profile;
+mod submit;
 mod web;
 
 /// The permission every route here is gated on.
@@ -57,6 +61,16 @@ mod web;
 /// The check happens in the kernel, before dispatch, so an anonymous request
 /// never reaches this module.
 const MEMBER: &str = "view own profile";
+
+/// The permission the submission form is gated on.
+///
+/// `create content` is a kernel permission granted to the `authenticated user`
+/// role and to no anonymous one, which is exactly what story 36.4 asks for
+/// ("`create content` permission required; anonymous users redirected to
+/// login"). The redirect is the half that is not available: a plugin route
+/// cannot set a response header, so an anonymous visitor gets 401 rather than
+/// the login form (FRICTION.md, `G-PLUGIN-ROUTE-NO-HEADERS`).
+const SUBMITTER: &str = "create content";
 
 /// Register the routes.
 ///
@@ -78,6 +92,12 @@ pub fn tap_menu() -> Vec<MenuRoute> {
         MenuRoute::api("POST", profile::PATH, "profile_save")
             .title("Your profile")
             .permission(MEMBER),
+        MenuRoute::api("GET", submit::PATH, "submit_show")
+            .title("Submit a Conference")
+            .permission(SUBMITTER)
+            .weight(20)
+            .visible(),
+        MenuRoute::api("POST", submit::PATH, "submit_post").permission(SUBMITTER),
     ]
 }
 
@@ -90,6 +110,8 @@ pub fn tap_api(request: ApiRequest) -> ApiResponse {
     match request.callback.as_str() {
         "profile_show" => profile::show(&request),
         "profile_save" => profile::save(&request),
+        "submit_show" => submit::show(&request),
+        "submit_post" => submit::post(&request),
         other => ApiResponse::error(404, &format!("no such callback: {other}")),
     }
 }
@@ -119,8 +141,16 @@ mod tests {
 
     #[test]
     fn every_route_is_gated_on_a_permission_anonymous_cannot_hold() {
+        // Both are kernel permissions held by the `authenticated user` role and
+        // by no anonymous one. The kernel checks them before dispatch, so an
+        // ungated route here would be a page a stranger could post to.
         for route in routes() {
-            assert_eq!(route.permission, MEMBER, "{} is ungated", route.path);
+            assert!(
+                route.permission == MEMBER || route.permission == SUBMITTER,
+                "{} is gated on {:?}",
+                route.path,
+                route.permission
+            );
         }
     }
 
@@ -145,11 +175,37 @@ mod tests {
     }
 
     #[test]
-    fn only_the_get_shows_in_navigation() {
-        let visible: Vec<_> = routes().into_iter().filter(|r| r.visible).collect();
-        assert_eq!(visible.len(), 1);
-        assert_eq!(visible[0].method, "GET");
-        assert_eq!(visible[0].parent.as_deref(), Some("/user"));
+    fn only_a_get_ever_shows_in_navigation() {
+        // A navigation entry for a POST is a link that cannot be followed.
+        for route in routes().into_iter().filter(|r| r.visible) {
+            assert_eq!(
+                route.method, "GET",
+                "{} is a visible {}",
+                route.path, route.method
+            );
+        }
+    }
+
+    #[test]
+    fn the_profile_sits_under_the_user_menu() {
+        let profile = routes()
+            .into_iter()
+            .find(|r| r.path == profile::PATH && r.visible)
+            .expect("the profile has a visible entry");
+        assert_eq!(profile.parent.as_deref(), Some("/user"));
+    }
+
+    #[test]
+    fn one_path_carries_both_methods() {
+        for path in [profile::PATH, submit::PATH] {
+            let methods: Vec<String> = routes()
+                .into_iter()
+                .filter(|r| r.path == path)
+                .map(|r| r.method)
+                .collect();
+            assert!(methods.contains(&"GET".to_string()), "{path}: {methods:?}");
+            assert!(methods.contains(&"POST".to_string()), "{path}: {methods:?}");
+        }
     }
 
     /// Run a request through the tap's own body.

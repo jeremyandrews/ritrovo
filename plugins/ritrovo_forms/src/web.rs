@@ -22,6 +22,15 @@ pub fn field(body: &str, name: &str) -> String {
         .unwrap_or_default()
 }
 
+/// Whether `name` was posted at all, whatever its value.
+///
+/// An unchecked checkbox posts nothing, so presence is the answer rather than
+/// the value: a form that read the value instead would keep the previous answer
+/// every time somebody unticked a box.
+pub fn present(body: &str, name: &str) -> bool {
+    pairs(body).any(|(key, _)| key == name)
+}
+
 /// Decode a form-urlencoded body into key/value pairs.
 ///
 /// Both halves are decoded: a key can be percent-encoded too, and a decoder that
@@ -175,11 +184,22 @@ mod tests {
     fn a_valueless_key_is_empty_not_missing() {
         assert_eq!(field("a=&b=2", "a"), "");
         assert_eq!(field("a=&b=2", "b"), "2");
+        assert!(present("a=&b=2", "a"));
+        assert!(!present("a=&b=2", "c"));
+    }
+
+    #[test]
+    fn an_unticked_checkbox_posts_nothing_at_all() {
+        // The whole reason `present` exists: a browser omits an unchecked box,
+        // so absence is the answer "no" rather than "unanswered".
+        assert!(present("name=X&online=1", "online"));
+        assert!(!present("name=X", "online"));
     }
 
     #[test]
     fn an_empty_body_yields_nothing() {
         assert_eq!(field("", "a"), "");
+        assert!(!present("", "a"));
     }
 
     #[test]

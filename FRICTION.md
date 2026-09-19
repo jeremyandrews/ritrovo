@@ -934,6 +934,85 @@ a multipart upload to a plugin page is refused.
 **Recommendation.** Binary request bodies for plugin routes, or a host call that
 stores a temporary file and returns its id.
 
+### G-NO-FORM-STATE-HOST-API: **[Medium, NEW]** the kernel has a form-state table, a writer for it and a cron task to expire it, and a plugin can reach none of them
+
+`crates/kernel/migrations/20260212000010_create_form_state_cache.sql` creates
+`form_state_cache` with exactly the columns a multi-step form needs.
+`FormService::save_state` and `::load_state` write and read it
+(`crates/kernel/src/form/service.rs:417`, `:437`), and
+`CronTasks::cleanup_form_state_cache` expires stale rows
+(`crates/kernel/src/cron/tasks.rs:248`). Every piece of a multi-step form's state
+management exists and is wired to a cron schedule.
+
+**No route calls `FormService`** (`G-FORM-TAPS-UNREACHABLE`), and no host
+interface exposes any of it, so the table is written by nothing and readable by
+nobody. A plugin building a multi-step form has two options: write to the
+kernel's table through raw SQL, which means squatting in a schema the kernel is
+free to change and a cron task it is free to retune; or create its own table,
+its own expiry and its own migration, which is one more copy of a thing the
+kernel already has per plugin that needs one.
+
+`ritrovo_forms` does the second (`plugins/ritrovo_forms/migrations/002_create_ritrovo_form_state.sql`).
+The rows are the same shape as the kernel's, under a name this plugin owns.
+
+**Blocks.** Nothing outright; it makes 36.4 and D22 more code than they should
+be, and gives the site two form-state tables with two expiry policies.
+
+**Recommendation.** A `form-state` host interface, or the smaller version: let a
+plugin name a key and store a JSON blob against the current session with a TTL.
+The cron task that already runs would then expire every plugin's state too.
+
+### G-PLUGIN-CANNOT-READ-BACK-AN-INSERT: **[Medium, NEW]** a plugin cannot learn the id of a row it just wrote
+
+`query_raw` refuses any statement that is not read-only
+(`crates/kernel/src/host/db.rs:169-174`), so `INSERT … RETURNING id` is rejected
+before it reaches the database. `execute_raw` runs the insert and returns a row
+count. There is no third option in the SDK: `crates/plugin-sdk/src/host.rs`
+exposes `query_raw` and `execute_raw` and nothing else for the database.
+
+The kernel does implement what is needed. `crates/wit/kernel.wit` declares
+`insert: func(table: string, data-json: string) -> result<string, string>` in the
+`db` interface, and `do_insert` executes it with `RETURNING *` and serializes the
+row (`crates/kernel/src/host/db.rs:370`). **The SDK wraps none of the four
+structured calls** — `select`, `insert`, `update`, `delete` — so a plugin author
+reading the SDK has no way to reach them and no indication they exist.
+
+The consequence is small per site and awkward per plugin: any plugin writing a
+row it then has to refer to must generate the key itself.
+`ritrovo_forms::submit::new_uuid` does that, from the kernel's CSPRNG, which is a
+normal enough pattern that it is worth saying it was not a choice.
+
+**Blocks.** Nothing; it costs every plugin that owns a table a key generator.
+
+**Recommendation.** Wrap the structured `db` calls in the SDK, or let
+`execute_raw` return the rows of a `RETURNING` clause.
+
+### G-BAD-CAPABILITY-NAME-MAKES-A-PLUGIN-VANISH: **[Low, NEW]** a manifest with an unknown `host_interfaces` name reports the plugin as missing rather than as wrong
+
+`KNOWN_HOST_INTERFACES` (`crates/kernel/src/plugin/info_parser.rs:369-384`)
+rejects an interface name that is not on its list, which is right. What an
+operator sees is not: `trovato plugin install <name>` answers
+
+```
+plugin 'ritrovo_forms' not found in /…/overlay/plugins
+```
+
+for a plugin whose directory, module and manifest are all present and correct
+except for one word. The directory scan parses each manifest and drops the ones
+that fail, so a rejected manifest is indistinguishable from a missing plugin.
+
+The manifest name matches the WIT interface exactly (`crypto-api` in both), so
+the list is consistent; what it is not is discoverable from the SDK, where the
+only thing an author sees is `host::crypto_random_bytes`. Writing `crypto` and
+getting "not found" is the cheap mistake, and the error names neither the file
+that failed to parse nor the word that was wrong. Encountered exactly that way
+while building `ritrovo_forms`.
+
+**Blocks.** Nothing. It is a diagnostic, and the friction log is for these too.
+
+**Recommendation.** Report the manifest that failed to parse and why, at least at
+`warn`, rather than silently omitting it from the scan.
+
 ### G-NO-TEXT-FORMAT-HOST-API: **[Medium, NEW]** a plugin cannot run the kernel's own HTML filter, so a plugin-served form cannot accept rich text
 
 The kernel has text formats and uses them: `plain_text` escapes, `filtered_html` runs

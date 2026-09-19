@@ -161,6 +161,9 @@ jobs:
             the_kernel_saves_contradictory_cfp_dates_because_no_tap_can_refuse \
             a_member_writes_a_bio_and_finds_it_again \
             a_post_without_a_token_is_refused_and_writes_nothing \
+            the_three_steps_in_order_create_one_incoming_conference_with_every_field \
+            skipping_a_step_is_refused_and_creates_nothing \
+            another_members_draft_id_reads_nothing_and_submits_nothing \
             the_sdk_and_the_test_kernel_pin_the_same_trovato; do
             grep -q "^test .*${test} \.\.\. ok$" test.log \
               || { echo "::error::$test did not pass"; status=1; }
