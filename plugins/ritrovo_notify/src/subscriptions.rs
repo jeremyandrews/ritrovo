@@ -366,14 +366,12 @@ fn page(uid: &str, token: &str, focus: Option<&str>, outcome: Option<&Outcome>) 
     if let Some(item_id) = focus.filter(|id| web::is_uuid(id))
         && let Some(title) = conference_title(item_id)
     {
-        {
-            let subscribed = rows.iter().any(|row| row.item_id == item_id);
-            html.push_str(&format!(
-                r#"<div class="ritrovo-subscription-toggle"><h2>{title}</h2>{form}</div>"#,
-                title = web::escape(&title),
-                form = toggle_form(uid, token, item_id, subscribed, "this conference"),
-            ));
-        }
+        let subscribed = rows.iter().any(|row| row.item_id == item_id);
+        html.push_str(&format!(
+            r#"<div class="ritrovo-subscription-toggle"><h2>{title}</h2>{form}</div>"#,
+            title = web::escape(&title),
+            form = toggle_form(uid, token, item_id, subscribed, "this conference"),
+        ));
     }
 
     html.push_str("<h2>Conferences you follow</h2>");
