@@ -248,22 +248,91 @@ fn first_command_line(script: &str, subcommand: &str) -> usize {
         .unwrap_or_else(|| panic!("demo-bootstrap.sh never runs `trovato {subcommand}`"))
 }
 
+/// The line number of the first line that runs the given command text.
+fn first_line_running(script: &str, needle: &str) -> usize {
+    script
+        .lines()
+        .position(|line| {
+            let line = line.trim_start();
+            line.starts_with("./trovato") && line.contains(needle)
+        })
+        .unwrap_or_else(|| panic!("demo-bootstrap.sh never runs a line containing `{needle}`"))
+}
+
 #[test]
-fn config_is_imported_before_any_plugin_is_enabled() {
+fn config_is_imported_before_any_plugin_with_an_install_tap_is_enabled() {
     // The install-order trap: ritrovo_importer resolves the topic taxonomy once,
-    // in tap_install, and tap_install fires when the plugin is first enabled and
-    // the server restarts. Enable it before the taxonomy exists and it imports
+    // in tap_install, and tap_install fires when the plugin is enabled and the
+    // server next starts. Enable it before the taxonomy exists and it imports
     // every conference untagged, recoverable only by resetting
     // tap_install_called and restarting. Line order in the script is the fix, so
     // line order is what this pins.
+    //
+    // This used to say "before ANY plugin is enabled", which was the right rule
+    // stated too broadly, and it stopped being true when the set began naming a
+    // plugin's own permission: `manage own subscriptions` validates only if the
+    // declaring plugin has been enabled AND the server booted once, because a
+    // boot is the only thing that dispatches `tap_perm`. So ritrovo_notify is
+    // enabled first, deliberately, and the rule is now stated as what it always
+    // meant.
     let bootstrap = read("scripts/demo-bootstrap.sh");
-    let import = first_command_line(&bootstrap, "config import");
-    let enable = first_command_line(&bootstrap, "plugin enable");
+    let import = first_line_running(&bootstrap, "config import");
+    let bulk_enable = first_line_running(&bootstrap, r#"plugin enable "$plugin""#);
     assert!(
-        import < enable,
-        "demo-bootstrap.sh runs `plugin enable` (line {}) before `config import` \
+        import < bulk_enable,
+        "demo-bootstrap.sh enables the plugin set (line {}) before `config import` \
          (line {}); the importer will find zero taxonomy terms",
-        enable + 1,
+        bulk_enable + 1,
+        import + 1
+    );
+}
+
+#[test]
+fn the_only_plugin_enabled_before_the_import_has_no_install_tap() {
+    // The exemption above is safe for exactly one reason: ritrovo_notify has no
+    // tap_install, so enabling it early runs nothing that could depend on the
+    // configuration set. If it ever grows one, this fails rather than the demo
+    // silently importing a taxonomy-less site.
+    let bootstrap = read("scripts/demo-bootstrap.sh");
+    let import = first_line_running(&bootstrap, "config import");
+    let early = first_line_running(&bootstrap, "plugin enable ritrovo_notify");
+    assert!(
+        early < import,
+        "ritrovo_notify is no longer enabled before the import; the set names its \
+         permission, so the import will fail with 'unknown permission'"
+    );
+
+    let manifest = read("plugins/ritrovo_notify/ritrovo_notify.info.toml");
+    assert!(
+        !manifest.contains("tap_install"),
+        "ritrovo_notify now declares tap_install, and demo-bootstrap.sh enables it \
+         before the config set is imported; move it back with the other five and \
+         find another way to register its permission"
+    );
+}
+
+#[test]
+fn the_bootstrap_boots_once_between_enabling_notify_and_importing() {
+    // Enabling the plugin is half of it. `plugin enable` on the CLI does not
+    // dispatch tap_perm; only a boot does, and only a boot writes
+    // plugin_permission, which is the table config-import validation reads. Skip
+    // the boot and the import fails on one line and writes nothing.
+    let bootstrap = read("scripts/demo-bootstrap.sh");
+    let early = first_line_running(&bootstrap, "plugin enable ritrovo_notify");
+    let import = first_line_running(&bootstrap, "config import");
+    let serve = bootstrap
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.trim_start().starts_with("./trovato serve"))
+        .map(|(i, _)| i)
+        .find(|&i| i > early)
+        .expect("demo-bootstrap.sh never boots after enabling ritrovo_notify");
+    assert!(
+        serve < import,
+        "demo-bootstrap.sh does not boot between enabling ritrovo_notify (line {}) \
+         and importing the config set (line {}), so tap_perm is never dispatched \
+         and 'manage own subscriptions' is an unknown permission",
+        early + 1,
         import + 1
     );
 }

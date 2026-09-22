@@ -547,6 +547,184 @@ else
     bad "a submission step with no CSRF token answered $notoken, expected 403"
 fi
 
+head_ "comments"
+
+# Story 37.1, on the released image, where the kernel's own comment templates
+# are the ones the site serves. The host-in-the-loop suite drives the same
+# routes but configures no TEMPLATES_DIR, so the rendered thread — the form, the
+# depth class, the login prompt — can only be checked here.
+#
+# What this really checks is `demo/config`: `post comments` belongs to
+# `ritrovo_access` and is granted to the authenticated role, which is a thing no
+# role could hold before Trovato 0.103.0 dispatched `tap_perm`.
+COMMENT_CONF="$(sql "SELECT id FROM item WHERE type = 'conference' AND status = 1 ORDER BY created LIMIT 1")"
+
+if [ -z "$COMMENT_CONF" ]; then
+    bad "no published conference to comment on"
+else
+    # Matched with `case`, never `printf | grep -q`. Under `pipefail` a `grep -q`
+    # that exits on its first match can SIGPIPE the printf still writing a
+    # 13KB page, and the pipeline's failure is indistinguishable from "not
+    # found" — the same trap that once failed the Italian check for a page that
+    # was correct.
+    anon_page="$(curl -s "$BASE/item/$COMMENT_CONF")"
+    case "$anon_page" in
+        *'to post a comment'*) ok "an anonymous visitor is asked to log in rather than shown a form" ;;
+        *) bad "an anonymous visitor was not offered the login prompt" ;;
+    esac
+    case "$anon_page" in
+        *'comment-form'*) bad "an anonymous visitor was shown the comment form" ;;
+        *) ok "an anonymous visitor is shown no comment form" ;;
+    esac
+
+    member_page="$(curl -s -b "$viewer_jar" "$BASE/item/$COMMENT_CONF")"
+    case "$member_page" in
+        *'comment-form'*) ok "a signed-in member is shown the comment form" ;;
+        *) bad "a signed-in member was not shown the comment form; is 'post comments' granted?" ;;
+    esac
+
+    # The kernel's comment form posts `_csrf`, not the `_token` a plugin route
+    # takes. Two names, one session store.
+    csrf_from() { printf '%s' "$1" | sed -n 's/.*name="_csrf" value="\([^"]*\)".*/\1/p' | head -1; }
+
+    COMMENT_BODY="Verify demo comment $$"
+    REPLY_BODY="Verify demo reply $$"
+
+    curl -s -b "$viewer_jar" -o /dev/null -X POST "$BASE/api/item/$COMMENT_CONF/comments" \
+        --data-urlencode "_csrf=$(csrf_from "$member_page")" \
+        --data 'parent_id=' \
+        --data-urlencode "body=$COMMENT_BODY"
+
+    parent="$(sql "SELECT id FROM comment WHERE item_id = '$COMMENT_CONF' AND body LIKE 'Verify demo comment%' ORDER BY created DESC LIMIT 1")"
+    if [ -n "$parent" ]; then
+        ok "a signed-in member's comment is stored"
+    else
+        bad "a signed-in member's comment was not stored"
+    fi
+
+    if [ -n "$parent" ]; then
+        member_page="$(curl -s -b "$viewer_jar" "$BASE/item/$COMMENT_CONF")"
+        curl -s -b "$viewer_jar" -o /dev/null -X POST "$BASE/api/item/$COMMENT_CONF/comments" \
+            --data-urlencode "_csrf=$(csrf_from "$member_page")" \
+            --data "parent_id=$parent" \
+            --data-urlencode "body=$REPLY_BODY"
+
+        reply_depth="$(sql "SELECT depth FROM comment WHERE item_id = '$COMMENT_CONF' AND parent_id = '$parent' LIMIT 1")"
+        if [ "$reply_depth" = "1" ]; then
+            ok "a reply is nested one level under its parent"
+        else
+            bad "the reply landed at depth '$reply_depth', expected 1"
+        fi
+
+        thread_page="$(curl -s -b "$viewer_jar" "$BASE/item/$COMMENT_CONF")"
+        case "$thread_page" in
+            *'comment--depth-1'*) ok "the reply renders with the kernel's own depth class" ;;
+            *) bad "the reply did not render at depth 1 on the page" ;;
+        esac
+        case "$thread_page" in
+            *"$COMMENT_BODY"*) ok "the comment renders under the conference" ;;
+            *) bad "the comment does not render under the conference" ;;
+        esac
+        case "$thread_page" in
+            *"$REPLY_BODY"*) ok "the reply renders under the conference" ;;
+            *) bad "the reply does not render under the conference" ;;
+        esac
+    fi
+
+    # Story 37.2. At 0.102 this screen called require_admin and no grant could
+    # reach it (G-ADMIN-SCREENS-ARE-ADMIN-ONLY); at 0.103.0 it asks for
+    # `administer comments`, which demo/config grants to the editorial roles.
+    moderation_editor="$(code_with "$editor_jar" /admin/content/comments)"
+    if [ "$moderation_editor" = "200" ]; then
+        ok "editor_alice can open the comment moderation queue"
+    else
+        bad "the moderation queue answered $moderation_editor to editor_alice, expected 200"
+    fi
+    moderation_viewer="$(code_with "$viewer_jar" /admin/content/comments)"
+    if [ "$moderation_viewer" = "403" ] || [ "$moderation_viewer" = "302" ]; then
+        ok "viewer_carol cannot open the comment moderation queue"
+    else
+        bad "the moderation queue answered $moderation_viewer to viewer_carol, expected 403"
+    fi
+fi
+
+head_ "subscriptions"
+
+# Story 37.3 as far as this kernel allows it. The toggle is NOT on the
+# conference page and cannot be: the item template's context carries no viewer,
+# so a control there would be shown to visitors it would refuse, and a
+# tap_item_view toggle renders into `children`, which this repository's
+# conference template drops to keep the raw field dump off the page. So the
+# control lives on the member's own page, reached from the user menu, which the
+# kernel filters per viewer. FRICTION.md, G-ITEM-TEMPLATE-HAS-NO-VIEWER.
+viewer_uid="$(sql "SELECT id FROM users WHERE name = 'viewer_carol'")"
+SUBS_PATH="/user/$viewer_uid/subscriptions"
+
+subs_anon="$(code "$SUBS_PATH")"
+if [ "$subs_anon" = "401" ]; then
+    ok "$SUBS_PATH is 401 to an anonymous visitor"
+else
+    bad "$SUBS_PATH answered $subs_anon to an anonymous visitor, expected 401"
+fi
+
+conf_page="$(curl -s "$BASE/item/$COMMENT_CONF")"
+case "$conf_page" in
+    *'ritrovo-subscribe-form'*) bad "a subscribe control reached an anonymous conference page" ;;
+    *) ok "no subscribe control is offered to an anonymous visitor" ;;
+esac
+
+subs_page="$(curl -s -b "$viewer_jar" "$BASE$SUBS_PATH?conference=$COMMENT_CONF")"
+case "$subs_page" in
+    *'>Subscribe'*) ok "a signed-in member is offered the Subscribe control" ;;
+    *) bad "a signed-in member was not offered the Subscribe control" ;;
+esac
+
+curl -s -b "$viewer_jar" -o /dev/null -X POST "$BASE$SUBS_PATH/subscribe" \
+    --data-urlencode "_token=$(token_from "$subs_page")" \
+    --data "item_id=$COMMENT_CONF"
+
+subscribed="$(sql "SELECT COUNT(*) FROM user_subscriptions WHERE user_id = '$viewer_uid' AND item_id = '$COMMENT_CONF'")"
+if [ "$subscribed" = "1" ]; then
+    ok "the subscription lands in the kernel's own user_subscriptions table"
+else
+    bad "the subscription did not land; user_subscriptions holds $subscribed row(s)"
+fi
+
+subs_page="$(curl -s -b "$viewer_jar" "$BASE$SUBS_PATH")"
+case "$subs_page" in
+    *'>Unsubscribe'*) ok "the list offers Unsubscribe for a conference already followed" ;;
+    *) bad "the list did not offer Unsubscribe" ;;
+esac
+
+# One member's list is not another's.
+other_uid="$(sql "SELECT id FROM users WHERE name = 'editor_alice'")"
+subs_other="$(code_with "$viewer_jar" "/user/$other_uid/subscriptions")"
+if [ "$subs_other" = "403" ]; then
+    ok "another member's subscription list is 403"
+else
+    bad "another member's list answered $subs_other, expected 403"
+fi
+
+curl -s -b "$viewer_jar" -o /dev/null -X POST "$BASE$SUBS_PATH/unsubscribe" \
+    --data-urlencode "_token=$(token_from "$subs_page")" \
+    --data "item_id=$COMMENT_CONF"
+
+still="$(sql "SELECT COUNT(*) FROM user_subscriptions WHERE user_id = '$viewer_uid' AND item_id = '$COMMENT_CONF'")"
+if [ "$still" = "0" ]; then
+    ok "unsubscribing removes the row"
+else
+    bad "the subscription survived unsubscribing; $still row(s) left"
+fi
+
+# The permission the routes are gated on is one the kernel knows about, which is
+# the 0.103.0 change this whole plugin waited on.
+declared="$(sql "SELECT plugin FROM plugin_permission WHERE name = 'manage own subscriptions'")"
+if [ "$declared" = "ritrovo_notify" ]; then
+    ok "tap_perm's declaration reached the kernel's plugin_permission table"
+else
+    bad "'manage own subscriptions' is declared by '$declared', expected ritrovo_notify"
+fi
+
 printf '\n'
 if [ "$failures" -eq 0 ]; then
     echo "all checks passed"

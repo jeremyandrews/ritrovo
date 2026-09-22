@@ -9,7 +9,7 @@ kernel over a real Postgres rather than a model of it. Where the kernel cannot d
 something the brief asks for, the section says so and names the `FRICTION.md`
 entry rather than pretending.
 
-**Kernel:** Trovato `v0.102.0`, rev `20baa121810b5c656b3f80028335770069fab5e0`.
+**Kernel:** Trovato `v0.103.0`, rev `496b8f113be66102830723c1e2a968cad2ec1e0d`.
 
 ---
 
@@ -420,6 +420,75 @@ this kernel means a form Ritrovo serves itself.
 
 ---
 
+## 5. The comment form
+
+**Where it comes from:** the kernel, entirely. `templates/elements/comments.html`,
+rendered under every item by the item route. Ritrovo wrote none of it and
+overrode none of it.
+
+**Ritrovo's part is one grant.** The kernel decides whether to render the form
+or the "Log in to post a comment" prompt by asking whether the viewer holds
+`post comments`. That permission belongs to a plugin, and until Trovato 0.103.0
+dispatched `tap_perm` no role could hold a plugin's permission at all, so every
+signed-in member on this site was told to log in. `demo/config` now grants it,
+and `edit own comments` beside it, to the `authenticated user` role.
+
+**The token field is `_csrf`, not `_token`.** Two names in one codebase: a
+kernel route takes `_csrf`, a plugin route takes `_token`. One session store
+behind both, so a token minted on either is valid for either — which is what
+lets the host-in-the-loop suite drive the comment route from a page this
+repository's own plugin rendered.
+
+**It works without JavaScript**, and unlike every Ritrovo-served form it also
+has a JavaScript half: `comment-post.js` upgrades the plain post to a JSON one
+with an `X-CSRF-Token` header and updates the page in place. The route accepts
+both.
+
+**Moderation.** `/admin/content/comments` is the kernel's, and at 0.103.0 it
+asks for `administer comments` rather than the administrator flag, so
+`demo/config` gives it to the editor and publisher roles.
+`G-ADMIN-SCREENS-ARE-ADMIN-ONLY` is narrowed to the content list.
+
+**Verified by:** `ritrovo_notify_host.rs::a_member_posts_a_comment_on_a_conference_and_a_reply_nests_under_it`
+and `::an_anonymous_visitor_cannot_comment`; the rendered half, including the
+depth class and the moderation queue, in `scripts/verify-demo.sh`.
+
+---
+
+## 6. Subscribe and unsubscribe
+
+**Where it comes from:** `ritrovo_notify`, at `/user/{uid}/subscriptions` and
+its two POST siblings. A `<form method="post">` with a `_token`, no JavaScript,
+gated on `manage own subscriptions` — the plugin's own permission, which the
+kernel checks before dispatch.
+
+**It is not on the conference page, and cannot be.** That is the interesting
+part and it belongs in this document because it is a form-placement problem.
+Two gaps close the door together:
+
+- the item template's context carries no viewer, so a control rendered there
+  would be shown to the anonymous visitors the endpoint would refuse
+  (`G-ITEM-TEMPLATE-HAS-NO-VIEWER`);
+- `tap_item_view` does know the viewer, and its output is appended into
+  `children`, the string that also carries the kernel's raw field dump, which
+  this repository's conference template drops on purpose
+  (`G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT`).
+
+Either fix opens it. Until one lands, the control is on the member's own page,
+reached from the user menu — which the kernel filters per viewer, so an
+anonymous visitor is not shown the way in.
+
+**Every response states the resulting state** in words ("You are now subscribed
+to X"), because a form post is all there is: a plugin route cannot set a header,
+so it cannot redirect, and there is no AJAX half
+(`G-AJAX-ADMIN-ONLY-NO-CONDITIONAL-FIELDS`).
+
+**Verified by:** `ritrovo_notify_host.rs::a_member_subscribes_and_unsubscribes_and_the_row_lands_in_the_kernels_table`,
+`::the_list_is_the_members_own_and_another_members_is_refused`,
+`::an_anonymous_visitor_sees_no_control_and_cannot_post_to_the_endpoint`.
+
+---
+
 ## What is not here
 
 Named so that their absence is a decision on the record rather than an oversight.
@@ -438,6 +507,10 @@ Named so that their absence is a decision on the record rather than an oversight
 | A validation error shown on save | `G-PRESAVE-CANNOT-REFUSE` |
 | Redirect to login for anonymous | `G-PLUGIN-ROUTE-NO-HEADERS` |
 | A submitted conference firing taps | `G-ITEM-API-BYPASSES-ITEM-SERVICE` |
+| A Subscribe toggle on the conference page | `G-ITEM-TEMPLATE-HAS-NO-VIEWER` + `G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT` |
+| An AJAX subscribe toggle | `G-AJAX-ADMIN-ONLY-NO-CONDITIONAL-FIELDS` |
+| A notification-preference field on the profile | `G-USER-PROFILE-NOT-EXTENSIBLE`, and nothing would read it |
+| An avatar beside a comment | `G-FILE-NO-HOST-API`; the profile A6 built has a bio and no avatar |
 
 ---
 

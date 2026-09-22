@@ -307,11 +307,108 @@ pub fn items(pool: &PgPool, disp: &Arc<TapDispatcher>) -> ItemService {
 ///
 /// Idempotent: the importer upserts.
 pub async fn import_demo_config(pool: &PgPool) {
+    register_declared_permissions(pool).await;
+
     let storage = trovato_kernel::config_storage::DirectConfigStorage::new(pool.clone());
     let dir = repo_root().join("demo/config");
     trovato_kernel::config_storage::yaml::import_config(&storage, pool, &dir, false)
         .await
         .unwrap_or_else(|e| panic!("import {}: {e:#}", dir.display()));
+}
+
+/// Switch the kernel's comment system on for this `AppState`.
+///
+/// Comments are kernel code — the table is a kernel migration, the service and
+/// the routes are in the kernel — behind a feature flag named after the
+/// `trovato_comments` plugin: the routes are gated on it and `render_thread`
+/// asks `comments_if_enabled` before it renders anything. That plugin is in the
+/// kernel image, not in the Ritrovo overlay these suites load, so it cannot be
+/// installed here the way a Ritrovo plugin is.
+///
+/// This is the same two steps the kernel's own comment suites take
+/// (`ensure_plugin_enabled` in its test harness): record it installed, and put
+/// it in the state's enabled set, which also late-initializes the comment
+/// service. Nothing is faked — the code under test is the kernel's real comment
+/// service and its real routes.
+///
+/// What this cannot cover is the permission declaration: `trovato_comments`
+/// declares `administer comments` through `tap_perm` and no module is loaded
+/// here to answer. [`register_declared_permissions`] stands in for that, and
+/// the demo is where both are proved together.
+pub async fn enable_comments(state: &trovato_kernel::AppState, pool: &PgPool) {
+    trovato_kernel::plugin::status::install_plugin(pool, "trovato_comments", "1.0.0")
+        .await
+        .expect("record trovato_comments installed");
+    state.set_plugin_enabled("trovato_comments", true);
+}
+
+/// Register the plugin permissions `demo/config` grants, the way a boot does.
+///
+/// **Why this exists.** Since Trovato 0.103.0 a role file may name a permission
+/// a plugin declared: the kernel dispatches `tap_perm` at boot, writes what it
+/// collects to `plugin_permission`, and config-import validation reads that
+/// table (`validate_role_permissions`). `demo/config` uses that, and grants
+/// `post comments` and `edit own comments` to the authenticated role and
+/// `administer comments` to the editorial ones.
+///
+/// Import is all-or-nothing, so on a database where nothing has declared those
+/// three names every one of the set's files fails and nothing is written. On a
+/// real site the boot dispatch is what puts them there, and
+/// `scripts/demo-bootstrap.sh` boots once with the plugins enabled before it
+/// imports for exactly this reason.
+///
+/// These suites cannot do that. Each test binary's [`dispatcher`] loads exactly
+/// one compiled plugin, so the suite for `ritrovo_notify` has no way to ask
+/// `ritrovo_access` what it declares — and `trovato_comments` is a kernel plugin
+/// that is not in the Ritrovo overlay at all, so no suite can load it.
+///
+/// So the declarations are handed to the kernel's own parser and its own
+/// writer, in the shape `tap_perm` returns. Nothing here writes
+/// `plugin_permission` directly and nothing grants anything: `persist` is the
+/// function boot calls, and the table is a cache of declarations, never a grant.
+/// `role_permissions` is still written only by the import under test.
+///
+/// The cost of the shortcut is stated plainly: this asserts that the three
+/// names are declarable, not that those two plugins really declare them. The
+/// demo is what proves that, and `scripts/verify-demo.sh` checks it there.
+pub async fn register_declared_permissions(pool: &PgPool) {
+    use trovato_kernel::plugin::permission_registry::{PluginPermissionRegistry, persist};
+
+    // Exactly what each plugin's `tap_perm` returns for the names `demo/config`
+    // grants. Kept to those names: a permission no role file mentions has no
+    // business being registered by a test harness.
+    let declarations = vec![
+        (
+            "ritrovo_access".to_string(),
+            serde_json::json!([
+                {"name": "post comments", "description": "Post comments on conferences"},
+                {"name": "edit own comments", "description": "Edit own comments"},
+            ])
+            .to_string(),
+        ),
+        (
+            "trovato_comments".to_string(),
+            serde_json::json!([
+                {"name": "administer comments", "description": "Administer comments"},
+            ])
+            .to_string(),
+        ),
+        (
+            "ritrovo_notify".to_string(),
+            serde_json::json!([
+                {
+                    "name": "manage own subscriptions",
+                    "description": "Subscribe to conferences, and see your own subscriptions",
+                },
+            ])
+            .to_string(),
+        ),
+    ];
+
+    let registry = PluginPermissionRegistry::from_tap_results(declarations);
+    persist(pool, &registry)
+        .await
+        .expect("store the declared plugin permissions demo/config grants");
 }
 
 /// The id of a `topics` term, by the label `demo/config` gives it.
@@ -515,8 +612,25 @@ pub async fn app() -> &'static App {
         // what that form preserves and what it destroys, and the only honest way
         // to find out is to drive the kernel's route rather than a reading of it.
         .merge(trovato_kernel::routes::item::router())
+        // The kernel's comment routes. A7 asserts that a signed-in member can
+        // post one and reply to it on the strength of what `demo/config`
+        // grants, and the only honest way to find that out is to post to the
+        // route a browser posts to. In the kernel these sit behind a gate on
+        // `trovato_comments` being enabled; [`enable_comments`] is that half.
+        .merge(trovato_kernel::routes::comment::router())
         .merge(trovato_kernel::routes::plugin_api::build_plugin_api_router(
             &state.menu_registry().all().cloned().collect::<Vec<_>>(),
+        ))
+        // The item routes read a `ResolvedLanguage` extension and answer 500
+        // without it, so a suite that GETs an item page has to layer the
+        // kernel's own language middleware. It must sit INSIDE the session
+        // layer — it takes a `Session` extractor, and a layer added after the
+        // session layer wraps it from the outside, where there is no session to
+        // extract. That mistake reads as "Can't extract session" on every route
+        // rather than as an ordering problem.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            trovato_kernel::middleware::negotiate_language,
         ))
         .layer(session_layer)
         .layer(axum::middleware::from_fn_with_state(

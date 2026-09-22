@@ -1,11 +1,62 @@
 # Epic 8: Community & Plugin Communication
 
-> **Note:** Status lines below describe the pre-split monorepo; the public repository's real status per story is in `STATUS.md`.
+> **Note:** The per-story "Status: Complete" lines below describe the pre-split
+> monorepo and are not this repository's status. The real one is in `STATUS.md`,
+> and the summary of it is here.
 
 **Tutorial Part:** 6
 **Trovato Phase Dependency:** Phase 4 (Queue API, Comments), Phase 5 (Subscriptions, Notifications)
 **BMAD Epic:** 37
-**Status:** Complete (all features implemented)
+**Status:** Partly real, on Trovato 0.103.0 (A7, 2026-09-22)
+
+## What of this epic is real, 2026-09-22
+
+Built on the pinned kernel, and checked by the host-in-the-loop suite, the demo
+verification, or both:
+
+- **Step 1, threaded comments (37.1).** Real, and it is the kernel's comment
+  system rather than the `comment` Item Type this epic describes: the kernel
+  grew one, so Ritrovo uses it instead of building a third content type. A
+  signed-in member posts and replies, the thread renders with the kernel's own
+  `comment--depth-N` classes, and an anonymous visitor is offered the login
+  prompt. What made it possible was not code but a grant: `post comments`
+  belongs to a plugin, and until Trovato 0.103.0 dispatched `tap_perm` no role
+  could hold a plugin's permission at all.
+- **Step 1, moderation (37.2).** Real, as configuration. The kernel's own queue
+  at `/admin/content/comments` moved onto `administer comments` at 0.103.0, so
+  the editorial roles open it. No moderation screen was built.
+- **Step 2, subscriptions (37.3), in part.** The "My Subscriptions" page is
+  real, private to its member, over the kernel's own `user_subscriptions`
+  table. **The toggle on the conference page is not, and cannot be on this
+  kernel** — see below. The AJAX toggle this epic asks for is further out
+  still: the kernel's form AJAX is administrator-only.
+- **Step 3, `ritrovo_notify` (37.4), in part.** `tap_perm`, `tap_menu`,
+  `tap_api` and `tap_queue_info` are built. `tap_item_view`, `tap_item_update`,
+  `tap_queue_worker` and `tap_cron` are not, and the plugin's `README.md` names
+  what each waits on.
+
+Not real, and each blocked on the kernel rather than unwritten:
+
+- **Step 4, plugin-to-plugin through a shared queue (37.5).** The queue host
+  stamps the calling plugin's own name onto every job and the drain hands it
+  back to that same plugin, so `ritrovo_cfp` cannot push onto
+  `ritrovo_notifications`. This epic's central claim — "the plugin architecture
+  proves its value", "three plugins work together with zero coupling" — is the
+  part the kernel cannot do yet. A shared table both plugins own by convention
+  was considered and deliberately rejected: the gap is on the kernel's own
+  backlog as a Ritrovo gate, so such a table would be thrown away when the fix
+  lands, after teaching two plugins to depend on it.
+- **Step 5, comment notifications (37.6), and every digest.** A plugin cannot
+  send mail to one of the site's own members, and mail fails from cron and queue
+  workers besides. The deliverable is the on-site list.
+
+The honest summary of the epic: **the community half is real and the
+plugin-communication half is not.** Users comment, reply and subscribe; the
+notification machinery those actions were meant to feed has a declaration, a
+table and no path between them.
+
+For the per-story detail and the `FRICTION.md` entry behind each blocked row,
+read `STATUS.md` rows 37.1 to 37.6 and P7 to P12.
 
 ---
 

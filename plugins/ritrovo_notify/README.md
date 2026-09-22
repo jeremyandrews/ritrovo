@@ -1,79 +1,148 @@
 # ritrovo_notify
 
-**Status: not built.** The plugin installs, enables, creates its
-`pending_notifications` table and does nothing else. It is built for real later
-in this series (A7). Until then it declares no taps, because every one it used to
-declare had nothing behind it: a `/user/subscriptions` menu entry with no
-`tap_api`, so the path 404ed; a Subscribe button on every conference page with no
-form or endpoint, so it did nothing; a `ritrovo_notifications` queue with no
-worker; and two permissions nothing checked.
+**Status: partly built.** A signed-in member follows a conference and sees what
+they follow on a page of their own. Three of the seven taps below are real on
+Trovato 0.103.0; the other four are blocked on the kernel, and each says what it
+waits on.
 
-This file is what it is meant to become, taken from the design brief in
-[`docs/ritrovo/overview.md`](../../docs/ritrovo/overview.md) ("`ritrovo_notify`",
-"Plugin-to-Plugin", "Cron", "Authenticated" role, the subscribe endpoints and the
-"My Subscriptions" tile). Where the pinned kernel (Trovato 0.102) constrains a
-piece of it, that is said next to the piece.
+This plugin was a placeholder until 0.103.0 because of one gap. Every tap it
+used to declare had nothing behind it — a `/user/subscriptions` menu entry with
+no `tap_api` so the path 404ed, a Subscribe button with no endpoint so it did
+nothing, a queue with no worker, and two permissions nothing checked — and the
+gap that kept the rest unbuildable was `tap_perm`, which was declared in the WIT
+and dispatched nowhere, so no role could hold a plugin's permission. 0.103.0
+dispatches it at boot into a registry and a `plugin_permission` table that
+config import reads, and `demo/config` grants the permission this plugin
+declares. `FRICTION.md`, `G-PERM-TAP-NOT-DISPATCHED`.
 
 ## What it does
 
-A signed-in visitor subscribes to a conference and hears about it when something
-that matters changes: its dates, its venue, or its call for papers closing. They
-choose whether that arrives as it happens or as a daily digest.
+A signed-in member subscribes to a conference and hears about it when something
+that matters changes: its dates, its venue, or its call for papers closing. The
+subscribing half is built. The hearing-about-it half is not, and cannot be: see
+"What is not built".
 
 ## Taps
 
-| tap | behaviour |
-|---|---|
-| `tap_perm` | `manage own subscriptions` (subscribe, unsubscribe, see your own list) and `administer notifications` (settings and the queue). Declared again only when something checks them. |
-| `tap_item_view` | On a conference page, for an authenticated viewer holding `manage own subscriptions`, a Subscribe or Unsubscribe toggle reflecting that viewer's current state. Nothing for anonymous visitors. The toggle submits to the endpoints below, as a plain form first and progressively enhanced, so it works without JavaScript. |
-| `tap_menu` + `tap_api` | `/user/{uid}/subscriptions`, the visitor's own list, private to them, with an unsubscribe control per row; and `POST` / `DELETE /api/v1/conferences/{id}/subscribe`, authenticated. Every menu entry is a `MenuRoute::api` with its callback served by `tap_api`, so no path is registered without a handler. |
-| `tap_item_update` | When a conference someone is subscribed to changes its dates, venue or CFP, one notification per subscriber goes onto the queue. |
-| `tap_queue_info` + `tap_queue_worker` | Declares `ritrovo_notifications`, and drains it: an immediate notification is sent, a digest one is written to `pending_notifications` for cron. |
-| `tap_cron` | Once a day, each user's unsent `pending_notifications` rows become one digest, and are marked sent. |
+| tap | state | behaviour |
+|---|---|---|
+| `tap_perm` | **built** | `manage own subscriptions`, gating all three routes below. Granted to the `authenticated user` role in `demo/config`, and the kernel checks it before dispatch. |
+| `tap_menu` + `tap_api` | **built** | `GET /user/{uid}/subscriptions`, the member's own list, private to them; `POST .../subscribe` and `POST .../unsubscribe`, as `_token` form posts. Every menu entry is a `MenuRoute::api` whose callback `tap_api` serves. |
+| `tap_queue_info` | **declared, no worker** | Declares `ritrovo_notifications` as the JSON array the kernel reads, with `concurrency` and no key the kernel ignores. The one deliberate exception to the rule below; the argument is in `src/lib.rs`. |
+| `tap_item_view` | **not built, and would be invisible** | The Subscribe toggle on the conference page. Two gaps compose to close this; see "Why the toggle is not on the conference page". |
+| `tap_item_update` | **blocked** | Queue a notification when a subscribed conference changes. A plugin's item write fires no taps, so the importer changing a conference notifies nothing. `G-ITEM-API-BYPASSES-ITEM-SERVICE`. |
+| `tap_queue_worker` | **blocked** | Nothing can fill the queue (below), and the delivery path is the mail gap. |
+| `tap_cron` | **blocked** | The daily digest is email, and a plugin cannot send mail to a site's own member. `G-MAIL-CANNOT-REACH-A-USER`, `G-MAIL-UNAVAILABLE-IN-BACKGROUND`. |
 
-## Plugin to plugin
+**The rule every tap here follows: nothing is declared that has nothing behind
+it.** That is what this plugin was emptied for. It is why `administer
+notifications`, which the earlier version of this file listed, is not declared:
+it would gate a settings screen and a queue view, neither of which exists, so it
+would be a permission an administrator could grant to no effect. It lands with
+the screen it is for.
 
-`ritrovo_cfp` writes a `cfp_closing_soon` event to the `ritrovo_notifications`
-queue when a conference's CFP enters its last seven days, and this plugin's worker
-turns it into notifications for that conference's subscribers. It is the
-repository's example of two plugins cooperating through shared queue
-infrastructure rather than calling each other. `ritrovo_cfp` does not write the
-event today either; the two halves land together.
+## Where a subscription is stored
 
-## State
+**In the kernel's `user_subscriptions` table**, not a private one. The table is
+`(user_id, item_id, created)` with the pair as its primary key and cascade
+deletes to both `users` and `item`, created by a kernel migration and called by
+nothing in the kernel.
 
-- **Subscriptions.** The kernel already keeps subscriptions in a
-  `user_subscriptions` table (`crates/kernel/src/models/subscription.rs` at the
-  pinned revision). Reuse it rather than adding a second one. A plugin reaches it
-  only through the `db` host with the table declared in its manifest; whether the
-  kernel's table policy admits a kernel-owned table there is the first thing to
-  check when this is built.
-- **Pending notifications.** `migrations/001_create_pending_notifications.sql`,
-  already applied wherever this plugin has been enabled:
-  `user_id`, `event_type`, `item_id`, `payload`, `created`, `sent`, `sent_at`.
-- **Preferences.** Digest frequency per user, set on the profile form's
-  notification preferences.
+The kernel's table was tried first, as it should be: a subscription its own
+`Subscription` model can read is worth more than one only this plugin knows
+about. The database policy admits it. `crates/kernel/src/plugin/db_policy.rs`
+derives a plugin's allowlist as the union of the tables its own migrations
+create and the tables its manifest names in `db_tables`, and checks a table by
+set membership — there is no ownership concept and no denylist of kernel tables.
+Two plugins shipped in the kernel image already rely on that: `trovato_book`
+declares `item`, `trovato_spam` declares `comment`. So the fallback of a private
+table and a migration of this plugin's own was not needed.
 
-## Constraints the kernel puts on it
+The honest footnote is that `db_tables` is advisory here. The SDK wraps only
+`query_raw` and `execute_raw`, not the four structured `db` calls the WIT
+declares, so every statement is raw SQL — and the raw-SQL gate reads only the
+`raw_sql` flag and never consults the table list. The declaration is still the
+right one to make, because it is the one an auditor reads.
 
-- **Email to a subscriber is not reachable from a plugin.** The kernel's mail
-  host function sends only to the site's own configured contact address, by
-  design (`crates/kernel/src/host/mail.rs`), so a plugin cannot mail a user. The
-  design brief's emailed digest therefore needs a kernel surface that does not
-  exist yet; see `FRICTION.md`, `G-MAIL-CANNOT-REACH-A-USER`. Until then the
-  deliverable is the on-site list and digest, and the brief's own fallback for the
-  demo, which is to log instead of send.
-- **No scheduler.** `tap_cron` runs when something calls the kernel's cron route,
-  as the importer's does; the demo's cron poker already does.
-- **Checking the viewer's permission in a view tap** goes through
-  `current-user-has-permission`, which does not treat `administer site` as a
-  superuser (`FRICTION.md`, `G-USER-API-NO-ADMIN-BYPASS`).
+## Why the toggle is not on the conference page
+
+It cannot be, on this kernel, and it takes two gaps together to make that true.
+
+- **The item template's context carries no viewer.** The kernel builds a fresh
+  context with seven keys — `item`, `children`, `referenced_items`,
+  `reverse_references`, `safe_urls`, `active_language`, `text_direction` — and
+  renders `elements/item--conference.html` from it. The viewer is loaded for
+  that request and used for access control, and never put in the context. So a
+  template cannot tell a signed-in visitor from an anonymous one, and a
+  Subscribe control rendered there would be shown to everyone including the
+  visitors it would refuse. `G-ITEM-TEMPLATE-HAS-NO-VIEWER`.
+- **A view tap knows the viewer and cannot be seen.** `tap_item_view` runs with
+  the viewer's request state, so `current-user-id` answers for the person
+  viewing. But its output is appended into `children`, the same string the
+  kernel fills with a generic dump of every scalar field, and this repository's
+  conference template does not render `children` for exactly that reason. There
+  is no handle on the plugin half alone.
+  `G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT`.
+
+So the control lives on this plugin's own page, which is authenticated, and
+every response states the resulting state in words. The member reaches it from
+the user menu: the entry is gated on a permission no anonymous visitor holds,
+and the kernel filters the menu it renders to what the viewer may open. **An
+anonymous visitor is never shown a control that would refuse them**, which is
+the rule this design exists to keep.
+
+`/user/{uid}/subscriptions?conference={uuid}` renders the toggle for one named
+conference. That is the address a link on a conference page would point at, the
+day the kernel separates plugin output from the field dump.
+
+There is no AJAX half and no JavaScript at all. The kernel's form AJAX is
+administrator-only and routes through a form service no route calls
+(`G-AJAX-ADMIN-ONLY-NO-CONDITIONAL-FIELDS`).
+
+## What is not built, and why
+
+Each of these keeps a blocked row in `docs/ritrovo/STATUS.md`. No workaround is
+built for any of them.
+
+- **Daily digest email** and **comment and change notifications to
+  subscribers.** A plugin cannot send mail to one of the site's own users: the
+  mail host has one function and the recipient is always the site's configured
+  contact address. Mail also fails from cron and queue workers, which is where
+  every message here would be sent from, because background taps are built with
+  no email service at all. `G-MAIL-CANNOT-REACH-A-USER`,
+  `G-MAIL-UNAVAILABLE-IN-BACKGROUND`. Re-derived at 0.103.0: both still stand.
+- **`ritrovo_cfp` emitting `cfp_closing_soon` onto this plugin's queue.** The
+  queue host stamps the calling plugin's own name onto every job and the drain
+  hands a job back to that same plugin, so one plugin cannot enqueue onto
+  another's. `G-QUEUE-NO-CROSS-PLUGIN`.
+- **`tap_queue_worker`.** Nothing can fill the queue, and its delivery path is
+  the mail gap.
+- **A shared table both plugins own by contract**, as a way round the queue gap.
+  Deliberately not built. The gap is on the kernel's own backlog as a Ritrovo
+  gate, so the fix is coming; a convention-only table built now is thrown away
+  when it lands, after teaching two plugins to depend on it.
+- **Mailpit in the demo compose.** An SMTP sink with nothing able to send
+  through it.
+
+## Pending notifications
+
+`migrations/001_create_pending_notifications.sql` creates the table the digest
+would write: `user_id`, `event_type`, `item_id`, `payload`, `created`, `sent`,
+`sent_at`. It is applied wherever this plugin has been enabled and nothing
+writes it yet, because its producer and its consumer are both blocked above. It
+is kept rather than dropped because the table is not the blocked part.
 
 ## Done means
 
-A host-in-the-loop suite in `tests/ritrovo_notify_host.rs` that subscribes a user
-through the real route, changes the conference through `ItemService`, drains the
-queue with the kernel's drain, runs the digest from `tap_cron`, and asserts the
-rows and the rendered toggle for a subscriber, a non-subscriber and an anonymous
-visitor. The test that currently asserts this plugin registers nothing is deleted
-in the same change.
+`tests/ritrovo_notify_host.rs`, against the compiled module on the real kernel
+with a real Postgres and a real Redis session: a member subscribes through the
+real route and the row lands in `user_subscriptions`; unsubscribes and it is
+gone; sees their own list and is refused another member's; an anonymous visitor
+is served no control and a direct post writes nothing; a member posts a comment
+and a threaded reply nests under it; the queue declaration loads and the kernel
+reads it as an array; and the declared permission reaches `plugin_permission`.
+
+The rendered half — the comment form a signed-in member sees, the depth class on
+a reply, the moderation queue an editor opens — is checked by
+`scripts/verify-demo.sh` against the released image, because the host suites
+configure no `TEMPLATES_DIR` and the kernel's templates are not on disk there.

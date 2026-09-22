@@ -4,33 +4,59 @@
 # role a user also carries, so anything here is held by viewer_carol,
 # editor_alice and publisher_bob alike.
 #
-# `view own profile` is not one of the kernel's own 21 permission constants; it
+# `view own profile` is not one of the kernel's own 22 permission constants; it
 # is seeded onto this role by a kernel migration. Config import accepts it for
-# exactly that reason: a permission validates if the kernel defines it OR some
-# role in the database already holds it. It is listed here because leaving it
-# out would revoke it.
+# exactly that reason: a permission validates if the kernel defines it, OR a
+# plugin declared it, OR some role in the database already holds it. It is
+# listed here because leaving it out would revoke it.
 #
-# `post comments` and `edit own comments` are deliberately NOT here, though the
-# brief's grid lists them and this file held them for a while.
+# `post comments` and `edit own comments` ARE here, as of Trovato 0.103.0.
 #
-# They belong to the `trovato_comments` plugin. Config import accepts a
-# permission the kernel defines OR that some role in the database already holds,
-# and `trovato_comments` does seed these onto its own role when it installs — so
-# naming them here worked in the demo, where that install happens before this
-# import, and failed everywhere else. It broke the host-in-the-loop suites, which
-# import this set into a bare database: import is all-or-nothing, so three
-# ungrantable strings failed all 94 files and wrote nothing.
+# They were removed once, and the comment that replaced them said naming a
+# plugin's permission in a configuration set makes the set depend on another
+# plugin's install order. That was true at 0.102, where `tap_perm` was
+# dispatched nowhere: a plugin's permissions existed in no list the kernel
+# could consult, so config import could only accept one that some role already
+# happened to hold, which made the set import in the demo and fail into a bare
+# database.
 #
-# That is the real lesson and it is why they are gone: naming a plugin's
-# permission in a configuration set makes the set depend on another plugin's
-# install order. This set now names only permissions the kernel itself defines,
-# so it imports into any Trovato database. See `FRICTION.md`,
-# `G-PERM-TAP-NOT-DISPATCHED`.
+# 0.103.0 dispatches `tap_perm` at boot and writes what it collects to a
+# `plugin_permission` table, and config-import validation reads that table
+# (`crates/kernel/src/config_storage/yaml.rs`, `validate_role_permissions`).
+# A plugin's permission is now a name the kernel knows, so it can be granted
+# here. `FRICTION.md`, `G-PERM-TAP-NOT-DISPATCHED`, marked fixed at 0.103.0.
 #
-# To grant them anyway on a site running `trovato_comments`, add them at
-# /admin/people/permissions after that plugin is enabled — and read
-# `G-PERM-GRID-SAVE-REVOKES-PLUGIN-GRANTS` first, because the next save of that
-# screen takes them away again.
+# WHAT THAT COSTS, STATED PLAINLY. The dependency did not vanish, it moved:
+# these two names validate because `ritrovo_access` declares them through
+# `tap_perm` and was enabled when the server last booted. So this set is no
+# longer importable into a database where no plugin declaring them has ever
+# run. The demo satisfies that (`scripts/demo-bootstrap.sh` boots once with the
+# plugins enabled before it imports), and the host-in-the-loop suites satisfy it
+# through `tests/host/mod.rs::register_declared_permissions`, which performs the
+# same registration the kernel's boot performs. A site that wants this set
+# without comments should drop these two lines.
+#
+# Both are checked by the kernel, which is the bar every grant here has to meet:
+# `post comments` at `crates/kernel/src/routes/comment.rs` (the POST handler,
+# and the `can_comment` flag the comment template renders its form from), and
+# `edit own comments` at `crates/kernel/src/services/comment.rs`.
+#
+# `manage own subscriptions` is `ritrovo_notify`'s own, and the same story:
+# that plugin declares it through `tap_perm` and gates all three of its routes
+# on it, and the kernel checks it before dispatch. It is here rather than a
+# borrowed kernel permission because 0.103.0 made a plugin's own permission
+# grantable — `ritrovo_forms` had to borrow `view own profile` for the same job
+# a release earlier, and that workaround is no longer needed.
+#
+# Granting it here is also what keeps the subscription control away from
+# visitors who cannot use it: the kernel filters the menu it renders to what the
+# viewer may open, so the user-menu entry appears for a signed-in member and for
+# nobody else.
+#
+# `edit any comments` is NOT here. `ritrovo_access` declares it and nothing in
+# the kernel checks it, so granting it would be a permission with nothing behind
+# it. The kernel's moderation screens ask for `administer comments` instead; the
+# editor and publisher files grant that.
 id: 00000000-0000-0000-0000-000000000002
 name: authenticated user
 created: "2026-01-01T00:00:00Z"
@@ -38,5 +64,8 @@ permissions:
 - access content
 - create content
 - edit own content
+- edit own comments
+- manage own subscriptions
+- post comments
 - use filtered_html
 - view own profile

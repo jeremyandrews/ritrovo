@@ -16,6 +16,19 @@ corrected below, each marked **[corrected]**.
 Trovato `v0.102.0`, `rev 20baa121810b5c656b3f80028335770069fab5e0`, the image
 `ghcr.io/jeremyandrews/trovato:0.102.0` the demo pins.
 
+**Superseded again, 2026-09-22 (A7).** The kernel pin moved to Trovato
+`v0.103.0`, `rev 496b8f113be66102830723c1e2a968cad2ec1e0d`, image
+`ghcr.io/jeremyandrews/trovato:0.103.0`, and the whole demo verification passed
+on it. That release closed four of this audit's kernel blockers
+(`G-PERM-TAP-NOT-DISPATCHED`, `G-PERM-GRID-SAVE-REVOKES-PLUGIN-GRANTS`,
+`G-USER-API-NO-ADMIN-BYPASS`, `G-TRANSLATION-NO-WRITE-PATH`) and narrowed a
+fifth (`G-ADMIN-SCREENS-ARE-ADMIN-ONLY`). Rows that moved say **done (A7)** and
+name the kernel change that unblocked them. Two A7 rows were expected to stay
+blocked and did not: 37.2, because comment moderation became delegable, and
+37.1, because a plugin's permission became grantable. One moved the other way:
+P8, the Subscribe toggle on the conference page, turned out to be closed by two
+gaps acting together rather than buildable.
+
 **Brief:** `docs/ritrovo/overview.md`; `epic-01.md` to `epic-09.md`;
 `epic-production-ready.md`. Epics 10 to 19, their summary and the dependency graph
 describe kernel infrastructure and are out of scope.
@@ -395,9 +408,9 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| 37.1 | Threaded comments on conferences | config | **kernel has it, Ritrovo does not use it** | Kernel comments work (a comment and a threaded reply were posted as administrator). No role Ritrovo uses holds `post comments`: only `comment_moderator` does, and anonymous visitors see "Log in to post a comment." Granting it to `authenticated user` is config. | A7 |
-| 37.2 | Comment moderation queue for editors | kernel | **blocked on the kernel** | `/admin/content/comments` exists, administrator only (`G-ADMIN-SCREENS-ARE-ADMIN-ONLY`). | A7 |
-| 37.3 | Subscribe toggle and My Subscriptions page | plugin | **Ritrovo must build it** | The toggle on every conference page (shown even to anonymous visitors) does nothing; `/user/subscriptions` is 404 (`plugins/ritrovo_notify/src/lib.rs:28-57`). Buildable with `tap_api` routes over the kernel's `user_subscriptions` table; permission gating waits on `G-PERM-TAP-NOT-DISPATCHED`, the no-JS redirect on `G-PLUGIN-ROUTE-NO-HEADERS`. | A7 |
+| 37.1 | Threaded comments on conferences | config | **done (A7)** | `demo/config` grants `post comments` and `edit own comments` to `authenticated user`, which no role could hold until 0.103.0 dispatched `tap_perm` (`G-PERM-TAP-NOT-DISPATCHED`, fixed). A signed-in member is served the form instead of "Log in to post a comment", and a reply renders under its parent with the kernel's own `comment--depth-1` class. Host test: `a_member_posts_a_comment_on_a_conference_and_a_reply_nests_under_it`; rendered half in `verify-demo.sh`. No template was needed. | A7 |
+| 37.2 | Comment moderation queue for editors | config | **done (A7)** | Was blocked on `G-ADMIN-SCREENS-ARE-ADMIN-ONLY`; **0.103.0 moved all six comment routes onto `require_permission("administer comments")`** and `/admin` itself onto `access administration pages`. `demo/config` grants both to the editor and publisher roles, so this closed as configuration with no screen built. `verify-demo.sh` asserts editor_alice opens it and viewer_carol does not. | A7 |
+| 37.3 | Subscribe toggle and My Subscriptions page | plugin | **part done (A7)** | The page is built: `/user/{uid}/subscriptions` lists a member's own subscriptions and refuses another's, with subscribe and unsubscribe as `_token` form posts, gated on `manage own subscriptions` — this plugin's own permission, grantable since `G-PERM-TAP-NOT-DISPATCHED` was fixed. Rows land in the kernel's `user_subscriptions`. **The toggle is not on the conference page and cannot be:** the item template's context carries no viewer (new: `G-ITEM-TEMPLATE-HAS-NO-VIEWER`) and a `tap_item_view` toggle renders into `children`, which Ritrovo's conference template drops (`G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT`). The AJAX half stays out (`G-AJAX-ADMIN-ONLY-NO-CONDITIONAL-FIELDS`). | A7 |
 | 37.4 | `ritrovo_notify`: notifications and email digests | plugin | **blocked on the kernel** | `G-MAIL-CANNOT-REACH-A-USER`, `G-MAIL-UNAVAILABLE-IN-BACKGROUND`, `G-NO-USER-DIRECTORY`; imported changes fire no `tap_item_update` (`G-ITEM-API-BYPASSES-ITEM-SERVICE`). | A7 |
 | 37.5 | Plugin-to-plugin through a shared queue | plugin | **blocked on the kernel** | `G-QUEUE-NO-CROSS-PLUGIN`. The kernel's alternative is `plugin-api` invocation. | A7 |
 | 37.6 | Comment notifications to subscribers | plugin | **blocked on the kernel** | `tap_comment_insert` is dispatched (`crates/kernel/src/services/comment.rs:67`); delivery is `G-MAIL-CANNOT-REACH-A-USER`. The kernel already mails the item's author (`crates/kernel/src/routes/comment.rs:1092-1157`). | A7 |
@@ -465,10 +478,10 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | P4 | `ritrovo_importer` `tap_plugin_install`: full historical import and category seeding | plugin, config | **done** | `tap_install` (`lib.rs:232`) queued 263 batches across 12 years. The terms come from config import rather than the plugin, which has no category host call. | A4 |
 | P5 | `ritrovo_cfp` `tap_item_view`: days-left badge, green, yellow, red | plugin | **done** | "CFP Urgent, 1 day left" renders on Gerrit User Summit, classed `cfp-badge--urgent` (`plugins/ritrovo_cfp/src/lib.rs:26`). The colours need CSS (34.6). | A6 |
 | P6 | `ritrovo_cfp` `tap_item_insert` and `tap_item_update`: validate dates, emit `cfp_closing_soon` | plugin | **half done (A6)** | The date rule is implemented and dispatched, through `tap_item_presave` rather than the insert and update taps, because presave is the one that runs before the write. It reports and cannot refuse (`G-PRESAVE-CANNOT-REFUSE`), which is pinned by a test. `cfp_closing_soon` is still not emitted (`G-QUEUE-NO-CROSS-PLUGIN`), and imports fire no tap at all (`G-ITEM-API-BYPASSES-ITEM-SERVICE`). | A6 |
-| P7 | `ritrovo_notify` `tap_menu`: `/user/{uid}/subscriptions` | plugin | **Ritrovo must build it** | Registered as a page entry with no `tap_api`, so it 404s (`plugins/ritrovo_notify/src/lib.rs:28-35`; `crates/kernel/src/routes/plugin_api.rs:111-131`). | A7 |
-| P8 | `ritrovo_notify` `tap_item_view`: Subscribe toggle for signed-in users | plugin | **Ritrovo must build it** | A button with no action, shown to everyone (`lib.rs:42-57`). | A7 |
+| P7 | `ritrovo_notify` `tap_menu`: `/user/{uid}/subscriptions` | plugin | **done (A7)** | Three `MenuRoute::api` entries, every callback served by `tap_api` in the same change, asserted by `every_registered_callback_is_served`. Only the GET is visible, under `/user`. | A7 |
+| P8 | `ritrovo_notify` `tap_item_view`: Subscribe toggle for signed-in users | plugin | **blocked on the kernel** | Not built, and would be invisible if it were: a view tap's output is appended to `children`, which Ritrovo's conference template does not render because that string also carries the kernel's raw field dump. The template cannot render the toggle either, because its context carries no viewer. `G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT` + `G-ITEM-TEMPLATE-HAS-NO-VIEWER`; either fix opens it. The control is served on the plugin's own page instead. | A7 |
 | P9 | `ritrovo_notify` `tap_item_update`: queue a notification when a subscribed conference changes | plugin | **blocked on the kernel** | Not implemented; the changes that matter come from the importer and fire no tap (`G-ITEM-API-BYPASSES-ITEM-SERVICE`). | A7 |
-| P10 | `ritrovo_notify` `tap_queue_info`: declares `ritrovo_notifications` | plugin | **Ritrovo must build it** | Returns an object where the kernel reads an array, declares retry keys the kernel ignores, and has no worker or producer (`lib.rs:61`). | A7 |
+| P10 | `ritrovo_notify` `tap_queue_info`: declares `ritrovo_notifications` | plugin | **done (A7)** | Now the JSON array the kernel reads, with `concurrency` and no key the kernel ignores. Still no worker, deliberately: the producer is blocked (P9, 37.5) and the declaration is what the eventual fix attaches to. A declared queue with no worker is silent and costs nothing (new: `G-QUEUE-WITHOUT-A-WORKER-IS-SILENT`). | A7 |
 | P11 | `ritrovo_notify` `tap_queue_worker`: send email or queue for digest | plugin | **blocked on the kernel** | Not implemented. `G-MAIL-CANNOT-REACH-A-USER`, `G-MAIL-UNAVAILABLE-IN-BACKGROUND`. | A7 |
 | P12 | `ritrovo_notify` `tap_cron`: daily digest emails | plugin | **blocked on the kernel** | Not implemented. Same entries as P11. | A7 |
 | P13 | `ritrovo_translate` `tap_item_insert`: detect language, flag for translation | plugin | **blocked on the kernel** | Returns a result the kernel discards (`plugins/ritrovo_translate/src/lib.rs:41`; `G-ITEM-INSERT-OUTPUT-DISCARDED`), and never sees imported items (`G-ITEM-API-BYPASSES-ITEM-SERVICE`). | A8 |
@@ -545,18 +558,35 @@ importer's dead `conference_fields()`, correct `ritrovo_access`'s comment) onto
 
 ### A7: community
 
-1. 37.1: grant `post comments` to `authenticated user` in `demo/config`.
-2. P7, P8, 37.3: subscriptions as `tap_api` routes over `user_subscriptions`, with
-   the toggle; permission gating **[kernel: `G-PERM-TAP-NOT-DISPATCHED`]**, no-JS
-   redirect **[kernel: `G-PLUGIN-ROUTE-NO-HEADERS`]**.
-3. P10: a real queue declaration and worker for on-site notifications.
-4. 37.2 **[kernel: `G-ADMIN-SCREENS-ARE-ADMIN-ONLY`]**.
-5. P9 **[kernel: `G-ITEM-API-BYPASSES-ITEM-SERVICE`]**.
+**Done, 2026-09-22, on Trovato 0.103.0.** Items 1 to 4 closed; 5 to 7 are still
+blocked and are listed with what they wait on. Item 8 is done.
+
+1. ~~37.1: grant `post comments` to `authenticated user` in `demo/config`.~~
+   **Done**, with `edit own comments` beside it.
+2. ~~P7, 37.3: subscriptions as `tap_api` routes over `user_subscriptions`.~~
+   **Done**, gated on the plugin's own `manage own subscriptions`. **P8 did not
+   close** and is now blocked rather than buildable: the toggle cannot go on the
+   conference page at all **[kernel: `G-ITEM-TEMPLATE-HAS-NO-VIEWER` +
+   `G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT`]**. The control is
+   served on the plugin's own page, reached from the user menu, which the kernel
+   filters per viewer.
+3. ~~P10: a real queue declaration~~ **Done** as the array the kernel reads. The
+   worker stays out: nothing can fill the queue (5 and 7 below).
+4. ~~37.2~~ **Done as configuration.** `G-ADMIN-SCREENS-ARE-ADMIN-ONLY` was
+   fixed for the comment routes at 0.103.0; granting `administer comments` and
+   `access administration pages` to the editorial roles was the whole of it.
+5. P9 **[kernel: `G-ITEM-API-BYPASSES-ITEM-SERVICE`]**. Re-derived at 0.103.0,
+   still true.
 6. 37.4, 37.6, P11, P12, D10 **[kernel: `G-MAIL-CANNOT-REACH-A-USER`,
-   `G-MAIL-UNAVAILABLE-IN-BACKGROUND`, `G-NO-USER-DIRECTORY`]**; until then, the
-   on-site list and a logged digest.
+   `G-MAIL-UNAVAILABLE-IN-BACKGROUND`, `G-NO-USER-DIRECTORY`]**. All three
+   re-derived at 0.103.0, all three still true. Until then, the on-site list;
+   the logged digest is not built either, because nothing can fill its queue.
 7. 37.5, D9 **[kernel: `G-QUEUE-NO-CROSS-PLUGIN`]**, or redesign on `plugin-api`.
-8. D8: re-count the taps.
+   Re-derived at 0.103.0, still true. The shared-table workaround is ruled out
+   on purpose: the gap is a Ritrovo gate on the kernel's own backlog, so a
+   convention-only table would be thrown away when the fix lands.
+8. ~~D8: re-count the taps.~~ **Done**: of the brief's 19 intended taps, 7 now
+   work and 8 are blocked.
 
 ### A8: global and API
 

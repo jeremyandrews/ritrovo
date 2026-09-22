@@ -19,7 +19,7 @@ throwaway container, and starts the **released** kernel image with the Ritrovo
 overlay on its search paths:
 
 <!-- kernel-release:begin image -->
-    ghcr.io/jeremyandrews/trovato:0.102.0
+    ghcr.io/jeremyandrews/trovato:0.103.0
 <!-- kernel-release:end image -->
 
 It then completes the installer over HTTP, imports the tutorial config set,
@@ -68,9 +68,9 @@ just has fewer conferences in it than it will have. `serve-demo.sh` waits for th
 ## API version
 
 <!-- kernel-release:begin api -->
-Each plugin declares `api_version = "0.102"` in its `.info.toml`, matching the
-`KERNEL_API_VERSION` of (0, 102) at the commit the SDK is pinned to, the
-`v0.102.0` tag of Trovato 0.102.0.
+Each plugin declares `api_version = "0.103"` in its `.info.toml`, matching the
+`KERNEL_API_VERSION` of (0, 103) at the commit the SDK is pinned to, the
+`v0.103.0` tag of Trovato 0.103.0.
 <!-- kernel-release:end api -->
 
 That value lives in the manifest, not the compiled `.wasm`, and the kernel reads
