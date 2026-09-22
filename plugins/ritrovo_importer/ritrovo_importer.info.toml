@@ -1,7 +1,7 @@
 name = "ritrovo_importer"
 description = "Import tech conferences from confs.tech into Trovato"
 version = "1.3.0"
-api_version = "0.102"
+api_version = "0.103"
 default_enabled = false
 dependencies = []
 

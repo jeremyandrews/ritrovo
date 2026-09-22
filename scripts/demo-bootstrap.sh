@@ -146,6 +146,47 @@ say "stopping the bootstrap server"
 kill "$bootstrap_pid" 2>/dev/null || true
 wait "$bootstrap_pid" 2>/dev/null || true
 
+# ── 2b. Register ritrovo_notify's permission, before the import names it ─────
+#
+# Since Trovato 0.103.0 a role file may name a permission a plugin declares: the
+# kernel dispatches `tap_perm` at boot, writes what it collects to
+# `plugin_permission`, and config-import validation reads that table.
+# `demo/config` uses that for `manage own subscriptions`.
+#
+# Validation accepts a name the kernel defines, OR one in that table, OR one
+# some role already holds. The comment permissions the authenticated and
+# editorial roles now grant take the third route without any help: the kernel
+# image's `trovato_comments` is installed at first start and its migration seeds
+# them onto its own `comment_moderator` role. `manage own subscriptions` has no
+# such seed and nothing holds it, so without this step the whole import fails on
+# one line and writes nothing:
+#
+#   role.00000000-0000-0000-0000-000000000002.yml: unknown permission
+#   'manage own subscriptions' ... The likely cause is a plugin that declares it
+#   not being enabled yet
+#
+# So the declaring plugin is enabled and the server booted once, which is the
+# only thing that dispatches `tap_perm`. `plugin enable` on the CLI does not.
+#
+# ritrovo_notify ALONE, and the ordering matters in both directions. It has no
+# `tap_install` and no dependencies, so enabling it early costs nothing. The
+# other five cannot come early: `tap_install` fires at the next boot for a
+# plugin that is enabled and has not had it, and `ritrovo_importer`'s needs the
+# topics taxonomy, which is in the config set that has not been imported yet.
+# That is the circle this step breaks at its narrowest point.
+
+say "enabling ritrovo_notify and booting once, so tap_perm registers its permission"
+./trovato plugin enable ritrovo_notify
+
+./trovato serve >/tmp/bootstrap-perm.log 2>&1 &
+perm_pid=$!
+if ! wait_for_health; then
+    cat /tmp/bootstrap-perm.log >&2
+    exit 1
+fi
+kill "$perm_pid" 2>/dev/null || true
+wait "$perm_pid" 2>/dev/null || true
+
 # ── 3. Import the config set, BEFORE enabling anything ───────────────────────
 #
 # The set is Ritrovo's own, in this repository, mounted at /ritrovo/demo/config.

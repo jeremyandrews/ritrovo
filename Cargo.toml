@@ -44,20 +44,20 @@ license = "GPL-2.0-or-later"
 # revs and the recorded pin below included. Then review the diff.
 #
 # kernel-release:begin pin
-#   tag                 v0.102.0
-#   rev                 20baa121810b5c656b3f80028335770069fab5e0
-#   Trovato version     0.102.0
-#   KERNEL_API_VERSION  (0, 102)
+#   tag                 v0.103.0
+#   rev                 496b8f113be66102830723c1e2a968cad2ec1e0d
+#   Trovato version     0.103.0
+#   KERNEL_API_VERSION  (0, 103)
 #
-# The rev is the commit the v0.102.0 tag points at: the tree the
-# ghcr.io/jeremyandrews/trovato:0.102.0 image the demo runs was published from.
-# The plugin manifests declare `api_version = "0.102"` to match.
+# The rev is the commit the v0.103.0 tag points at: the tree the
+# ghcr.io/jeremyandrews/trovato:0.103.0 image the demo runs was published from.
+# The plugin manifests declare `api_version = "0.103"` to match.
 # kernel-release:end pin
 #
 # `trovato-sdk` pulls `trovato-sdk-macros` through a repo-relative path
 # dependency; cargo resolves that inside the git checkout, so only this one
 # entry is needed.
-trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "20baa121810b5c656b3f80028335770069fab5e0" }
+trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "496b8f113be66102830723c1e2a968cad2ec1e0d" }
 
 # trovato-kernel: TEST ONLY, and pinned to the same revision as the SDK above.
 #
@@ -76,7 +76,7 @@ trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "20b
 # against another kernel is a test that proves nothing about what ships;
 # demo/checks/src/lib.rs asserts the two pins are the same string, so moving one
 # without the other fails the build.
-trovato-kernel = { git = "https://github.com/jeremyandrews/trovato.git", rev = "20baa121810b5c656b3f80028335770069fab5e0" }
+trovato-kernel = { git = "https://github.com/jeremyandrews/trovato.git", rev = "496b8f113be66102830723c1e2a968cad2ec1e0d" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

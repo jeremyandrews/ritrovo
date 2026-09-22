@@ -1,11 +1,23 @@
 # Ritrovo: Friction Log
 
 Produced by running Ritrovo's six plugins on the kernel they ship against:
-Trovato `v0.102.0`, `rev 20baa121810b5c656b3f80028335770069fab5e0`,
-`KERNEL_API_VERSION (0, 102)`, the same revision the workspace pins for both
+Trovato `v0.103.0`, `rev 496b8f113be66102830723c1e2a968cad2ec1e0d`,
+`KERNEL_API_VERSION (0, 103)`, the same revision the workspace pins for both
 `trovato-sdk` and the test-only `trovato-kernel`. Ritrovo meets the kernel as a
 content application: it imports Items in bulk from a third-party feed, gates them
 by editorial stage, decorates their pages, and serves admin screens of its own.
+
+**Re-derived against 0.103.0, 2026-09-22 (A7).** Every entry this repository's
+A7 work depends on was checked against the new revision rather than carried
+forward. Four were fixed and are marked **FIXED at 0.103.0** in place rather
+than deleted, because what a release closed is worth as much to the next reader
+as what it left open: `G-PERM-TAP-NOT-DISPATCHED`,
+`G-PERM-GRID-SAVE-REVOKES-PLUGIN-GRANTS`, `G-USER-API-NO-ADMIN-BYPASS` and
+`G-TRANSLATION-NO-WRITE-PATH`. One was narrowed:
+`G-ADMIN-SCREENS-ARE-ADMIN-ONLY`. The rest of the entries A7 touched were
+re-confirmed as written. Three new entries were found by doing the work:
+`G-ITEM-TEMPLATE-HAS-NO-VIEWER`, `G-PLUGIN-PERMISSION-GRID-READS-BOOT-MEMORY`
+and `G-QUEUE-WITHOUT-A-WORKER-IS-SILENT`.
 
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
@@ -99,7 +111,35 @@ demo avoids it only because it lets the kernel auto-install at start and then ru
 `<name>.wasm`, or only when it was discovered on the kernel's own default
 `./plugins` path. When a module is already present, say nothing.
 
-### G-PERM-TAP-NOT-DISPATCHED: **[High, RESIDUAL]** a plugin's permissions exist nowhere the kernel looks, so no role can be given them
+### G-PERM-TAP-NOT-DISPATCHED: **[FIXED at 0.103.0]** a plugin's permissions exist nowhere the kernel looks, so no role can be given them
+
+**Fixed at Trovato 0.103.0, verified 2026-09-22.** The kernel dispatches
+`tap_perm` at boot (`crates/kernel/src/state.rs:555-573`), parses the results
+into a `PluginPermissionRegistry`, and writes them to a new `plugin_permission`
+table (`crates/kernel/src/plugin/permission_registry.rs`, migration
+`20260919000001_create_plugin_permission.sql`). All three consumers now read a
+plugin's permissions: the grid renders them beside the kernel's with a column
+naming the declaring plugin (`routes/admin_user.rs:929-948`), config-import
+validation accepts them (`config_storage/yaml.rs:826-891`, which checks
+`KERNEL_PERMISSIONS`, then the table, then what any role already holds), and
+`current-user-has-permission` answers for them.
+
+Verified on the running demo rather than only read: `plugin_permission` holds 38
+rows, `demo/config` grants `post comments`, `edit own comments` and
+`manage own subscriptions` to roles that could hold none of them a release
+earlier, and `config import --dry-run` accepts the set.
+
+**What it unblocked here.** `ritrovo_notify` stopped being a placeholder: its
+`manage own subscriptions` is a real gate on three real routes rather than a
+declaration into a void. Rows 37.1 and 37.3 closed. The `edit any content`
+substitution the editor and publisher role files describe is no longer forced,
+though it is left in place for A5 to remove rather than changed here.
+
+The entry as originally written follows, because the recommendation it makes is
+the one the kernel took.
+
+---
+
 
 `tap_perm` is declared in the WIT and marked `(dispatch pending)`
 (`crates/wit/kernel.wit:342`), listed in `KNOWN_TAPS`
@@ -135,7 +175,26 @@ that registry in three places: the grid, config import validation, and
 `current-user-has-permission`. The kernel's own note calls this additive to the
 plugin contract, which it is.
 
-### G-PERM-GRID-SAVE-REVOKES-PLUGIN-GRANTS: **[High, NEW]** saving the permission grid silently removes every plugin permission from every role
+### G-PERM-GRID-SAVE-REVOKES-PLUGIN-GRANTS: **[FIXED at 0.103.0]** saving the permission grid silently removes every plugin permission from every role
+
+**Fixed at Trovato 0.103.0, verified 2026-09-22.** The save is now scoped
+instead of replacing each role's whole set. The form states which permissions it
+rendered, by submitting each name as a hidden `permname_{i}` value, and
+`Role::set_permissions_within` (`crates/kernel/src/models/role.rs:242-266`)
+confines removals to that set: a permission the screen never rendered keeps
+whatever it had. `Role::set_permissions`, which still replaces wholesale, is
+left for `config import`, where the file is the complete statement of what a
+role holds.
+
+The fix is two-layered and worth reading as one: dispatching `tap_perm` means
+the grid *renders* a plugin's permissions, and scoping the save means a grant
+the grid still cannot see — from a disabled plugin, from SQL, from a migration —
+survives anyway.
+
+The entry as originally written follows.
+
+---
+
 
 The grid handler builds each role's desired set by filtering `KERNEL_PERMISSIONS`
 against the submitted checkboxes (`crates/kernel/src/routes/admin_user.rs:821-829`)
@@ -573,7 +632,38 @@ form a non-administrator would use saves a shape the admin form would not.
 **Recommendation.** Have the two form paths share one typed submission builder, so
 the field's declared type decides the stored JSON in both.
 
-### G-ADMIN-SCREENS-ARE-ADMIN-ONLY: **[Medium, NEW]** the content list, bulk actions and comment moderation require the administrator flag, whatever a role grants
+### G-ADMIN-SCREENS-ARE-ADMIN-ONLY: **[NARROWED at 0.103.0]** the content list, bulk actions and comment moderation require the administrator flag, whatever a role grants
+
+**Narrowed, not closed, at Trovato 0.103.0, verified 2026-09-22.** Comment
+moderation is delegable; the content list is not.
+
+All six comment routes now call
+`require_permission(&state, &session, "administer comments")` rather than
+`require_admin` (`crates/kernel/src/routes/admin.rs:559`, `:640`, `:691`,
+`:777`, `:888`, `:930`). `/admin` itself moved off `administer site` onto a new,
+deliberately weak `access administration pages`, so a delegated role can reach
+the dashboard that links to the screen it was given (`routes/admin.rs:107-111`).
+Both are needed together: without the second, an editor reaches the moderation
+queue only by typing the address.
+
+**Closed for Ritrovo's story 37.2 as configuration.** `demo/config` grants
+`administer comments` and `access administration pages` to the editor and
+publisher roles, and `scripts/verify-demo.sh` asserts that editor_alice opens
+`/admin/content/comments` and viewer_carol does not. No screen was built.
+
+**What still stands.** `/admin/content`, its bulk actions and the delete route
+still call `require_admin` (`routes/admin_content.rs:102`, `:611-618`), so the
+brief's bulk publish is still the administrator's alone and story 39.2 keeps
+this entry. And the admin layout does not filter its sidebar to what the viewer
+may open, which the kernel records as its own BL-117, so a delegated editor is
+shown links that answer 403. That is a worse first impression than the 403 it
+replaced, and it is the kernel's to fix: filtering needs
+`render_admin_template` to know the viewer, across its 80 call sites.
+
+The entry as originally written follows.
+
+---
+
 
 The content list and bulk actions call `require_admin`
 (`crates/kernel/src/routes/admin_content.rs:102`, `:611-618`), as does the comment
@@ -910,7 +1000,36 @@ editor's permission can open that form, because `tap_item_access` denies them th
 a property of this plugin's rules, not of the kernel, and it would not hold for a
 site whose field rule and item rule differed.
 
-### G-USER-API-NO-ADMIN-BYPASS: **[Medium, RESIDUAL]** `current-user-has-permission` is a literal membership test, so an administrator fails a plugin's permission check
+### G-USER-API-NO-ADMIN-BYPASS: **[FIXED at 0.103.0]** `current-user-has-permission` is a literal membership test, so an administrator fails a plugin's permission check
+
+**Fixed at Trovato 0.103.0, verified 2026-09-22.** The host function now answers
+the *effective* permission: `crates/kernel/src/host/user.rs:55` calls
+`caller.data().request.user.can(&permission)`, and `UserContext::can` is
+`self.is_admin || self.has_permission(permission)`
+(`crates/kernel/src/tap/request_state.rs:162-164`). So a plugin's own check and
+the kernel's route guard now agree about an administrator.
+
+The root cause behind it was fixed in the same release: `UserContext::is_admin()`
+used to be *derived* from whether the permission list contained the string
+`administer site`, which made the list a place where authority could be forged.
+It now carries the `users.is_admin` column, and nothing is pushed onto an
+administrator's permission set.
+
+**Read the kernel's own changelog for this release with care.** It contains two
+paragraphs that contradict each other: the release summary says
+`current-user-has-permission` now answers the effective permission, and a later
+entry says it is "Not changed, and reported instead: ... still a literal string
+membership test". The code at the tag settles it — `host/user.rs:55` is `.can()`
+— and the kernel's own test
+`ai_assistant_test.rs::an_administrator_alone_passes_the_plugins_own_check`
+pins the new behaviour. The stale paragraph appears to have been written while
+the fix landed elsewhere in the same release and never retracted. Reported as a
+documentation finding rather than a behaviour one.
+
+The entry as originally written follows.
+
+---
+
 
 Recorded by netgrasp-trovato; re-confirmed here. Every kernel route treats an
 administrator as holding every permission (for example
@@ -1278,6 +1397,108 @@ rather than about the rate limiter.
 request, so the handler checks are redundant; if a handler needs its own bucket,
 give it a category the middleware does not also count, or make `check` idempotent
 per request through a request extension.
+
+### G-ITEM-TEMPLATE-HAS-NO-VIEWER: **[Medium, NEW]** an item template cannot tell who is looking at the page, so no per-viewer control can be rendered on one
+
+The item route builds a fresh Tera context with seven keys and renders the item
+template from it (`crates/kernel/src/routes/item.rs:676-691`): `item`,
+`children`, `referenced_items`, `reverse_references`, `safe_urls`,
+`active_language`, `text_direction`. The viewer is loaded for the request
+(`item.rs:323`) and used for access control, and is never put in that context.
+There is no Tera global either: the theme engine registers filters only.
+
+Everything that names the viewer is added **after** the item template has
+rendered, by `inject_site_context` (`routes/helpers.rs:275`, `:295-298`), so
+`user_authenticated` and `csrf_token` reach the page template and not
+`elements/item--{type}.html`. Even there the uid is never exposed.
+
+**Impact for Ritrovo.** It is half of why the brief's Subscribe toggle is not on
+the conference page. A control rendered from the template would be shown to
+anonymous visitors, who would then be refused by the endpoint — the thing A7 was
+told not to do. The other half is
+`G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT`: `tap_item_view` *does*
+know the viewer, through `current-user-id`, but its output is appended into
+`children`, which this repository's conference template does not render because
+that string also carries the kernel's raw field dump.
+
+**The two compose into a closed door, which neither does alone.** With a viewer
+in the template context, the template could render the toggle. With plugin
+output separable from the field dump, the view tap could. With neither, a
+per-viewer control cannot be put on an item page at all, and `ritrovo_notify`
+serves it on a page of its own instead.
+
+**Blocks.** 37.3's toggle-on-the-conference-page half, and P8. The subscription
+itself is built.
+
+**Recommendation.** Put the viewer in the item template's context — at least
+`user_authenticated` and the uid — the way `inject_site_context` already does
+for the page template. It is one insert, it exposes nothing a signed-in visitor
+does not already know about themselves, and it is what lets a theme render the
+per-viewer affordances every CMS front end has. Fixing either this or the
+`children` split would open the door; fixing this one is much the smaller change.
+
+### G-PLUGIN-PERMISSION-GRID-READS-BOOT-MEMORY: **[Low, NEW]** enabling a plugin refreshes its permissions for `config import` and not for the screen that grants them
+
+0.103.0 refreshes a plugin's declared permissions when it is enabled from
+`/admin/plugins` (`crates/kernel/src/routes/plugin_admin.rs:254-288`). That
+refresh calls `persist`, which writes `plugin_permission` — and the permission
+grid does not read that table. It renders from
+`state.plugin_permissions()` (`routes/admin_user.rs:941`), an immutable `Arc`
+built once at boot (`state.rs:555-573`, assigned at `:1089`, no setter and no
+interior mutability). So the refresh reaches `config import`, which reads the
+table (`config_storage/yaml.rs:844`), and not the grid.
+
+The kernel's own prose says otherwise in two places: `plugin_admin.rs:241-243`
+("so its permissions reach the grid without waiting for a restart") and
+`KNOWN-ISSUES.md:215-223`. Its own test states the split correctly
+(`plugin_permissions_test.rs:216-219`, "The grid reads the in-memory registry,
+which is built at boot, so a row written afterwards is not on this app's
+registry"), so this is known at test level and not carried into the docs.
+
+In practice the success branch may be unreachable anyway: `dispatch_to_plugin`
+returns `None` for a plugin whose module was not compiled at boot, which is
+every plugin enabled while the server runs.
+
+**Impact for Ritrovo.** Small and real. An operator who enables `ritrovo_notify`
+on a running site is told its permissions are available now, goes to the grid to
+grant `manage own subscriptions`, and does not find it. `demo/config` grants it
+at import, so the demo never meets this; a site administrator following the
+admin UI does.
+
+**Blocks.** Nothing. It costs one confusing round trip per plugin.
+
+**Recommendation.** Have the grid read `plugin_permission` rather than the
+boot-time registry — it is the durable copy and it is already the source config
+import trusts — or say plainly in both places that a restart is needed.
+
+### G-QUEUE-WITHOUT-A-WORKER-IS-SILENT: **[Low, NEW]** a plugin can fill a queue nothing drains, forever, with no log line and no dead-lettering
+
+The drain skips a plugin that exports no `tap_queue_worker` with a bare
+`continue` and no log (`crates/kernel/src/cron/mod.rs:1004-1012`), and the whole
+drain returns early if no plugin anywhere implements the tap (`:997-999`). Rows
+that plugin pushed are never claimed, so `attempts` never increments and they
+never dead-letter: they accumulate in `plugin_queue` indefinitely.
+
+Nothing validates a declared queue name either. `tap_queue_info` is read for one
+key, `concurrency`, and only from a JSON array (`cron/mod.rs:174-192`); the
+`name` field is read by nothing in the kernel, and jobs are routed by
+`plugin_name` alone.
+
+**Impact for Ritrovo.** None today, and it is the reason a declaration is safe:
+`ritrovo_notify` declares `ritrovo_notifications` with no worker behind it,
+deliberately, because the queue's producer is blocked by
+`G-QUEUE-NO-CROSS-PLUGIN` and `G-ITEM-API-BYPASSES-ITEM-SERVICE` and the
+declaration is what the eventual fix attaches to. The declaration costs nothing
+precisely because the drain ignores it. It is recorded because the same silence
+is what would hide a *real* fault: a plugin that pushes jobs and loses its
+worker in a refactor looks exactly like one that is idle.
+
+**Blocks.** Nothing.
+
+**Recommendation.** Warn once at startup for a plugin that declares a queue
+through `tap_queue_info` and exports no `tap_queue_worker`, the way
+`warn_unreachable_callbacks` already does for a menu entry whose callback the
+kernel will never reach. The precedent and the machinery both exist.
 
 ### G-NO-CLOCK-AND-NO-DIAGNOSIS: **[Medium, NEW]** a plugin that reads the clock fails to instantiate, and the error names neither the import nor the reason
 

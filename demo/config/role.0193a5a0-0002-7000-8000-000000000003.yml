@@ -25,10 +25,15 @@
 # which `ritrovo_access` gates on `delete any content` for exactly that reason.
 # It is a stand-in for a permission the kernel cannot express, and it is named as
 # one both here and on the screen itself.
+# COMMENTS: a publisher moderates them too, for the same reason an editor does,
+# and by the same two grants. The editor file has the account of what 0.103.0
+# changed and what it did not.
 id: 0193a5a0-0002-7000-8000-000000000003
 name: publisher
 created: "2026-01-01T00:00:00Z"
 permissions:
+- access administration pages
+- administer comments
 - access content
 - create content
 - edit own content

@@ -1,15 +1,26 @@
 name = "ritrovo_notify"
 description = "Subscription and notification system for conferences"
-version = "1.1.0"
-api_version = "0.102"
+version = "1.2.0"
+api_version = "0.103"
 default_enabled = false
 dependencies = []
 
+# Three of the seven taps README.md describes. The other four are blocked on the
+# kernel, and each names what it waits on there rather than sitting here as a
+# declaration with nothing behind it — which is what this plugin was stripped to
+# a placeholder for.
+#
+# `tap_perm` is real as of Trovato 0.103.0, which dispatches it at boot into a
+# registry and a `plugin_permission` table that config import reads. At 0.102 it
+# was declared in the WIT and dispatched nowhere, so a plugin's permissions
+# could be granted to nobody (FRICTION.md, G-PERM-TAP-NOT-DISPATCHED).
 [taps]
-# None yet. See README.md for what this plugin will implement, and src/lib.rs for
-# why the menu entry, the Subscribe button, the queue and the permissions it used
-# to declare were removed.
-implements = []
+implements = [
+    "tap_perm",
+    "tap_menu",
+    "tap_api",
+    "tap_queue_info",
+]
 weight = 0
 
 [migrations]
@@ -22,11 +33,41 @@ files = [
 # exactly the host interfaces named here (plus baseline WASI), and rejects the
 # plugin at load time if the module imports one not declared.
 #
-# Derived from the compiled .wasm import section, never from reading the source.
-# While this plugin implemented taps it imported `trovato:kernel/logging`, which
-# the SDK's tap entry-point macro pulls in whatever the tap bodies do. With no
-# taps there is no macro-generated code and the module imports no kernel
-# interface at all, so the list is empty; the host-in-the-loop suite loads the
-# module, which is the check.
+# Derived from the compiled .wasm import section, never from reading the source:
+#
+#   wasm-tools print target/wasm32-wasip1/release/ritrovo_notify.wasm \
+#     | grep '(import "trovato:kernel/'
+#
+# `db` because this plugin reads and writes subscriptions. `logging` so a failed
+# read is visible in the site's log rather than only as a short list in one
+# person's browser.
 [capabilities]
-host_interfaces = []
+host_interfaces = ["db", "logging"]
+
+# The two tables this plugin reaches, NEITHER of which it created.
+#
+# `user_subscriptions` is the kernel's own, created by its
+# 20260315000001 migration and called by nothing in the kernel. Using it rather
+# than adding a private table is deliberate: a subscription the kernel's own
+# `Subscription` model can read is worth more than one only this plugin knows
+# about. `item` is read to turn a subscription into a conference name.
+#
+# The policy admits both. `crates/kernel/src/plugin/db_policy.rs` derives the
+# allowlist as the union of the tables a plugin's own migrations create and the
+# tables named here, and checks a table by set membership — there is no
+# ownership concept and no denylist of kernel tables. Two plugins in the kernel
+# image already do this: trovato_book declares `item`, trovato_spam declares
+# `comment`.
+#
+# Honest footnote: while `raw_sql = true` this list is advisory. `check_raw_sql`
+# reads only the flag and never consults the tables, so the allowlist constrains
+# only the structured `db` calls — which the SDK does not wrap, so nothing here
+# can call them. It is still the right declaration, because it is the one an
+# auditor reads. FRICTION.md, G-PLUGIN-CANNOT-READ-BACK-AN-INSERT.
+db_tables = ["user_subscriptions", "item"]
+
+# Uses the raw-SQL host functions query-raw and execute-raw. There is no typed
+# host API a plugin can reach for any table: the SDK wraps neither `select` nor
+# `insert` nor `update` nor `delete`, though the WIT declares all four. Every
+# statement in this plugin is parameterized.
+raw_sql = true

@@ -86,7 +86,7 @@ plugins/                  Each plugin's tests/ holds its host-in-the-loop suite
   ritrovo_access/         Editorial workflow / role-based access control
   ritrovo_cfp/            Call for Papers submission + review
   ritrovo_importer/       Content import tooling
-  ritrovo_notify/         Subscriptions and notifications: not built yet, see its README
+  ritrovo_notify/         Subscriptions, and the notifications the kernel cannot deliver yet
   ritrovo_translate/      Multi-language content translation workflow
 tests/host/               The kernel harness every host-in-the-loop suite includes,
                           and the slice of Trovato's tutorial config they import
@@ -148,15 +148,15 @@ from there into every file that repeats it:
 <!-- kernel-release:begin pin -->
 | | |
 |---|---|
-| tag | `v0.102.0` |
-| `rev` | `20baa121810b5c656b3f80028335770069fab5e0` |
-| Trovato version | 0.102.0 |
-| `KERNEL_API_VERSION` | (0, 102) |
+| tag | `v0.103.0` |
+| `rev` | `496b8f113be66102830723c1e2a968cad2ec1e0d` |
+| Trovato version | 0.103.0 |
+| `KERNEL_API_VERSION` | (0, 103) |
 
-The `rev` is the commit the `v0.102.0` tag points at, which is the tree the
-`ghcr.io/jeremyandrews/trovato:0.102.0` image was published from, so the SDK the
+The `rev` is the commit the `v0.103.0` tag points at, which is the tree the
+`ghcr.io/jeremyandrews/trovato:0.103.0` image was published from, so the SDK the
 plugins compile against and the kernel the demo runs are the same code. The
-plugin manifests declare `api_version = "0.102"` to match.
+plugin manifests declare `api_version = "0.103"` to match.
 <!-- kernel-release:end pin -->
 
 (Before 0.99 the two did not agree: that SDK crate labelled itself `1.0.0` ahead

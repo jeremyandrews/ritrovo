@@ -25,18 +25,38 @@
 # permissions above can be listed here and the substitution can be dropped;
 # `ritrovo_access` already declares them and already prefers them when present.
 #
-# The brief's three comment permissions are not here either, for a different
-# reason: they belong to `trovato_comments`, and naming another plugin's
-# permission in a configuration set makes the set depend on that plugin being
-# installed first. It imported in the demo and failed in the host-in-the-loop
-# suites, which import this set into a bare database. The authenticated role's
-# file has the full account. Comments are Part 6 work; this set stays importable
-# anywhere.
+# THE MODERATION QUEUE IS THIS ROLE'S, AS OF 0.103.0.
+#
+# `administer comments` opens `/admin/content/comments`, and this is the change
+# that makes an editor an editor of comments rather than only of conferences.
+# At 0.102 that screen called `require_admin`, which reads the `users.is_admin`
+# column and nothing else, so no grant could reach it and the row stayed
+# blocked (`FRICTION.md`, `G-ADMIN-SCREENS-ARE-ADMIN-ONLY`). At 0.103.0 the six
+# comment routes call `require_permission(..., "administer comments")` instead
+# (`crates/kernel/src/routes/admin.rs`), so the permission is the gate.
+#
+# `access administration pages` is the other half and it is not optional.
+# 0.103.0 moved `/admin` itself off `administer site` onto this new, deliberately
+# weak permission: admission to the administration section and no authority
+# inside it, with every screen still asking for its own. Without it an editor
+# reaches the moderation queue only by typing the address and gets 403 on the
+# dashboard that would have linked there.
+#
+# What an editor still cannot open is `/admin/content` itself, the content list
+# and its bulk actions: those remain on `require_admin`. So the sidebar an
+# editor sees lists screens that answer 403, which is the kernel's own
+# BL-117 (the admin layout does not filter its sidebar to what the viewer may
+# open). `G-ADMIN-SCREENS-ARE-ADMIN-ONLY` is narrowed rather than closed.
+#
+# `edit any comments` is NOT here: `ritrovo_access` declares it and nothing in
+# the kernel checks it, so it would be a grant with nothing behind it.
 id: 0193a5a0-0002-7000-8000-000000000002
 name: editor
 created: "2026-01-01T00:00:00Z"
 permissions:
+- access administration pages
 - access content
+- administer comments
 - create content
 - edit own content
 - edit any content

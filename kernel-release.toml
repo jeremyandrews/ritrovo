@@ -33,5 +33,5 @@
 # are left to their authors on purpose. `grep -rn 0\.10 --exclude-dir=.git` finds
 # every mention if you want to sweep them by hand.
 
-version = "0.102.0"
-rev = "20baa121810b5c656b3f80028335770069fab5e0"
+version = "0.103.0"
+rev = "496b8f113be66102830723c1e2a968cad2ec1e0d"

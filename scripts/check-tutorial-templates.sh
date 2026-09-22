@@ -47,7 +47,7 @@ set -euo pipefail
 # The release the demo runs against. GENERATED: this line is written from
 # kernel-release.toml by scripts/sync-kernel-release.sh, and the demo_wiring tests
 # fail if it disagrees. Move the pin there, not here.
-RELEASE="v0.102.0"
+RELEASE="v0.103.0"
 REPO="https://codeload.github.com/jeremyandrews/trovato/tar.gz/refs/tags"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

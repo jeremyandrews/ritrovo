@@ -1,7 +1,7 @@
 name = "ritrovo_forms"
 description = "The forms Ritrovo serves itself: the member profile, and conference submission"
 version = "0.2.0"
-api_version = "0.102"
+api_version = "0.103"
 default_enabled = false
 dependencies = []
 
