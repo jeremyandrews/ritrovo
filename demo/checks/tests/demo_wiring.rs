@@ -232,23 +232,13 @@ fn every_plugin_is_in_the_demo_enable_list() {
     }
 }
 
-/// The line number of the first line that RUNS the given trovato subcommand.
+/// The line number of the first line that RUNS the given trovato command text.
 ///
-/// Commands only, never comments. Matching the bare strings found both in the
-/// header comment, which explains the ordering, and in the code that implements
-/// it, and the header happens to mention them in the right order, so the test
-/// passed by reading prose rather than by reading the script.
-fn first_command_line(script: &str, subcommand: &str) -> usize {
-    script
-        .lines()
-        .position(|line| {
-            let line = line.trim_start();
-            line.starts_with("./trovato") && line.contains(subcommand)
-        })
-        .unwrap_or_else(|| panic!("demo-bootstrap.sh never runs `trovato {subcommand}`"))
-}
-
-/// The line number of the first line that runs the given command text.
+/// Commands only, never comments. The strings these tests match on appear both
+/// in the script's header comment, which explains the ordering, and in the code
+/// that implements it — and the header happens to mention them in the right
+/// order, so a test that searched the whole file passed by reading prose rather
+/// than by reading the script.
 fn first_line_running(script: &str, needle: &str) -> usize {
     script
         .lines()
