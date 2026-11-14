@@ -2100,7 +2100,9 @@ children of `/user` and `/admin/*` in the kernel's user and admin menus.
 
 `inject_site_context` gives every page `user_authenticated`, `csrf_token` and
 `user_can_access_admin`, and nothing that identifies the viewer: no id, no name
-(`crates/kernel/src/routes/helpers.rs:183-345`). A tile body is one string for
+(`crates/kernel/src/routes/helpers.rs:183-345`). This is the page-layout half of
+`G-ITEM-TEMPLATE-HAS-NO-VIEWER`, which is the same gap in the item template's
+context; together they leave no template on a page that can name its reader. A tile body is one string for
 every viewer (`crates/kernel/src/services/tile.rs:44-56`).
 
 Observed: `ritrovo_notify` serves a member's subscriptions at
