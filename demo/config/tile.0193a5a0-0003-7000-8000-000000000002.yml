@@ -1,15 +1,24 @@
-# Open Call for Papers tile (machine_name: open_cfps_sidebar) — Sidebar.
+# CFPs Closing Soon (machine_name: cfps_closing_soon), sidebar.
+#
+# Was open_cfps_sidebar, a gather_query tile that rendered nothing
+# (G-TILE-GATHER-QUERY-RENDERS-NOTHING). Same uuid, so a config import replaces
+# the old row. The body is rewritten by ritrovo_importer's cron from the Live
+# conferences whose call for papers closes today or in the next fourteen days.
 id: 0193a5a0-0003-7000-8000-000000000002
-machine_name: open_cfps_sidebar
-label: Open Call for Papers
+machine_name: cfps_closing_soon
+label: CFPs Closing Soon
 region: sidebar
-tile_type: gather_query
+tile_type: custom_html
 config:
-  query_id: ritrovo.open_cfps
-visibility: {}
+  body: |
+    <p class="tile-list__empty">Filled in by ritrovo_importer on its next cron call.</p>
+  format: full_html
+visibility:
+  paths_exclude:
+  - /admin*
 weight: 5
 status: 1
 plugin: core
 stage_id: 0193a5a0-0000-7000-8000-000000000001
 created: 1767225600
-changed: 1767225600
+changed: 1794700000

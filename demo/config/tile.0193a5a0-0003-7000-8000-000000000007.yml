@@ -1,0 +1,23 @@
+# Recent Comments (machine_name: recent_comments), sidebar.
+#
+# The five newest published comments on Live content, rewritten by
+# ritrovo_importer's cron. Front page and conference pages only.
+id: 0193a5a0-0003-7000-8000-000000000007
+machine_name: recent_comments
+label: Recent Comments
+region: sidebar
+tile_type: custom_html
+config:
+  body: |
+    <p class="tile-list__empty">Filled in by ritrovo_importer on its next cron call.</p>
+  format: full_html
+visibility:
+  paths:
+  - /
+  - /item/*
+weight: 15
+status: 1
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1794700000

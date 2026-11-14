@@ -46,7 +46,28 @@ pub const MAX_BIO: usize = 2_000;
 /// Serve the form.
 pub fn show(request: &ApiRequest) -> ApiResponse {
     let bio = load(&request.user_id).unwrap_or_default();
-    ApiResponse::themed("Your profile", page(&request.csrf_token, &bio, &[], false))
+    let mut html = account_links(&request.user_id);
+    html.push_str(&page(&request.csrf_token, &bio, &[], false));
+    ApiResponse::themed("Your profile", html)
+}
+
+/// The link to this member's own subscription list.
+///
+/// That list lives at `/user/{uid}/subscriptions` (ritrovo_notify), and nothing
+/// a template is given names the viewer's uid: `page.html` knows only that
+/// someone is signed in (FRICTION.md, G-NO-VIEWER-ID-IN-TEMPLATES). A plugin
+/// page does know it, so this one is where the site's "My Subscriptions" tile
+/// sends a member, and this link takes them the rest of the way. A uid that is
+/// not a uuid, which the kernel never sends, draws nothing rather than an href
+/// built from it.
+pub fn account_links(user_id: &str) -> String {
+    let is_uuid = user_id.len() == 36 && user_id.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    if !is_uuid {
+        return String::new();
+    }
+    format!(
+        r#"<p class="ritrovo-account-links"><a id="subscriptions" href="/user/{user_id}/subscriptions">Your subscriptions</a></p>"#
+    )
 }
 
 /// Validate and save.
@@ -197,6 +218,14 @@ release: a plugin has no way to accept a file. At most {MAX_BIO} characters here
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_profile_links_to_the_members_own_subscriptions() {
+        let uid = "0193a5a0-0000-7000-8000-0000000000aa";
+        assert!(account_links(uid).contains(&format!(r#"href="/user/{uid}/subscriptions""#)));
+        assert_eq!(account_links(r#""><script>"#), "");
+        assert_eq!(account_links(""), "");
+    }
 
     #[test]
     fn a_short_bio_is_valid() {

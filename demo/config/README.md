@@ -40,6 +40,23 @@ The front page. The tutorial tells the reader to set it by hand at
 cannot do. A `variable` config entity writes the same `site_config` row the form
 writes, so importing it is the non-interactive equivalent.
 
+Since A9 it names an item, `/item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06`, the
+"Find your next conference" page in `seed-content` (Italian in `seed-italian`),
+because the kernel renders a front page in place only when it is an item and
+answers anything else with a redirect.
+
+## `tile.*.yml` — placement and visibility
+
+Eight tiles. The kernel owns where they go, in what order and for whom; the five
+data tiles (`conferences_this_month`, `cfps_closing_soon`, `topic_cloud`,
+`recent_comments`, `front_upcoming`) carry a placeholder body here, which
+`ritrovo_importer`'s cron replaces with rendered rows, because a `gather_query`
+tile renders nothing (`G-TILE-GATHER-QUERY-RENDERS-NOTHING`). Visibility uses
+both kinds of rule the kernel has: paths (`front_upcoming` on `/` only, which is
+also the path of `/it/`) and roles (`my_subscriptions` for `authenticated user`).
+Change a tile's region, weight or rule here or at `/admin/structure/tiles`; change
+what a data tile shows in `plugins/ritrovo_importer/src/tiles.rs`.
+
 ## `menu_link.0193a5a0-0004-7000-8000-000000000003.yml` — "Call for Papers"
 
 Points at `/cfps`. The kernel's copy of this row points at `/open-cfps`, which no

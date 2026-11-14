@@ -1,0 +1,29 @@
+# My Subscriptions (machine_name: my_subscriptions), sidebar. The role-limited
+# tile: `roles: [authenticated user]`, so an anonymous visitor never sees it.
+#
+# NOT the list itself. A tile body is one string for every viewer, and nothing a
+# page template is given names the viewer (FRICTION.md,
+# G-NO-VIEWER-ID-IN-TEMPLATES), so no tile can hold one member's list, and no
+# template can even build the address of it, /user/{uid}/subscriptions. The
+# profile page can: it is a plugin page, it knows the uid, and it links there
+# (plugins/ritrovo_forms/src/profile.rs, account_links). So this tile is a
+# signpost to it, and static: the cron leaves it alone.
+id: 0193a5a0-0003-7000-8000-000000000008
+machine_name: my_subscriptions
+label: My Subscriptions
+region: sidebar
+tile_type: custom_html
+config:
+  body: |
+    <p>Conferences you follow, and the ones you can unfollow, are listed from your profile.</p>
+    <p class="tile-more"><a href="/user/bio#subscriptions">Your subscriptions &rarr;</a></p>
+  format: full_html
+visibility:
+  roles:
+  - authenticated user
+weight: -5
+status: 1
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1794700000

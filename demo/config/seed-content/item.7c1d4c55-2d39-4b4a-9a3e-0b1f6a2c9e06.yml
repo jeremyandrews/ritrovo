@@ -1,0 +1,25 @@
+# The front page: what / renders (demo/config/variable.site_front_page.yml names
+# /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06).
+#
+# A kernel `page` item rather than text in a template, because the kernel renders
+# a front page inline only when it is an item; anything else is a redirect. Being
+# an item also makes it content: an editor changes the welcome at
+# /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06/edit, and the Italian at /it/ is its
+# translation (demo/config/seed-italian/item_translation.7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06.it.yml), overlaid by
+# the kernel. Ritrovo's page--front.html puts the tiles under it.
+id: 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06
+type: page
+title: Find your next conference
+language: en
+status: 1
+created: 1794700000
+changed: 1794700000
+fields:
+  body:
+    format: markdown
+    value: |
+      Ritrovo lists developer conferences, from the
+      [confs.tech](https://confs.tech) open dataset and from people who run them:
+      when and where they are, what they are about, and whether the call for
+      papers is still open. Browse by topic, find the CFPs closing this fortnight,
+      or search by name, city or speaker.

@@ -1,0 +1,15 @@
+# The Italian of the front page: what /it/ renders. The kernel overlays it on
+# item 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06 when the page is read in Italian
+# (crates/kernel/src/routes/front.rs:200).
+item_id: 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06
+language: it
+title: "Trova la tua prossima conferenza"
+fields:
+  body:
+    format: markdown
+    value: |
+      Ritrovo raccoglie le conferenze per sviluppatori, dal dataset aperto di
+      [confs.tech](https://confs.tech) e da chi le organizza: quando e dove si
+      tengono, di cosa parlano e se la call for papers è ancora aperta. Sfoglia
+      per argomento, trova le CFP che chiudono nelle prossime due settimane, o
+      cerca per nome, città o relatore.

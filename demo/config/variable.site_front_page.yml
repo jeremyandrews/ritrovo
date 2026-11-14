@@ -1,18 +1,19 @@
-# Front page: the upcoming-conference listing.
+# Front page: the "Find your next conference" page item, rendered inline.
 #
-# Every other piece of the demo's configuration comes from Trovato's own tutorial
-# config set, which ships inside the released image. This one setting does not,
-# because it is the last step of the tutorial walkthrough rather than part of the
-# set: "set the front page to /conferences at /admin/config/site".
+# The kernel renders a front page in place only when site_front_page names an
+# item, as /item/{uuid}; any other path, an alias included, is answered with a
+# 307 to it (crates/kernel/src/routes/front.rs). Until A9 this was /conferences
+# and `/` was that redirect. It is now an item so that `/` and `/it/` render
+# Ritrovo's page--front.html: the item's body as the introduction, the upcoming
+# conferences and the sidebar tiles under it.
+#
+# The item is seed content (demo/config/seed-content/item.7c1d4c55-…-e06.yml),
+# imported after this set. The kernel resolves the item on each request, so the
+# order does not matter, and until the seed lands `/` shows the kernel's
+# promoted listing rather than an error.
 #
 # A `variable` config entity writes straight to the site_config table, which is
-# the same row the admin form writes, so importing this one-file set is the
-# non-interactive equivalent of filling that form in. Doing it this way is why the
-# demo needs no CSRF token scraping and no SQL.
-#
-# /conferences is a url_alias onto /gather/ritrovo.upcoming_conferences. A front
-# path that is not an item is served as a redirect rather than rendered inline,
-# which is the kernel's documented behaviour, so the demo's `/` answers 307 and
-# the listing renders at /conferences.
+# the same row the admin form at /admin/config/site writes, so importing it is
+# the non-interactive equivalent of filling that form in.
 key: site_front_page
-value: /conferences
+value: /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06

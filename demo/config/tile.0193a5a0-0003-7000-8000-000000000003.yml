@@ -1,19 +1,28 @@
-# Topics tile (machine_name: topic_cloud) — Sidebar.
+# Topic Cloud (machine_name: topic_cloud), sidebar.
+#
+# Every topic with an upcoming Live conference, sized by how many, rewritten by
+# ritrovo_importer's cron. Counting is something no gather can do, so this one
+# is plugin code by necessity, not only because the tile type renders nothing.
+#
+# Shown on the front page and the listings a visitor browses by topic, and not
+# on a conference or a static page, where it would only push the content down.
 id: 0193a5a0-0003-7000-8000-000000000003
 machine_name: topic_cloud
-label: Topics
+label: Topic Cloud
 region: sidebar
 tile_type: custom_html
 config:
   body: |
-    <div class="topic-cloud" data-category="topics">
-      <p><em>Browse by topic to find conferences in your area of interest.</em></p>
-    </div>
+    <p class="tile-list__empty">Filled in by ritrovo_importer on its next cron call.</p>
   format: full_html
-visibility: {}
+visibility:
+  paths:
+  - /
+  - /conferences
+  - /topics*
 weight: 10
 status: 1
 plugin: core
 stage_id: 0193a5a0-0000-7000-8000-000000000001
 created: 1767225600
-changed: 1767225600
+changed: 1794700000

@@ -34,6 +34,7 @@
 #   RITROVO_DEMO_PORT   host port to publish on           (3000)
 #   DRAIN_TIMEOUT       seconds to wait for the import     (1200)
 #   INDEX_TIMEOUT       seconds to wait for the search index (420)
+#   TILE_TIMEOUT        seconds to wait for the importer's cron to render the tiles (180)
 #   DEMO_ADMIN_USER / DEMO_ADMIN_PASSWORD                  (admin / ritrovo-demo-password)
 
 set -euo pipefail
@@ -44,6 +45,7 @@ PORT="${RITROVO_DEMO_PORT:-3000}"
 BASE="http://localhost:$PORT"
 DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-1200}"
 INDEX_TIMEOUT="${INDEX_TIMEOUT:-420}"
+TILE_TIMEOUT="${TILE_TIMEOUT:-180}"
 
 FRESH=0
 VERIFY=1
@@ -133,6 +135,35 @@ if [ "$WAIT" = "1" ]; then
 fi
 
 if [ "$WAIT" = "1" ]; then
+    # One full cron call from ritrovo_importer after the server started.
+    #
+    # The bootstrap imports the configuration on every start, and that import
+    # puts each tile's body back to the placeholder in demo/config/tile.*.yml and
+    # each seeded conference's fields back to the file's, without the search text
+    # (plugins/ritrovo_importer/src/search_text.rs). The importer's tap_cron
+    # rewrites both, search text first and tiles last, in one call. So no tile
+    # still holding the placeholder means that call has run since this start, and
+    # the front page, the sidebar and the search vectors are what verify-demo.sh
+    # expects. Up to two cron periods: the call that was already running when the
+    # import landed may have read the old rows.
+    echo "==> waiting for the importer's cron to render the tiles (up to ${TILE_TIMEOUT}s)"
+    tile_deadline=$((SECONDS + TILE_TIMEOUT))
+    while true; do
+        placeholders="$(compose exec -T postgres psql -U trovato -d ritrovo -tAc \
+            "select count(*) from tile where config->>'body' like '%Filled in by ritrovo_importer%'" 2>/dev/null | tr -d '[:space:]')"
+        if [ "$placeholders" = "0" ]; then
+            echo "    every tile is rendered"
+            break
+        fi
+        if [ "$SECONDS" -ge "$tile_deadline" ]; then
+            echo "error: ${placeholders:-?} tile(s) still hold their placeholder after ${TILE_TIMEOUT}s; is the cron service running?" >&2
+            exit 1
+        fi
+        sleep 5
+    done
+fi
+
+if [ "$WAIT" = "1" ]; then
     # The search index, built before this script says the site is ready.
     #
     # /search is the kernel's Pagefind page: it hands the query to the browser,
@@ -188,7 +219,8 @@ cat <<EOF
 
 Ritrovo is serving on $BASE
 
-  $BASE/                        the front page, which redirects to /conferences
+  $BASE/                        the front page: upcoming conferences, CFPs closing soon, topics
+  $BASE/it/                     the same in Italian
   $BASE/conferences             upcoming conferences, filterable
   $BASE/speakers                speakers
   $BASE/cfps                    open calls for papers

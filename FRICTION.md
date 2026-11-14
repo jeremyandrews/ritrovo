@@ -47,6 +47,14 @@ findable by its name), `G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE`,
 `G-SEARCH-TRIGGER-INDEXES-BLOCKS-JSON` and `G-MARKDOWN-FILTER-HAS-NO-TABLES`.
 `G-SEARCH-PAGE-BLANK-WITHOUT-INDEX` is re-verified and still open.
 
+**A9 part 2, layout, tiles and menus, same revision.** Seven more, found building
+the front page, the tiles and the four menus: `G-PLUGIN-MENU-ENTRIES-WITH-A-PARENT-RENDER-NOWHERE`
+(Medium), `G-NO-VIEWER-ID-IN-TEMPLATES` (Medium), `G-ONLY-MAIN-AND-FOOTER-MENUS-RENDER`,
+`G-TILE-ROLES-ARE-SYNTHETIC`, `G-TILES-HAVE-NO-LANGUAGE`,
+`G-BREADCRUMBS-IGNORE-THE-TOPIC-TREE`, `G-PLUGIN-RESPONSE-CANNOT-REDIRECT` and
+`G-NO-ACCESSIBILITY-CHECK`. `G-TILE-GATHER-QUERY-RENDERS-NOTHING` stays open, with
+the workaround Ritrovo now uses recorded under it.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -610,6 +618,18 @@ Papers" appear on every page as titled, empty boxes.
 
 **Recommendation.** Render the query server-side with its display config and a
 per-tile item limit, and let plugins register tile types.
+
+**A9 workaround, 2026-11-14. Still open.** Ritrovo's tiles render, but not through
+this type. Every one of the brief's data tiles (CFPs Closing Soon, Conferences
+This Month, the Topic Cloud, Recent Comments, and the front page's upcoming
+conferences) is a `custom_html` tile, the one type the kernel renders server-side,
+whose body `ritrovo_importer`'s cron rewrites from SQL on every call
+(`plugins/ritrovo_importer/src/tiles.rs`), escaping every value. Placement, weight
+and visibility are still the kernel's, in `demo/config/tile.*.yml`. The costs: the
+content is stale by up to one cron period, it is written in the default language
+only (`G-TILES-HAVE-NO-LANGUAGE`), it can never be per viewer, and a `custom_html`
+body is read from the database on every request with no cache. A `gather_query`
+tile that rendered would remove all four.
 
 ### G-SEARCH-PAGE-BLANK-WITHOUT-INDEX: **[Medium, NEW]** `/search` replaces its working server results with nothing when the Pagefind index is absent
 
@@ -2016,6 +2036,140 @@ its endpoint table as `| Endpoint | Served by | Why |` text.
 
 **Recommendation.** `Parser::new_ext` with `Options::ENABLE_TABLES` (and
 strikethrough), as GitHub renders them.
+
+### G-PLUGIN-MENU-ENTRIES-WITH-A-PARENT-RENDER-NOWHERE: **[Medium, NEW]** a plugin menu entry with a `parent` reaches no menu a page template is given
+
+A plugin's `tap_menu` entries reach templates in exactly one variable, `menus`,
+which is `MenuRegistry::root_menus_for(viewer)` (`crates/kernel/src/routes/helpers.rs:271-272`),
+and `root_menus` keeps only entries with NO parent
+(`crates/kernel/src/menu/registry.rs:228-232`). An entry with a parent is used for
+one thing, local-task tabs (`registry.rs:271-279`), and only when it also sets
+`local_task`. The admin sidebar does not read the registry at all; it is a fixed
+list in `templates/page--admin.html:177-209`. And the kernel's own `page.html`
+shows `menus` only when the main menu is empty (`templates/page.html:35`), which
+on any site with a main menu is never.
+
+Observed: `ritrovo_notify`'s "Your subscriptions" (`parent("/user")`),
+`ritrovo_forms`' "Your profile" (`parent("/user")`), `ritrovo_access`'s "Editorial
+queue" and `ritrovo_translate`'s "Translations" (both `parent("/admin/content")`)
+appear in no menu on any page. The importer's two admin screens did the same until
+A9 dropped their parents.
+
+**Ritrovo's side.** Ritrovo's `page.html` renders `menus`, the root entries, split
+by path into the account menu and an admin bar for the viewers allowed to open
+them, and the importer's two entries are root entries now so they reach it. The
+other four keep their parents, because their tests assert them
+(`the_list_sits_under_the_user_menu` among them) and those tests are right about
+where the entries belong; the account menu links "Your profile" by hand.
+
+**Blocks.** 34.4's user and admin menus being fed by `tap_menu` in full.
+
+**Recommendation.** Give templates the whole tree (`menus` by parent), or render
+children of `/user` and `/admin/*` in the kernel's user and admin menus.
+
+### G-NO-VIEWER-ID-IN-TEMPLATES: **[Medium, NEW]** nothing a page template is given names the signed-in user, so no template can link to a page under `/user/{uid}`
+
+`inject_site_context` gives every page `user_authenticated`, `csrf_token` and
+`user_can_access_admin`, and nothing that identifies the viewer: no id, no name
+(`crates/kernel/src/routes/helpers.rs:183-345`). A tile body is one string for
+every viewer (`crates/kernel/src/services/tile.rs:44-56`).
+
+Observed: `ritrovo_notify` serves a member's subscriptions at
+`/user/{uid}/subscriptions`, with the uid in the path because the privacy rule
+needs something to refuse. No menu, tile or template can link to it, because none
+can write the uid, and a "My Subscriptions" tile cannot hold the list because a
+tile cannot vary by viewer.
+
+**Ritrovo's side.** The My Subscriptions tile (`roles: [authenticated user]`) is a
+signpost to `/user/bio`, a plugin page, which does know the uid and links to the
+list (`plugins/ritrovo_forms/src/profile.rs`, `account_links`). Two clicks
+instead of one.
+
+**Blocks.** The brief's My Subscriptions tile as a list, and one-click user-menu
+entries for any per-user page.
+
+**Recommendation.** Put the viewer's id and display name in the site context, and
+let a tile type render per request.
+
+### G-ONLY-MAIN-AND-FOOTER-MENUS-RENDER: **[Low, NEW]** a config menu other than `main` or `footer` is stored and never reaches a template
+
+`inject_site_context` loads two config menus by name, `main` and `footer`
+(`crates/kernel/src/routes/helpers.rs:249-262`). A `menu_link` row with any other
+`menu_name` imports, is listed at `/admin/structure/menus`, and renders nowhere.
+`templates/page.html:42-51` hard-codes the account links.
+
+**Ritrovo's side.** The user menu is written in Ritrovo's `page.html`: Login and
+Register, or Your profile, Account and Logout, plus the plugin root entries that
+are not under `/admin`.
+
+**Recommendation.** Expose every config menu to templates as `menus_by_name`.
+
+### G-TILE-ROLES-ARE-SYNTHETIC: **[Low, NEW]** tile visibility by role sees three made-up roles, not the viewer's real ones, and every viewer is "anonymous user"
+
+The roles a tile's `visibility.roles` is matched against are built in
+`inject_site_context` from three facts: `anonymous user` always,
+`authenticated user` when signed in, `administrator` for an admin
+(`crates/kernel/src/routes/helpers.rs:283-289`). The viewer's actual roles are not
+consulted, so a tile for `editor` or `publisher` never shows, and a tile limited to
+`anonymous user` shows to everybody, signed in or not
+(`crates/kernel/src/models/tile.rs:213-223`).
+
+**Ritrovo's side.** The one role-limited tile, My Subscriptions, uses
+`authenticated user`, which works.
+
+**Recommendation.** Pass the viewer's real role names, and stop adding
+`anonymous user` for a signed-in viewer.
+
+### G-TILES-HAVE-NO-LANGUAGE: **[Low, NEW]** a tile's label and body are one string in every language
+
+`Tile` carries no language and no translations (`crates/kernel/src/models/tile.rs:12-27`),
+and `render_region` is not told the request language
+(`crates/kernel/src/services/tile.rs:44-56`). So `/it/` shows "CFPs Closing Soon"
+in English, and so does every tile on every Italian page.
+
+**Recommendation.** Translate tile labels and bodies the way menu links already are
+(`localize_menu_links`, `helpers.rs:253`).
+
+### G-BREADCRUMBS-IGNORE-THE-TOPIC-TREE: **[Low, NEW]** breadcrumbs know the content type and the query label, never the category a page sits in
+
+An item page's breadcrumbs are Home › type label › title
+(`crates/kernel/src/routes/item.rs:708-719`); a gather page's are Home › query
+label (`crates/kernel/src/routes/gather.rs:427-432`), so every `/topics/{slug}`
+page has the same trail. Neither can follow a tag to its parents.
+
+**Ritrovo's side.** The conference template and the topic listing draw the trail
+themselves from `includes/topics.html`, which is generated from the tag config and
+held to it by a test (`demo/checks/tests/topic_labels.rs`): Home › Languages › JVM
+› Kotlin. Ritrovo's `page.html` drops the kernel's trail when that one is present.
+
+**Recommendation.** Let a breadcrumb follow a category reference, and resolve tag
+labels and ancestors for templates (`G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS`).
+
+### G-PLUGIN-RESPONSE-CANNOT-REDIRECT: **[Low, NEW]** a plugin route cannot answer with a redirect
+
+`ApiResponse` has a status, a body, a content type and two theming fields, and no
+headers (`crates/plugin-sdk/src/types.rs:882-918`), so a plugin cannot set
+`Location`. A plugin page at `/user/subscriptions` that sent a member on to
+`/user/{uid}/subscriptions` (the uid-less address a menu could link to) cannot be
+written.
+
+**Recommendation.** Add `ApiResponse::redirect(status, location)`.
+
+### G-NO-ACCESSIBILITY-CHECK: **[Low, NEW]** the kernel ships no accessibility check to run against a theme
+
+The CLI has four commands, `serve`, `plugin`, `config` and `user`
+(`crates/kernel/src/main.rs:72-90`), and neither the repository nor its CI runs an
+accessibility audit. The brief asks for "the kernel's accessibility check" on the
+theme; there is none to run.
+
+**Ritrovo's side.** The landmarks are the kernel's (`base.html`: skip link,
+`header`, `main`, `footer`) and are kept; every `nav` Ritrovo adds is labelled;
+active links carry `aria-current`; the badge colours are paired for 4.5:1 or better
+in both schemes and the badge says its state in words. `scripts/verify-demo.sh`
+asserts the landmarks and labels on the front page.
+
+**Recommendation.** Ship an axe or pa11y run over the default theme in CI, usable
+against a site's own.
 
 ## No-friction findings (surfaces that just worked)
 

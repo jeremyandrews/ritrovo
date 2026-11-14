@@ -19,6 +19,27 @@
    and it is the reason this file renders no plugin output at all rather than
    picking the plugin half back out of the string by pattern, which would break on
    the first field value containing a closing tag. #}
+{# The breadcrumb: Home, then the conference's first topic from the root of the
+   topic tree down (Languages › JVM › Kotlin), then the conference. The kernel's
+   own breadcrumb on an item page is Home › content type › title: it knows the
+   type and never the tag tree (G-BREADCRUMBS-IGNORE-THE-TOPIC-TREE), so this
+   one is drawn here, from includes/topics.html, and Ritrovo's page.html drops
+   the kernel's when it finds `breadcrumb--topics` in the content. A conference
+   with no topic that names a term keeps the kernel's. #}
+{% set first_topic = "" %}
+{% if item.fields.field_topics is defined and item.fields.field_topics is iterable and item.fields.field_topics | length > 0 %}
+{% set first_topic = item.fields.field_topics | first %}
+{% endif %}
+{% set topic_trail = topics::trail(id=first_topic) %}
+{% if topic_trail %}
+<nav class="breadcrumb breadcrumb--topics" aria-label="Breadcrumb">
+    <ol class="topic-trail">
+        <li class="topic-trail__step"><a href="/">Home</a></li>
+        {{ topic_trail | safe }} {# SAFE: generated from Ritrovo's own tag config, labels escaped by the generator #}
+        <li class="topic-trail__step"><span aria-current="page">{{ item.title }}</span></li>
+    </ol>
+</nav>
+{% endif %}
 <article class="item item--conference">
     <header class="item__header">
         <h1 class="item__title">{{ item.title }}</h1>

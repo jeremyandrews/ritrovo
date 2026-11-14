@@ -102,12 +102,32 @@ UPDATE=0
 #       conference. The last two render the brief's tile gathers through their own
 #       routes, because the tiles themselves render nothing on this kernel.
 #
+#   page.html
+#       Not in the release's tutorial set; it overrides the kernel's own
+#       templates/page.html, from which it starts. It links ritrovo.css and renders
+#       four menus (main, account, admin, footer) where the kernel's renders one,
+#       placing the plugin entries the kernel hands it as `menus`, and it leaves
+#       out the kernel's breadcrumb where a template draws the topic trail.
+#
+#   page--front.html
+#       Rewritten. The release's copy is a hero with hard-coded numbers ("5,400+
+#       conferences", "17 speakers") that are true of no site. Ritrovo's front
+#       page is an item (the welcome page, translated for /it/) with the
+#       upcoming-conference and sidebar tiles under it.
+#
+#   gather/query--ritrovo.by_topic.html
+#       The release's listing with a breadcrumb in front of it: Home, Topics and
+#       the topic's ancestors, which the kernel's gather breadcrumb cannot know.
+#
 #   page--admin--content--translations.html
 #       New here and absent from the release. Supplies the one variable the
 #       kernel's admin page template needs and the kernel does not give a plugin
 #       page, so the translation queue renders in the admin layout rather than
 #       unwrapped (FRICTION.md, G-THEMED-PLUGIN-PAGE-UNDER-ADMIN-RENDERS-UNWRAPPED).
 OWNED_TEMPLATES="
+page.html
+page--front.html
+gather/query--ritrovo.by_topic.html
 elements/item--conference.html
 elements/item--page.html
 elements/item--speaker.html

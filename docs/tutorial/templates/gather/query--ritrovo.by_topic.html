@@ -1,6 +1,30 @@
 {% extends "gather/query.html" %}
+{% import "includes/topics.html" as topics %}
+{# Conferences under one topic, at /topics/{slug}.
+
+   Owned by Ritrovo for one reason: the breadcrumb. The kernel's breadcrumb on a
+   gather page is Home › the query's label, the same for every topic
+   (G-BREADCRUMBS-IGNORE-THE-TOPIC-TREE). The route hands this template the
+   topic's uuid in `filter_values.topic`, resolved from the slug, and nothing
+   else about it, so the trail from the root of the tree down to this topic
+   comes from includes/topics.html, generated from demo/config/tag.*.yml. For
+   Kotlin that is Home › Languages › JVM › Kotlin, three levels of the tree.
+   Ritrovo's page.html leaves out the kernel's breadcrumb when this one is here.
+
+   The listing below it is the release's, unchanged. #}
 
 {% block query_content %}
+{% set topic_id = filter_values.topic | default(value="") %}
+{% set topic_trail = topics::trail(id=topic_id) %}
+{% if topic_trail %}
+<nav class="breadcrumb breadcrumb--topics" aria-label="Breadcrumb">
+    <ol class="topic-trail">
+        <li class="topic-trail__step"><a href="/">Home</a></li>
+        <li class="topic-trail__step"><a href="/topics">Topics</a></li>
+        {{ topic_trail | safe }} {# SAFE: generated from Ritrovo's own tag config, labels escaped by the generator #}
+    </ol>
+</nav>
+{% endif %}
 <div class="card-list">
     {% for row in rows %}
     {% include "gather/includes/conf-card.html" %}
