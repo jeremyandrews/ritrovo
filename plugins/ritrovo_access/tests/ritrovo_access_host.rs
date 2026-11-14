@@ -680,3 +680,118 @@ fn csrf(html: &str) -> String {
     let end = rest.find('"').unwrap();
     rest[..end].to_string()
 }
+
+/// The demo seed runs once the import has finished, however small the feed.
+///
+/// It used to wait for 80 upcoming conferences, and the live feed fell to 54 in
+/// November 2026: the seed never ran, and the weekly demo found nothing on
+/// Curated and almost nothing Live. This drives the real `tap_cron` over eight
+/// upcoming conferences and one past one, first with the import still arriving
+/// (it must wait), then with the importer's completion recorded and its queue
+/// empty (it must seed, splitting three to one and leaving the past one alone).
+#[test]
+fn the_demo_seed_waits_for_the_import_and_then_seeds_a_small_feed() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::install_and_enable(&pool, PLUGIN).await.unwrap();
+        host::import_demo_config(&pool).await;
+        // The importer's state table, which the seed reads; created by the
+        // importer's own migration rather than by hand.
+        host::run_migrations(&pool, "ritrovo_importer").await;
+        sqlx::query("DELETE FROM item WHERE type = 'conference'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM ritrovo_state WHERE name = 'historical_import_queued'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM plugin_queue WHERE plugin_name = 'ritrovo_importer'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM site_config WHERE key = 'plugin.ritrovo_access.ritrovo_access.demo_seed_done'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let disp = host::dispatcher(PLUGIN);
+        let items = host::items(&pool, &disp);
+        for n in 0..8 {
+            let dates = serde_json::json!({
+                "field_start_date": format!("2099-01-{:02}", n + 1),
+                "field_end_date": format!("2099-01-{:02}", n + 1),
+            });
+            host::create_conference(
+                &pool,
+                &items,
+                &format!("Upcoming {n}"),
+                Some(INCOMING_STAGE),
+                dates,
+            )
+            .await;
+        }
+        let past = serde_json::json!({
+            "field_start_date": "2001-01-01",
+            "field_end_date": "2001-01-02",
+        });
+        host::create_conference(&pool, &items, "Long Gone", Some(INCOMING_STAGE), past).await;
+
+        let cron = |pool: sqlx::PgPool,
+                    disp: std::sync::Arc<trovato_kernel::tap::TapDispatcher>| async move {
+            host::json(
+                &host::dispatch(
+                    &pool,
+                    &disp,
+                    PLUGIN,
+                    "tap_cron",
+                    &serde_json::json!({"timestamp": host::now()}).to_string(),
+                    UserContext::background(),
+                    host::offline_client(),
+                )
+                .await,
+            )
+        };
+
+        let waiting = cron(pool.clone(), disp.clone()).await;
+        assert_eq!(
+            waiting["status"], "waiting",
+            "seeded before the import finished: {waiting}"
+        );
+
+        sqlx::query(
+            "INSERT INTO ritrovo_state (name, value) VALUES ('historical_import_queued', '1') \
+             ON CONFLICT (name) DO UPDATE SET value = '1'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let seeded = cron(pool.clone(), disp.clone()).await;
+        assert_eq!(seeded["status"], "seeded", "{seeded}");
+        assert_eq!(seeded["published"], 6, "{seeded}");
+        assert_eq!(seeded["curated"], 2, "{seeded}");
+
+        let on_stage = |stage: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM item WHERE type = 'conference' AND stage_id = $1::uuid",
+                )
+                .bind(stage)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+            }
+        };
+        assert_eq!(on_stage(CURATED_STAGE).await, 2);
+        assert_eq!(
+            on_stage(INCOMING_STAGE).await,
+            1,
+            "the past conference stays on Incoming"
+        );
+
+        let again = cron(pool.clone(), disp.clone()).await;
+        assert_eq!(again["status"], "skipped", "the seed ran twice: {again}");
+    });
+}

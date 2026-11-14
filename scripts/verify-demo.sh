@@ -242,11 +242,30 @@ for path in /conferences /speakers /cfps /topics /conferences/this-month /cfps/c
 done
 # The location pages had no template of their own and fell back to the kernel's
 # generic table, which prints every column of every row including search_vector.
+#
+# The country is taken from what the listing can show: upcoming AND Live, because
+# the gather behind /location/{country} is stage-aware and a visitor sees Live
+# only. It used to be the busiest upcoming country on ANY stage, which named
+# Germany in November 2026 while every German conference sat on Incoming, and so
+# asked a correct page for cards it was right not to show. The demo seed puts
+# conferences on Live, so a Live upcoming conference with a country is something
+# the bootstrap guarantees, and its absence is a failure, not a skip.
+# Space-free countries only: the value goes into a URL path unencoded.
+LIVE_STAGE="0193a5a0-0000-7000-8000-000000000001"
+live_upcoming="$(sql "select count(*) from item where type='conference' \
+    and stage_id = '$LIVE_STAGE' \
+    and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD')")"
 country="$(sql "select fields->>'field_country' from item where type='conference' \
-    and fields->>'field_country' <> '' \
+    and stage_id = '$LIVE_STAGE' \
+    and fields->>'field_country' ~ '^[A-Za-z.-]+$' \
     and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') \
-    group by 1 order by count(*) desc limit 1")"
-if [ -n "$country" ]; then
+    group by 1 order by count(*) desc, 1 limit 1")"
+if [ -z "$live_upcoming" ]; then
+    :   # Postgres is not reachable through compose; the counts are optional.
+elif [ "$live_upcoming" = "0" ] || [ -z "$country" ]; then
+    bad "no upcoming Live conference has a country ($live_upcoming upcoming on Live), so the demo seed did not run"
+else
+    ok "$live_upcoming upcoming conference(s) on Live; checking /location/$country"
     location_page="$(curl -s "$BASE/location/$country")"
     if [[ "$location_page" == *'search_vector'* ]]; then
         bad "/location/$country dumps raw item columns"

@@ -951,11 +951,19 @@ pub fn tap_install() -> serde_json::Value {
 /// Variable recording that the demo's opening editorial state has been set up.
 const SEED_FLAG: &str = "ritrovo_access.demo_seed_done";
 
-/// How many conferences the seed publishes to Live.
+/// How many conferences the seed publishes to Live, at most.
 const SEED_TO_LIVE: i64 = 60;
 
-/// How many it leaves on Curated, for the editorial queue to have work in it.
+/// How many it leaves on Curated, at most, for the editorial queue to have work
+/// in it.
 const SEED_TO_CURATED: i64 = 20;
+
+/// The importer's state key for "the historical import is all on the queue".
+///
+/// `ritrovo_importer` owns the key and writes it as the last act of its
+/// `tap_install`; the name is repeated here because the two plugins share no
+/// crate. Read through raw SQL because the table is the importer's.
+const IMPORTER_HISTORICAL_QUEUED: &str = "historical_import_queued";
 
 /// Give the demo an opening editorial state, once.
 ///
@@ -979,6 +987,18 @@ const SEED_TO_CURATED: i64 = 20;
 /// conferences yet at that moment. Cron runs later and repeatedly, so the seed
 /// waits for content to exist and then runs exactly once.
 ///
+/// # When it runs
+///
+/// When the import has landed, however many upcoming conferences that turned
+/// out to be. It used to wait for a fixed 80 (`SEED_TO_LIVE + SEED_TO_CURATED`)
+/// and never ran at all once the live feed carried fewer than that: in November
+/// 2026 confs.tech listed 54 upcoming conferences, the seed waited forever, and
+/// the weekly demo found nothing on Curated and nothing Live outside the Italian
+/// seed. Waiting for a count is the wrong question, because the count is the
+/// feed's to decide. The right one is "has the import finished", which
+/// [`import_settled`] answers; the count is still accepted as a shortcut, so a
+/// large feed seeds as early as it always did.
+///
 /// # Why it is safe to run repeatedly
 ///
 /// Guarded by a variable, and by its own precondition: it does nothing until
@@ -990,24 +1010,24 @@ pub fn tap_cron(_input: CronInput) -> serde_json::Value {
         return serde_json::json!({"status": "skipped", "reason": "already_seeded"});
     }
 
-    // Wait for enough of the import to have arrived, not merely for the first
-    // batch. The importer works forward from 2015, so the early cron cycles see
+    // The importer works forward from 2015, so the early cron cycles see
     // thousands of conferences that finished years ago and almost no upcoming
-    // ones. Seeding then published the thirteen upcoming conferences that
-    // happened to exist and left nothing for Curated. The dataset carries on the
-    // order of 150 upcoming conferences, so this threshold is reached on a
-    // normal run and the seed simply waits until it is.
+    // ones. Seeding then would publish the handful that happened to exist and
+    // leave nothing for Curated, so the seed waits for the full quota or for
+    // the import to finish, whichever comes first.
     let upcoming = count_upcoming_on_stage(INCOMING_STAGE);
-    if upcoming < SEED_TO_LIVE + SEED_TO_CURATED {
+    let full = upcoming >= SEED_TO_LIVE + SEED_TO_CURATED;
+    if !full && (upcoming == 0 || !import_settled()) {
         return serde_json::json!({
             "status": "waiting",
-            "reason": "not_enough_upcoming_imported_yet",
+            "reason": "import_not_finished",
             "upcoming": upcoming,
         });
     }
 
-    let published = promote_soonest(INCOMING_STAGE, LIVE_STAGE, SEED_TO_LIVE);
-    let curated = promote_soonest(INCOMING_STAGE, CURATED_STAGE, SEED_TO_CURATED);
+    let (to_live, to_curated) = seed_split(upcoming);
+    let published = promote_soonest(INCOMING_STAGE, LIVE_STAGE, to_live);
+    let curated = promote_soonest(INCOMING_STAGE, CURATED_STAGE, to_curated);
 
     if let Err(code) = host::variables_set(SEED_FLAG, "1") {
         // The seed has already run; failing to record that would run it again
@@ -1030,6 +1050,49 @@ pub fn tap_cron(_input: CronInput) -> serde_json::Value {
         "published": published,
         "curated": curated,
     })
+}
+
+/// How many of `upcoming` conferences the seed publishes and how many it curates.
+///
+/// The full quota when there is enough; otherwise the same three-to-one split,
+/// scaled down, so a small feed still gets both a public listing and an
+/// editorial queue. Curated gets a quarter, rounded down; Live gets the rest.
+fn seed_split(upcoming: i64) -> (i64, i64) {
+    let upcoming = upcoming.max(0);
+    let to_curated = (upcoming / 4).min(SEED_TO_CURATED);
+    let to_live = (upcoming - to_curated).min(SEED_TO_LIVE);
+    (to_live, to_curated)
+}
+
+/// Whether the conference import has finished landing.
+///
+/// True when the importer has recorded that its historical push is complete and
+/// no job of its is still waiting on the queue. Both halves matter: the queue is
+/// empty before the first push too, and the push takes minutes of HTTP fetches
+/// while cron drains behind it. Dead-lettered jobs do not count as waiting; the
+/// kernel keeps them for an operator and never retries them.
+///
+/// False when either table cannot be read, which is the conservative answer: a
+/// site without the importer seeds on the count alone, as it always did.
+fn import_settled() -> bool {
+    let Ok(json) = host::query_raw(
+        "SELECT \
+           (SELECT count(*) FROM ritrovo_state WHERE name = $1) AS queued, \
+           (SELECT count(*) FROM plugin_queue \
+             WHERE plugin_name = 'ritrovo_importer' AND status <> 'dead') AS pending",
+        &[serde_json::json!(IMPORTER_HISTORICAL_QUEUED)],
+    ) else {
+        return false;
+    };
+    let Some(row) = serde_json::from_str::<Vec<serde_json::Value>>(&json)
+        .ok()
+        .and_then(|rows| rows.into_iter().next())
+    else {
+        return false;
+    };
+    let queued = row.get("queued").and_then(serde_json::Value::as_i64);
+    let pending = row.get("pending").and_then(serde_json::Value::as_i64);
+    matches!((queued, pending), (Some(q), Some(0)) if q > 0)
 }
 
 /// How many conferences on one stage have not happened yet.
@@ -1086,6 +1149,26 @@ fn promote_soonest(from_uuid: &str, to_uuid: &str, limit: i64) -> u64 {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_seed_takes_its_full_quota_from_a_large_feed() {
+        assert_eq!(seed_split(80), (60, 20));
+        assert_eq!(seed_split(500), (60, 20));
+    }
+
+    #[test]
+    fn the_seed_scales_down_to_a_small_feed_and_still_curates() {
+        // The November 2026 feed: 54 upcoming, below the old fixed 80.
+        assert_eq!(seed_split(54), (41, 13));
+        assert_eq!(seed_split(8), (6, 2));
+    }
+
+    #[test]
+    fn the_seed_publishes_rather_than_curates_a_tiny_feed() {
+        assert_eq!(seed_split(3), (3, 0));
+        assert_eq!(seed_split(0), (0, 0));
+        assert_eq!(seed_split(-1), (0, 0));
+    }
 
     fn make_input(
         item_type: &str,
