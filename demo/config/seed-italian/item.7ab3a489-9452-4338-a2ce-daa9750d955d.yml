@@ -1,28 +1,29 @@
-# Conferenza Italiana sul Software Libero — needs_translation (Italian only)
+# Italian Free Software Conference 2026 / Conferenza Italiana sul Software Libero 2026
+#
+# Written in English, the site's default language, and held in Italian
+# (field_language: it). Its Italian is item_translation.7ab3a489-9452-4338-a2ce-daa9750d955d.it.yml beside
+# this file, which the kernel overlays under /it/. See README.md here for why
+# the record is English and the translation Italian rather than the other way.
 id: 7ab3a489-9452-4338-a2ce-daa9750d955d
 type: conference
-title: Conferenza Italiana sul Software Libero 2026
-language: it
+title: "Italian Free Software Conference 2026"
+language: en
 status: 1
 created: 1741824000
 changed: 1741824000
 fields:
   field_description:
-    it:
-      value: <p>La Conferenza Italiana sul Software Libero celebra l'open source e il software libero.
-        Talk su licenze, contribuzione a progetti OSS, e la cultura del codice aperto nella pubblica amministrazione
-        italiana.</p>
-      format: filtered_html
-  field_start_date: '2026-09-18'
-  field_end_date: '2026-09-19'
-  field_city: Torino
-  field_country: IT
+  - type: paragraph
+    data:
+      text: "The Italian Free Software Conference celebrates open source and free software. Talks on licensing, contributing to OSS projects, and the culture of open code in the Italian public administration."
+  field_start_date: "2026-09-18"
+  field_end_date: "2026-09-19"
+  field_city: "Torino"
+  field_country: "IT"
   field_online: false
-  field_url: https://softwarelibero.it
-  field_language: it
-  primary_language: it
-  translation_status: needs_translation
+  field_url: "https://softwarelibero.it"
+  field_language: "it"
   field_speakers:
   - a680768d-5bca-541c-9d8c-edf7f4e482cb
   - 57855d1c-deac-54ce-a43b-01c5afa042c1
-  field_editor_notes: Ticket prices were not published when this entry was written.
+  field_editor_notes: "Ticket prices were not published when this entry was written."

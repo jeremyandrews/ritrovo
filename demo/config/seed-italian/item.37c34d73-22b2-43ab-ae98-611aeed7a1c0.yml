@@ -1,27 +1,29 @@
-# Giornata Nazionale del Testing — needs_translation (Italian only)
+# National Testing Day 2026 / Giornata Nazionale del Testing 2026
+#
+# Written in English, the site's default language, and held in Italian
+# (field_language: it). Its Italian is item_translation.37c34d73-22b2-43ab-ae98-611aeed7a1c0.it.yml beside
+# this file, which the kernel overlays under /it/. See README.md here for why
+# the record is English and the translation Italian rather than the other way.
 id: 37c34d73-22b2-43ab-ae98-611aeed7a1c0
 type: conference
-title: Giornata Nazionale del Testing 2026
-language: it
+title: "National Testing Day 2026"
+language: en
 status: 1
 created: 1741824000
 changed: 1741824000
 fields:
   field_description:
-    it:
-      value: <p>La Giornata Nazionale del Testing è dedicata al quality assurance e al testing del software.
-        Sessioni su test automation, TDD, testing in produzione, test di performance e accessibilità.</p>
-      format: filtered_html
-  field_start_date: '2026-05-08'
-  field_end_date: '2026-05-08'
-  field_city: Roma
-  field_country: IT
+  - type: paragraph
+    data:
+      text: "The National Testing Day is dedicated to quality assurance and software testing. Sessions on test automation, TDD, testing in production, performance testing and accessibility."
+  field_start_date: "2026-05-08"
+  field_end_date: "2026-05-08"
+  field_city: "Roma"
+  field_country: "IT"
   field_online: true
-  field_url: https://testingday.it
-  field_language: it
-  primary_language: it
-  translation_status: needs_translation
+  field_url: "https://testingday.it"
+  field_language: "it"
   field_speakers:
   - 17cd2da8-d4b3-5997-942d-70b5bc81af43
   - 14958971-ffd3-56d6-9e09-1a66b345e755
-  field_editor_notes: Recurring event. Last year's CFP closed two weeks early, so watch the deadline.
+  field_editor_notes: "Recurring event. Last year's CFP closed two weeks early, so watch the deadline."

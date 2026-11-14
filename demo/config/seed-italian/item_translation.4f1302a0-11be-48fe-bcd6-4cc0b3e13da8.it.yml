@@ -1,0 +1,9 @@
+# The Italian of JSDay Verona 2026: what /it/item/4f1302a0-11be-48fe-bcd6-4cc0b3e13da8 renders.
+item_id: 4f1302a0-11be-48fe-bcd6-4cc0b3e13da8
+language: it
+title: "JSDay Verona 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "JSDay è la storica conferenza JavaScript italiana, organizzata da GrUSP a Verona. Una giornata di talk su JavaScript, TypeScript, Node.js e lo sviluppo web moderno."

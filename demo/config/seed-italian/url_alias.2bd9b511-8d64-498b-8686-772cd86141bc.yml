@@ -1,0 +1,8 @@
+# Italian address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: '2bd9b511-8d64-498b-8686-772cd86141bc'
+source: /item/af899e5c-aedc-4fe4-ad9c-e96067252736
+alias: /conferenze/droidcon-italy-2026
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

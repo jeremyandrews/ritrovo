@@ -1,0 +1,8 @@
+# Italian address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: 'b2635a21-5838-48a4-8c19-4c5407fb203e'
+source: /item/4080cf55-0af4-47a7-a5c5-5ace536149c4
+alias: /conferenze/devsecops-day-milano-2026
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

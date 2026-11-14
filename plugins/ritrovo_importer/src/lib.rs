@@ -15,6 +15,17 @@
 
 use std::collections::HashMap;
 
+/// The language detector `ritrovo_translate` uses in `tap_item_presave`, the
+/// same file compiled into this crate too. Imported conferences never reach a
+/// presave tap, because this plugin writes `item` by raw SQL
+/// (`G-ITEM-API-BYPASSES-ITEM-SERVICE`), so the importer runs the detector
+/// itself. Included by path rather than shared as a crate: the plugins share no
+/// library, and the plugin builder stages `plugins/` whole, so the path holds
+/// in the demo build as it does here.
+#[path = "../../ritrovo_translate/src/detect.rs"]
+#[allow(dead_code)]
+mod detect;
+
 use trovato_sdk::host;
 use trovato_sdk::prelude::*;
 use trovato_sdk::types::{ApiRequest, ApiResponse, MenuRoute};
@@ -1242,9 +1253,8 @@ fn build_source_fields(
     }
     // Always set, never absent: the brief makes language part of the model, the
     // upcoming gather exposes a filter on it, and a filter over a field that most
-    // items simply do not have is a filter that hides them. detect_language says
-    // whether the value came from the feed or from the default.
-    fields["field_language"] = serde_json::json!(detect_language(conf.locales.as_deref()).0);
+    // items simply do not have is a filter that hides them.
+    fields["field_language"] = serde_json::json!(conference_language(conf));
 
     // field_twitter and field_coc_url used to be written here. The conference
     // type declares neither, the brief asks for neither, and no template reads
@@ -1253,6 +1263,23 @@ fn build_source_fields(
     // brief's call, not the importer's.
 
     fields
+}
+
+/// The language a conference is held in: the feed's word first, then the
+/// detector on the conference's name, then English.
+///
+/// The name is the only text confs.tech carries; there is no description, and a
+/// city says where a conference is, not what language it is in (Zürich and
+/// Milano host English conferences every year). The detector answers only when
+/// the name is plainly German, French, Spanish, Portuguese or Italian, and on
+/// the 5,681 conferences the demo imported on 2026-11-14 it named 27, with no
+/// false positive among them (`detect.rs` keeps the cases as tests).
+fn conference_language(conf: &ConfsTechEntry) -> String {
+    let (from_feed, said) = detect_language(conf.locales.as_deref());
+    if said {
+        return from_feed;
+    }
+    detect::detect(&conf.name).map_or(from_feed, str::to_string)
 }
 
 /// The conference's primary language as an ISO 639-1 code, and where it came from.
@@ -1304,6 +1331,20 @@ fn detect_language(locales: Option<&str>) -> (String, bool) {
 /// and which the host-in-the-loop suites import too. `item.type` is a foreign key
 /// onto that type, so an insert before the config is imported fails.
 ///
+/// The item's own `language` column is written from `field_language`, here and
+/// on update, when that is one of the site's languages, and is the site's
+/// default otherwise. The kernel's translate screen refuses a translation into
+/// an item's own language and the translation queue picks its target from that
+/// column, so an Italian conference has to say `it` there for its English
+/// translation to be possible at all. confs.tech gives one name per conference,
+/// the organisers' own, so the record is in the conference's language as far as
+/// anything here can tell.
+///
+/// Only a site language, because the column is a foreign key onto the kernel's
+/// `language` table: a German conference on a site that offers English and
+/// Italian is recorded as `en`, its record's language as far as the site can
+/// say, while `field_language` keeps `de`, the language it is held in.
+///
 /// `field_topics` is the one field written here that the type does not declare,
 /// and deliberately so: the kernel has no category-reference field kind, and
 /// declaring it as anything else would put a widget on the edit form that
@@ -1322,7 +1363,7 @@ fn insert_conference(
     // fields are refreshed and `field_topics` is merged (SQL-side UNION dedup)
     // so both the existing and incoming topic UUIDs are preserved.
     let result = host::execute_raw(
-        "INSERT INTO item (id, type, title, status, author_id, stage_id, created, changed, fields) \
+        "INSERT INTO item (id, type, title, status, author_id, stage_id, created, changed, fields, language) \
          VALUES (\
            gen_random_uuid(), \
            'conference', \
@@ -1332,15 +1373,20 @@ fn insert_conference(
            $2::uuid, \
            $3, \
            $3, \
-           $4::jsonb\
+           $4::jsonb, \
+           COALESCE(\
+             (SELECT id FROM language WHERE id = $4::jsonb->>'field_language'), \
+             (SELECT id FROM language WHERE is_default ORDER BY weight LIMIT 1), \
+             'en')\
          ) \
          ON CONFLICT ((fields->>'field_source_id')) \
          WHERE type = 'conference' \
            AND fields->>'field_source_id' IS NOT NULL \
            AND fields->>'field_source_id' != '' \
          DO UPDATE SET \
-           title   = EXCLUDED.title, \
-           changed = EXCLUDED.changed, \
+           title    = EXCLUDED.title, \
+           changed  = EXCLUDED.changed, \
+           language = EXCLUDED.language, \
            fields  = item.fields \
                   || (EXCLUDED.fields - 'field_topics') \
                   || jsonb_build_object(\
@@ -1390,7 +1436,11 @@ fn update_conference(
         "UPDATE item SET \
            title = $1, \
            changed = $2, \
-           fields = fields || $3::jsonb \
+           fields = fields || $3::jsonb, \
+           language = COALESCE(\
+             (SELECT id FROM language WHERE id = $3::jsonb->>'field_language'), \
+             (SELECT id FROM language WHERE is_default ORDER BY weight LIMIT 1), \
+             'en') \
          WHERE id = $4::uuid",
         &[
             serde_json::json!(conf.name),
@@ -1920,6 +1970,54 @@ mod tests {
     }
 
     // ── build_source_fields ───────────────────────────────────────────
+
+    fn entry(name: &str, locales: Option<&str>) -> ConfsTechEntry {
+        ConfsTechEntry {
+            name: name.to_string(),
+            url: String::new(),
+            start_date: "2027-01-01".to_string(),
+            end_date: "2027-01-02".to_string(),
+            city: None,
+            country: None,
+            online: None,
+            cfp_url: None,
+            cfp_end_date: None,
+            locales: locales.map(str::to_string),
+        }
+    }
+
+    /// The feed's word wins, even over a name that reads otherwise: "DE" on an
+    /// English-named conference means it is held in German.
+    #[test]
+    fn the_feeds_locale_comes_first() {
+        assert_eq!(
+            conference_language(&entry("AI Engineering Summit", Some("DE"))),
+            "de"
+        );
+        assert_eq!(
+            conference_language(&entry("Bob Konferenz", Some("EN"))),
+            "en"
+        );
+    }
+
+    /// Unmarked entries fall to the detector, on real confs.tech names.
+    #[test]
+    fn an_unmarked_conference_is_detected_from_its_name() {
+        assert_eq!(conference_language(&entry("Bob Konferenz", None)), "de");
+        assert_eq!(conference_language(&entry("Conferencia Rails", None)), "es");
+        assert_eq!(
+            conference_language(&entry("Incontro DevOps Italia", None)),
+            "it"
+        );
+        assert_eq!(conference_language(&entry("RustConf", None)), "en");
+        assert_eq!(conference_language(&entry("MIT AI Conference", None)), "en");
+    }
+
+    #[test]
+    fn the_detected_language_is_the_field_the_item_is_written_with() {
+        let fields = build_source_fields(&entry("Festival der Zukunft", None), "s", &[]);
+        assert_eq!(fields["field_language"], "de");
+    }
 
     #[test]
     fn build_fields_minimal() {

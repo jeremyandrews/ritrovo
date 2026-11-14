@@ -315,8 +315,8 @@ if [[ "$italian_page" == *'lang="it"'* ]]; then
 else
     bad '/it/conferenze did not render in Italian'
 fi
-italian="$(sql "select count(*) from item where type='conference' and fields->>'primary_language'='it'")"
-[ -n "$italian" ] && note "conferences whose primary language is Italian: $italian"
+italian="$(sql "select count(*) from item where type='conference' and fields->>'field_language'='it'")"
+[ -n "$italian" ] && note "conferences held in Italian: $italian"
 
 head_ "the editorial workflow"
 
@@ -500,7 +500,7 @@ review_page="$(curl -s -b "$viewer_jar" -X POST "$BASE$SUBMIT_PATH" \
     --data 'step=2' --data-urlencode "draft=$draft" \
     --data-urlencode 'cfp_url=https://example.org/verify/cfp' \
     --data 'cfp_end_date=2029-04-01' \
-    --data-urlencode 'description=Submitted by verify-demo.sh.')"
+    --data-urlencode 'description=Submitted by <b id="verify-escape">verify-demo.sh</b>.')"
 if printf '%s' "$review_page" | grep -q "Step 3 of 3" \
     && printf '%s' "$review_page" | grep -q "$SUBMITTED_NAME"; then
     ok "step 2 validates and the review shows the answers back"
@@ -530,6 +530,28 @@ if [ "$submitted_author" = "viewer_carol" ]; then
     ok "the submitter is recorded as the author (viewer_carol)"
 else
     bad "the submitted conference is authored by '${submitted_author:-nobody}', expected viewer_carol"
+fi
+
+# A member's description is text, and the page an editor opens to review it
+# prints it as text. The form stores it as a string, render_blocks hands a string
+# back unsanitized (FRICTION.md, G-RENDER-BLOCKS-PASSES-STRINGS-UNSANITIZED), and
+# the conference template used to mark that output safe, so this markup rendered
+# live for the editor. The template now escapes a string description.
+submitted_id="$(sql "select id from item where type='conference' and title='$SUBMITTED_NAME' limit 1")"
+submitted_page="$(curl -s -b "$editor_jar" "$BASE/item/$submitted_id")"
+if printf '%s' "$submitted_page" | grep -q '<b id="verify-escape">'; then
+    bad "the submitted description's markup rendered raw on /item/$submitted_id for an editor"
+elif printf '%s' "$submitted_page" | grep -q '&lt;b id=&quot;verify-escape&quot;&gt;\|&lt;b id=&#34;verify-escape&#34;&gt;\|&lt;b id="verify-escape"&gt;'; then
+    ok "the submitted description renders as escaped text for an editor"
+else
+    bad "the submitted description is not on /item/$submitted_id for an editor"
+fi
+
+submitted_lang="$(sql "select coalesce(fields->>'field_language', '') || '/' || coalesce(language, '') from item where type='conference' and title='$SUBMITTED_NAME' limit 1")"
+if [ "$submitted_lang" = "en/en" ]; then
+    ok "the submitted conference carries its detected language (en)"
+else
+    bad "the submitted conference's field_language/language is '${submitted_lang:-nothing}', expected en/en"
 fi
 
 # A CFP that closes after the conference ends is refused, on the step that
@@ -742,6 +764,185 @@ if [ "$declared" = "ritrovo_notify" ]; then
     ok "tap_perm's declaration reached the kernel's plugin_permission table"
 else
     bad "'manage own subscriptions' is declared by '$declared', expected ritrovo_notify"
+fi
+
+head_ "translations"
+
+# A8: content in two languages through the kernel's own translation model. The
+# Italian seed is fifteen conferences written in English with an
+# item_translation row each in Italian; the kernel overlays the row under /it/.
+#
+# The conference used is fixed by the seed: its two titles differ, so a page
+# showing one or the other says which language it rendered in.
+TR_ID="37c34d73-22b2-43ab-ae98-611aeed7a1c0"
+TR_EN="National Testing Day 2026"
+TR_IT="Giornata Nazionale del Testing 2026"
+TR_ALIAS_EN="/conferences/national-testing-day-2026"
+TR_ALIAS_IT="/it/conferenze/giornata-nazionale-del-testing-2026"
+html_lang() { printf '%s' "$1" | grep -o '<html lang="[^"]*"' | head -1 | sed 's/.*lang="//; s/"//'; }
+title_of() { printf '%s' "$1" | sed -n 's/.*<h1 class="item__title">\([^<]*\)<\/h1>.*/\1/p' | head -1; }
+
+translations="$(sql "select count(*) from item_translation t join item i on i.id = t.item_id where i.type = 'conference'")"
+if [ -n "$translations" ]; then
+    if [ "$translations" -ge 15 ]; then
+        ok "$translations conference translation(s) in item_translation (the seed ships 15)"
+    else
+        bad "only ${translations} conference translation(s) in item_translation; the seed ships 15"
+    fi
+fi
+leftover="$(sql "select count(*) from item where type='conference' and (fields ? 'primary_language' or fields ? 'translation_status' or jsonb_typeof(fields->'field_description') = 'object')")"
+if [ -n "$leftover" ]; then
+    if [ "$leftover" = "0" ]; then
+        ok "no conference carries the old two-languages-in-one-field shape"
+    else
+        bad "$leftover conference(s) still carry primary_language, translation_status or a per-language description"
+    fi
+fi
+
+en_page="$(curl -s "$BASE/item/$TR_ID")"
+it_page="$(curl -s "$BASE/it/item/$TR_ID")"
+if [ "$(title_of "$en_page")" = "$TR_EN" ] && [ "$(html_lang "$en_page")" = "en" ]; then
+    ok "/item/$TR_ID renders \"$TR_EN\" with lang=\"en\""
+else
+    bad "/item/$TR_ID rendered \"$(title_of "$en_page")\" with lang=\"$(html_lang "$en_page")\", want \"$TR_EN\" / en"
+fi
+if [ "$(title_of "$it_page")" = "$TR_IT" ] && [ "$(html_lang "$it_page")" = "it" ]; then
+    ok "/it/item/$TR_ID renders its translation \"$TR_IT\" with lang=\"it\""
+else
+    bad "/it/item/$TR_ID rendered \"$(title_of "$it_page")\" with lang=\"$(html_lang "$it_page")\", want \"$TR_IT\" / it"
+fi
+if [[ "$it_page" == *'Sessioni su test automation'* ]] && [[ "$en_page" == *'Sessions on test automation'* ]]; then
+    ok "the description is translated too, not only the title"
+else
+    bad "the description did not follow the language (English page or Italian page shows the wrong text)"
+fi
+
+alias_en="$(curl -s "$BASE$TR_ALIAS_EN")"
+alias_it="$(curl -s "$BASE$TR_ALIAS_IT")"
+if [ "$(title_of "$alias_en")" = "$TR_EN" ]; then
+    ok "$TR_ALIAS_EN resolves to the conference"
+else
+    bad "$TR_ALIAS_EN did not resolve to \"$TR_EN\" (got \"$(title_of "$alias_en")\")"
+fi
+if [ "$(title_of "$alias_it")" = "$TR_IT" ] && [ "$(html_lang "$alias_it")" = "it" ]; then
+    ok "$TR_ALIAS_IT resolves to the conference, in Italian"
+else
+    bad "$TR_ALIAS_IT did not resolve to \"$TR_IT\" in Italian (got \"$(title_of "$alias_it")\", lang=\"$(html_lang "$alias_it")\")"
+fi
+
+# The switcher, followed both ways from the English alias: it must offer the
+# other language only, and the round trip must land back on the same item.
+switch_href() { printf '%s' "$1" | sed -n "s/.*href=\"\\([^\"]*\\)\"[^>]*class=\"lang-switcher__link lang-switcher__link--$2\".*/\\1/p" | head -1; }
+to_it="$(switch_href "$alias_en" it)"
+if [ -z "$to_it" ]; then
+    bad "the English page offers no switcher link to Italian"
+elif [ -n "$(switch_href "$alias_en" en)" ]; then
+    bad "the English page's switcher offers English, the language it is already in"
+else
+    via_it="$(curl -s "$BASE$to_it")"
+    back="$(switch_href "$via_it" en)"
+    via_en="$(curl -s "$BASE$back")"
+    if [ "$(title_of "$via_it")" = "$TR_IT" ] && [ -n "$back" ] && [ "$(title_of "$via_en")" = "$TR_EN" ] \
+        && [ -z "$(switch_href "$via_it" it)" ]; then
+        ok "switcher round trip: $TR_ALIAS_EN -> $to_it -> $back, the same conference both ways"
+    else
+        bad "switcher round trip broke: $to_it gave \"$(title_of "$via_it")\", back link \"$back\" gave \"$(title_of "$via_en")\""
+    fi
+fi
+
+# The listing pages under /it/. /it/argomenti renders lang="en" and that is the
+# kernel's: its alias points at /topics, a handler that never reads the request
+# language (FRICTION.md, G-TOPICS-PAGE-IGNORES-LANGUAGE). Reported, not asserted.
+for path in /it/relatori /it/argomenti; do
+    note "$path renders lang=\"$(html_lang "$(curl -s "$BASE$path")")\""
+done
+
+# A translated conference on the /it/ listing: the gather overlays the title but
+# merges the fields with the original winning, so the card's description stays in
+# the original language (FRICTION.md, G-GATHER-TRANSLATION-MERGE-IS-BACKWARDS).
+# Reported, not asserted: the fix is the kernel's, and which seeded conference is
+# still upcoming changes with the date.
+it_listing="$(curl -s "$BASE/it/conferenze")"
+listed_tr="$(sql_text "select t.item_id || '|' || left(t.fields->'field_description'->0->'data'->>'text', 40) || '|' || left(i.fields->'field_description'->0->'data'->>'text', 40) from item_translation t join item i on i.id = t.item_id where t.language = 'it' and i.stage_id = '0193a5a0-0000-7000-8000-000000000001' and i.fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') order by i.fields->>'field_start_date' limit 1")"
+if [ -n "$listed_tr" ]; then
+    lt_id="${listed_tr%%|*}"; lt_rest="${listed_tr#*|}"; lt_it="${lt_rest%%|*}"; lt_en="${lt_rest#*|}"
+    if printf '%s' "$it_listing" | grep -qF "$lt_it"; then
+        note "/it/conferenze shows the Italian description of $lt_id"
+    elif printf '%s' "$it_listing" | grep -qF "$lt_en"; then
+        note "/it/conferenze shows the ORIGINAL description of translated $lt_id (G-GATHER-TRANSLATION-MERGE-IS-BACKWARDS)"
+    else
+        note "translated $lt_id is not on the first page of /it/conferenze"
+    fi
+fi
+
+# The translation queue: refused to a visitor, refused to a signed-in reader,
+# served to an editor. Anonymous is 401 rather than 403 for the same reason as
+# the editorial screen above: the kernel answers a plugin route's permission
+# gate with UNAUTHORIZED when there is no session at all.
+QUEUE_PATH="/admin/content/translations"
+q_anon="$(code "$QUEUE_PATH")"
+q_viewer="$(code_with "$viewer_jar" "$QUEUE_PATH")"
+q_editor="$(code_with "$editor_jar" "$QUEUE_PATH")"
+if [ "$q_anon" = "401" ] && [ "$q_viewer" = "403" ] && [ "$q_editor" = "200" ]; then
+    ok "$QUEUE_PATH — anonymous $q_anon, viewer $q_viewer, editor $q_editor"
+else
+    bad "$QUEUE_PATH — anonymous $q_anon, viewer $q_viewer, editor $q_editor (want 401 / 403 / 200)"
+fi
+
+# The workflow end to end, as editor_alice: take the first conference off the
+# queue, open the kernel's translate screen it links to, save a translation
+# there, see it render under the prefix and leave the queue, then delete it
+# through the kernel's own delete route so the demo is left as it was found.
+queue_page="$(curl -s -b "$editor_jar" "$BASE$QUEUE_PATH")"
+# In the admin layout, not served bare. The kernel cannot render a plugin page
+# under /admin into its own admin template (FRICTION.md,
+# G-THEMED-PLUGIN-PAGE-UNDER-ADMIN-RENDERS-UNWRAPPED); a path template in this
+# repository supplies the one missing variable.
+if printf '%s' "$queue_page" | grep -q 'class="admin-content"'; then
+    ok "the queue renders inside the admin layout"
+else
+    bad "the queue was served without the admin layout"
+fi
+translate_href="$(printf '%s' "$queue_page" | sed -n 's/.*class="translation-queue__translate" *href="\([^"]*\)".*/\1/p' | head -1)"
+if [ -z "$translate_href" ]; then
+    bad "the translation queue lists nothing to translate (no upcoming conference without one?)"
+else
+    q_id="$(printf '%s' "$translate_href" | sed 's#/admin/content/\([^/]*\)/translate/.*#\1#')"
+    q_lang="${translate_href##*/}"
+    prefix="/$q_lang"; [ "$q_lang" = "en" ] && prefix=""
+    screen="$(curl -s -b "$editor_jar" -c "$editor_jar" "$BASE$translate_href")"
+    if [[ "$screen" == *'name="title"'* ]]; then
+        ok "the queue links the kernel's translate screen, and it renders for an editor ($translate_href)"
+    else
+        bad "the kernel's translate screen at $translate_href did not render a form for the editor"
+    fi
+    marker="Verifica traduzione $(date +%s)"
+    saved="$(curl -s -b "$editor_jar" -c "$editor_jar" -o /dev/null -w '%{http_code}' -X POST "$BASE$translate_href" \
+        --data-urlencode "_token=$(token_from "$screen")" \
+        --data-urlencode "_form_build_id=$(printf '%s' "$screen" | sed -n 's/.*name="_form_build_id" value="\([^"]*\)".*/\1/p' | head -1)" \
+        --data-urlencode "title=$marker")"
+    # As the editor: the queue lists conferences on every stage, and one on
+    # Incoming or Curated is 404 to a visitor by design.
+    shown="$(title_of "$(curl -s -b "$editor_jar" "$BASE$prefix/item/$q_id")")"
+    still_queued="$(curl -s -b "$editor_jar" "$BASE$QUEUE_PATH" | grep -c "data-item=\"$q_id\"" || true)"
+    if [ "$saved" = "303" ] && { [ "$shown" = "$marker" ] || [ "$q_lang" = "en" ]; } && [ "$still_queued" = "0" ]; then
+        ok "saved through the kernel screen: $prefix/item/$q_id renders it and the queue drops the conference"
+    else
+        bad "translate-and-save: POST answered $saved, $prefix/item/$q_id shows \"$shown\", still queued: $still_queued"
+    fi
+    # The delete form is on the translate screen itself, below the save form,
+    # once a translation exists; its token is the page's last one.
+    delete_screen="$(curl -s -b "$editor_jar" -c "$editor_jar" "$BASE$translate_href")"
+    delete_token="$(printf '%s' "$delete_screen" | sed -n 's/.*name="_token" value="\([^"]*\)".*/\1/p' | tail -1)"
+    curl -s -b "$editor_jar" -c "$editor_jar" -o /dev/null -X POST "$BASE$translate_href/delete" \
+        --data-urlencode "_token=$delete_token"
+    remaining="$(sql "select count(*) from item_translation where item_id = '$q_id' and language = '$q_lang'")"
+    [ -n "$remaining" ] && [ "$remaining" != "0" ] && bad "the verification translation of $q_id was not deleted"
+fi
+
+translate_perm="$(sql "select count(*) from role_permissions rp join roles r on r.id = rp.role_id where r.name = 'editor' and rp.permission = 'translate content'")"
+if [ -n "$translate_perm" ]; then
+    if [ "$translate_perm" = "1" ]; then ok "the editor role holds translate content"; else bad "the editor role does not hold translate content"; fi
 fi
 
 printf '\n'

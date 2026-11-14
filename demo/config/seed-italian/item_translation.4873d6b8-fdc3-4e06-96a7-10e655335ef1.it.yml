@@ -1,0 +1,9 @@
+# The Italian of AI for Italy 2026: what /it/item/4873d6b8-fdc3-4e06-96a7-10e655335ef1 renders.
+item_id: 4873d6b8-fdc3-4e06-96a7-10e655335ef1
+language: it
+title: "IA per l'Italia 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "IA per l'Italia è la conferenza nazionale sull'intelligenza artificiale applicata. Due giorni dedicati a machine learning, NLP, computer vision e AI etica, con un focus sulle startup e la ricerca italiana."

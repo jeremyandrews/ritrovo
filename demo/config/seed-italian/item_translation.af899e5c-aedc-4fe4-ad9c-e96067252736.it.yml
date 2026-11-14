@@ -1,0 +1,9 @@
+# The Italian of Droidcon Italy 2026: what /it/item/af899e5c-aedc-4fe4-ad9c-e96067252736 renders.
+item_id: af899e5c-aedc-4fe4-ad9c-e96067252736
+language: it
+title: "Droidcon Italy 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "Droidcon Italy è il principale evento italiano per sviluppatori Android e mobile. Talk avanzati su Kotlin, Jetpack Compose e architetture moderne a Torino."

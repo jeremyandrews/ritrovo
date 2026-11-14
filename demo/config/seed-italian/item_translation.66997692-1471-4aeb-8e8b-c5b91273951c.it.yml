@@ -1,0 +1,9 @@
+# The Italian of Italian Agile Days 2026: what /it/item/66997692-1471-4aeb-8e8b-c5b91273951c renders.
+item_id: 66997692-1471-4aeb-8e8b-c5b91273951c
+language: it
+title: "Italian Agile Days 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "Italian Agile Days è la conferenza italiana sulle metodologie agili e lean. Due giorni di sessioni su Scrum, Kanban, DevOps e trasformazione digitale a Brescia."

@@ -37,6 +37,7 @@ const IMAGE_REPO: &str = "ghcr.io/jeremyandrews/trovato";
 /// which prints every column of every row including `search_vector`.
 const TUTORIAL_TEMPLATES: &[&str] = &[
     "page--front.html",
+    "page--admin--content--translations.html",
     "elements/item--conference.html",
     "elements/item--speaker.html",
     "gather/includes/conf-card.html",

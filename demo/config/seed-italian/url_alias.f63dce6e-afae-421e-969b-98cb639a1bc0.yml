@@ -1,0 +1,8 @@
+# Italian address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: 'f63dce6e-afae-421e-969b-98cb639a1bc0'
+source: /item/031e0e55-59d2-4f4c-a2e2-81c50bce5b62
+alias: /conferenze/codemotion-roma-2026
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

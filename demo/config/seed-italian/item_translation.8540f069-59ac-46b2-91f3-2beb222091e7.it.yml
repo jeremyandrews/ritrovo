@@ -1,0 +1,9 @@
+# The Italian of phpDay Verona 2026: what /it/item/8540f069-59ac-46b2-91f3-2beb222091e7 renders.
+item_id: 8540f069-59ac-46b2-91f3-2beb222091e7
+language: it
+title: "phpDay Verona 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "phpDay è la conferenza italiana per la comunità PHP, organizzata da GrUSP a Verona. Due giorni di talk su Laravel, Symfony, performance e architettura backend."

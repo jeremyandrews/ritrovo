@@ -153,3 +153,47 @@ msgstr "In programma"
 
 msgid "Past"
 msgstr "Passate"
+
+# -- Translations (A8) --
+#
+# The translation queue and the conference page's language switcher. These
+# strings are kept current here, but no UI string in a language other than the
+# default is loaded by the kernel at 0.103.0 (G-LOCALE-STRINGS-NEVER-LOADED in
+# FRICTION.md), and the queue is rendered by a plugin, which has no host call to
+# translate a string. The switcher prints language codes only, so it needs none.
+
+msgid "Translations"
+msgstr "Traduzioni"
+
+msgid "Translate"
+msgstr "Traduci"
+
+msgid "Translate into"
+msgstr "Traduci in"
+
+msgid "Conference"
+msgstr "Conferenza"
+
+msgid "Starts"
+msgstr "Inizio"
+
+msgid "Stage"
+msgstr "Fase"
+
+msgid "Language"
+msgstr "Lingua"
+
+msgid "Draft"
+msgstr "Bozza"
+
+msgid "none"
+msgstr "nessuna"
+
+msgid "Nothing is waiting for a translation."
+msgstr "Nessuna conferenza in attesa di traduzione."
+
+msgid "%count waiting"
+msgstr "%count in attesa"
+
+msgid "Drafted by %model; not reviewed."
+msgstr "Bozza di %model; non revisionata."

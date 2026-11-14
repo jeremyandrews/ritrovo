@@ -1,0 +1,9 @@
+# The Italian of Data Engineering Summit Italia 2026: what /it/item/a2a156c7-90d2-4c49-9162-e18cd3fc7b56 renders.
+item_id: a2a156c7-90d2-4c49-9162-e18cd3fc7b56
+language: it
+title: "Data Engineering Summit Italia 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "Il Data Engineering Summit Italia è l'evento dedicato all'ingegneria dei dati. Talk su Apache Spark, Kafka, data lakehouse, pipeline in tempo reale e governance dei dati aziendali."

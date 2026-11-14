@@ -1,0 +1,8 @@
+# English address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: '2f127690-1eb8-4837-96df-91fc53a958ae'
+source: /item/c28d434a-4b38-4dc2-a312-7317661d73fe
+alias: /conferences/rustlab-firenze-2026
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

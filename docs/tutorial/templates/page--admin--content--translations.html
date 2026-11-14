@@ -1,0 +1,17 @@
+{# The translation queue, /admin/content/translations, in the admin layout.
+
+   This file exists only to supply one variable. A plugin page at an /admin path
+   is rendered into the kernel's page--admin.html (theme/engine.rs:929 adds that
+   suggestion for every /admin path), and that template tests `enabled_plugins`
+   (page--admin.html:184 and :190). The kernel inserts `enabled_plugins` for its
+   own admin screens only (routes/helpers.rs:358, render_admin_template), never on
+   the plugin-page path (routes/plugin_api.rs:443, themed_response), so the render
+   fails and the kernel serves the queue unwrapped, with no theme at all
+   (G-THEMED-PLUGIN-PAGE-UNDER-ADMIN-RENDERS-UNWRAPPED in FRICTION.md).
+
+   A template cannot ask which plugins are enabled, so the list is empty: the
+   sidebar on this one page leaves out its Comments and Categories links rather
+   than offer links it cannot vouch for. Everything else is the kernel's own
+   template, unchanged. #}
+{% extends "page--admin.html" %}
+{% block body %}{% set enabled_plugins = [] %}{{ super() }}{% endblock %}

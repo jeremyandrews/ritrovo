@@ -48,6 +48,13 @@
 # BL-117 (the admin layout does not filter its sidebar to what the viewer may
 # open). `G-ADMIN-SCREENS-ARE-ADMIN-ONLY` is narrowed rather than closed.
 #
+# `translate content` is the kernel's own content translation permission,
+# declared by `trovato_content_translation` (enabled in the image by default)
+# and checked by every handler of `/admin/content/{id}/translate/{lang}`, the
+# screen that writes `item_translation`. `ritrovo_translate`'s queue at
+# `/admin/content/translations` is gated on the same name, so the people who
+# can see the queue are exactly the people who can act on it.
+#
 # `edit any comments` is NOT here: `ritrovo_access` declares it and nothing in
 # the kernel checks it, so it would be a grant with nothing behind it.
 id: 0193a5a0-0002-7000-8000-000000000002
@@ -62,4 +69,5 @@ permissions:
 - edit any content
 - access files
 - use filtered_html
+- translate content
 - view own profile

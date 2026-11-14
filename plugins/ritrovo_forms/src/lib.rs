@@ -46,6 +46,14 @@ use trovato_sdk::prelude::*;
 use trovato_sdk::types::{ApiRequest, ApiResponse, MenuRoute};
 
 mod dates;
+/// The language detector `ritrovo_translate` runs in `tap_item_presave`, compiled
+/// into this crate as well: a submitted conference is written by raw SQL and
+/// never reaches a presave tap (`G-ITEM-API-BYPASSES-ITEM-SERVICE`), so the
+/// form detects its language itself. Shared by path, as `ritrovo_importer`
+/// shares it; the plugins have no common crate.
+#[path = "../../ritrovo_translate/src/detect.rs"]
+#[allow(dead_code)]
+mod detect;
 mod profile;
 mod submit;
 mod web;

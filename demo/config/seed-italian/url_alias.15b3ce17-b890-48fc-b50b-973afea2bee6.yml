@@ -1,0 +1,8 @@
+# English address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: '15b3ce17-b890-48fc-b50b-973afea2bee6'
+source: /item/2c0c5b4b-1fcc-446f-a8af-1d5d35a53071
+alias: /conferences/naples-devops-meetup-2026
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

@@ -507,6 +507,15 @@ fn the_three_steps_in_order_create_one_incoming_conference_with_every_field() {
             serde_json::json!("2027-03-01")
         );
         assert_eq!(fields["field_online"], serde_json::json!("0"));
+        // Written by the form, since a raw insert passes no presave tap: an
+        // English description is English, and the item's own language says so.
+        assert_eq!(fields["field_language"], serde_json::json!("en"));
+        let language: Option<String> =
+            sqlx::query_scalar("SELECT language FROM item WHERE type = 'conference'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(language.as_deref(), Some("en"));
         assert!(
             fields["field_description"]
                 .as_str()

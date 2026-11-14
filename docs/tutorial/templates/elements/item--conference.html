@@ -41,6 +41,44 @@
             <span class="conf-detail__language" lang="{{ item.fields.field_language | lower }}">{{ item.fields.field_language | upper }}</span>
             {% endif %}
         </div>
+        {# The language switcher: a link to this conference in the site's other
+           language, chosen by the language this page is in.
+
+           Built here from `item.id` and `active_language`, the two things this
+           template is given, and NOT from ritrovo_translate's tap_item_view or
+           the kernel's `available_translations`, though both exist:
+
+           - the plugin's links arrive inside `children`, which this template
+             drops (see the top of this file), and the plugin cannot know which
+             language the page is in anyway (G-NO-REQUEST-LANGUAGE), so it emits
+             both and leaves the choice to whoever does know: this template;
+           - the kernel computes `available_translations` (which languages the
+             item really exists in) only after this template has been rendered,
+             for the page template around it (crates/kernel/src/routes/item.rs:
+             688-691 renders this file, :761 inserts the list), so here it is
+             never defined (G-ITEM-TEMPLATE-RENDERED-BEFORE-ITS-TRANSLATIONS).
+
+           So it is the same two addresses the plugin emits, `/item/{id}` and
+           `/it/item/{id}`, of which it shows the one that is not this page. It
+           cannot tell whether a translation exists, so an untranslated
+           conference offers it too and the other address shows the original;
+           the kernel's hreflang tags in <head>, which are built from
+           `available_translations`, name only the languages that do exist.
+
+           The link text is the language code and nothing else, so this file
+           carries no English or Italian string; a UI string in any language but
+           the default is never loaded anyway (G-LOCALE-STRINGS-NEVER-LOADED).
+           `en` and `it` are this site's two languages, as demo/config/language.*.yml
+           declares them. #}
+        {% if active_language is defined %}
+        <nav class="lang-switcher">
+            {% if active_language == "it" %}
+            <a href="/item/{{ item.id }}" hreflang="en" lang="en" class="lang-switcher__link lang-switcher__link--en">EN</a>
+            {% else %}
+            <a href="/it/item/{{ item.id }}" hreflang="it" lang="it" class="lang-switcher__link lang-switcher__link--it">IT</a>
+            {% endif %}
+        </nav>
+        {% endif %}
     </header>
 
     {% if item.fields.field_logo %}
@@ -52,15 +90,30 @@
     {# Render the description only when it renders to something. A Blocks field
        saved through the admin form with no blocks in it comes back as the STRING
        "[]" rather than an empty array, and printing that put a literal [] on the
-       page (G-EMPTY-BLOCKS-FIELD-SAVES-AS-A-STRING). The seed's per-language
-       description object renders to nothing here for a different reason, and an
-       empty box is not worth drawing either way. #}
+       page (G-EMPTY-BLOCKS-FIELD-SAVES-AS-A-STRING).
+
+       A STRING is printed as text, escaped, and never through render_blocks.
+       render_blocks sanitizes a block list and hands a string back untouched
+       (crates/kernel/src/theme/engine.rs:526, G-RENDER-BLOCKS-PASSES-STRINGS-UNSANITIZED),
+       and the `| safe` below trusts it. A string is exactly what the submission
+       form at /conferences/submit stores, from any signed-in member, so routing
+       it through that branch printed a member's markup raw on the page an editor
+       opens to review it. Only a block list reaches render_blocks now. #}
     {% if item.fields.field_description is defined and item.fields.field_description %}
-    {% set description_html = item.fields.field_description | render_blocks | trim %}
-    {% if description_html and description_html != "[]" %}
+    {% if item.fields.field_description is string %}
+    {% set description_text = item.fields.field_description | trim %}
+    {% if description_text and description_text != "[]" %}
     <div class="conf-detail__description">
-        {{ description_html | safe }} {# SAFE: render_blocks output is sanitized by ammonia #}
+        <p>{{ description_text }}</p>
     </div>
+    {% endif %}
+    {% else %}
+    {% set description_html = item.fields.field_description | render_blocks | trim %}
+    {% if description_html %}
+    <div class="conf-detail__description">
+        {{ description_html | safe }} {# SAFE: only a block list reaches render_blocks, and that branch is sanitized by ammonia #}
+    </div>
+    {% endif %}
     {% endif %}
     {% endif %}
 

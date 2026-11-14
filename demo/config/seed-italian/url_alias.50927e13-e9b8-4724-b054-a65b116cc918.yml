@@ -1,0 +1,8 @@
+# English address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: '50927e13-e9b8-4724-b054-a65b116cc918'
+source: /item/a2a156c7-90d2-4c49-9162-e18cd3fc7b56
+alias: /conferences/data-engineering-summit-italia-2026
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

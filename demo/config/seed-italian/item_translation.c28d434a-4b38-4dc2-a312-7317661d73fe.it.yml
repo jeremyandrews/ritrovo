@@ -1,0 +1,9 @@
+# The Italian of RustLab Firenze 2026: what /it/item/c28d434a-4b38-4dc2-a312-7317661d73fe renders.
+item_id: c28d434a-4b38-4dc2-a312-7317661d73fe
+language: it
+title: "RustLab Firenze 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "RustLab è la conferenza italiana dedicata al linguaggio Rust. Due giorni di talk tecnici e workshop pratici nel cuore di Firenze."

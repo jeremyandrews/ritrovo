@@ -1,0 +1,9 @@
+# The Italian of Cloudconf Torino 2026: what /it/item/8b84b8b5-d2d4-4b32-bcb8-83a10446d006 renders.
+item_id: 8b84b8b5-d2d4-4b32-bcb8-83a10446d006
+language: it
+title: "Cloudconf Torino 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "Cloudconf è la conferenza italiana sul cloud computing. Talk su AWS, Azure, GCP, architetture serverless, Kubernetes in produzione e strategie multi-cloud per aziende italiane."

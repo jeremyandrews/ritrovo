@@ -1,0 +1,8 @@
+# English address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: '3c54ccaf-8d99-4b97-8dc2-98edafb8740c'
+source: /item/8b84b8b5-d2d4-4b32-bcb8-83a10446d006
+alias: /conferences/cloudconf-torino-2026
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000
