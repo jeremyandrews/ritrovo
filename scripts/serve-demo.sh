@@ -8,9 +8,9 @@
 # WebAssembly in a throwaway container, the published Trovato image with the
 # Ritrovo overlay appended to its three search paths, the installer completed, the
 # tutorial config set imported, the plugins enabled in the order that matters, the
-# conference import queue drained, the Italian seed content loaded, and the front
-# page pointed at /conferences. Then it checks all of that and tells you what it
-# saw.
+# conference import queue drained, the Italian seed content loaded, the search
+# index built over everything on Live, and the front page pointed at
+# /conferences. Then it checks all of that and tells you what it saw.
 #
 # Requires Docker and nothing else. No Trovato checkout, no Rust toolchain, no
 # credentials — which is the claim this script exists to keep honest: Ritrovo is
@@ -27,12 +27,13 @@
 #
 #   --fresh       throw away the existing database and volumes first
 #   --no-verify   bring it up, skip the checks
-#   --no-wait     do not wait for the import queue to drain
+#   --no-wait     do not wait for the import queue to drain or the index
 #   --down        stop everything and delete its volumes
 #
 # Environment:
 #   RITROVO_DEMO_PORT   host port to publish on           (3000)
 #   DRAIN_TIMEOUT       seconds to wait for the import     (1200)
+#   INDEX_TIMEOUT       seconds to wait for the search index (420)
 #   DEMO_ADMIN_USER / DEMO_ADMIN_PASSWORD                  (admin / ritrovo-demo-password)
 
 set -euo pipefail
@@ -42,6 +43,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.demo.yml}"
 PORT="${RITROVO_DEMO_PORT:-3000}"
 BASE="http://localhost:$PORT"
 DRAIN_TIMEOUT="${DRAIN_TIMEOUT:-1200}"
+INDEX_TIMEOUT="${INDEX_TIMEOUT:-420}"
 
 FRESH=0
 VERIFY=1
@@ -125,6 +127,53 @@ if [ "$WAIT" = "1" ]; then
         if [ -n "$progress" ] && [ "$progress" != "$last" ]; then
             echo "    imported $progress"
             last="$progress"
+        fi
+        sleep 5
+    done
+fi
+
+if [ "$WAIT" = "1" ]; then
+    # The search index, built before this script says the site is ready.
+    #
+    # /search is the kernel's Pagefind page: it hands the query to the browser,
+    # which reads a static index, and a missing or partial index is a page with
+    # no results on it (FRICTION.md, G-SEARCH-PAGE-BLANK-WITHOUT-INDEX). The
+    # index is built by cron, from Live items only, when trovato_search sees
+    # content newer than its last build. That is eventually right and not right
+    # NOW: the import, the demo seed's promotions and ritrovo_importer's search
+    # text all land in the minutes before this point, and a build that started
+    # in the same second as the last of them can miss it for good, because the
+    # plugin compares `changed > last_indexed_at` strictly.
+    #
+    # So: ask for a build through the kernel's own signal row, wait for cron to
+    # run it, and compare what the index says it holds with what is on Live.
+    # Pagefind's entry file carries a page count, and one page is one item.
+    echo "==> building the search index (up to ${INDEX_TIMEOUT}s)"
+    psql_demo() {
+        compose exec -T postgres psql -U trovato -d ritrovo -tAc "$1" 2>/dev/null | tr -d '[:space:]'
+    }
+    deadline=$((SECONDS + INDEX_TIMEOUT))
+    asked_at=-1000
+    while true; do
+        live="$(psql_demo "select count(*) from item where status = 1 and stage_id = '0193a5a0-0000-7000-8000-000000000001'")"
+        pages="$(curl -fsS "$BASE/static/pagefind/pagefind-entry.json" 2>/dev/null \
+            | grep -o '"page_count":[0-9]*' | cut -d: -f2 | awk '{ n += $1 } END { print n + 0 }')"
+        pending="$(psql_demo "select rebuild_requested from pagefind_index_status where id = 1")"
+        if [ -n "$live" ] && [ "${pages:-0}" = "$live" ] && [ "$pending" = "f" ]; then
+            echo "    the index holds all $live Live items"
+            break
+        fi
+        if [ "$SECONDS" -ge "$deadline" ]; then
+            echo "error: the search index holds ${pages:-no} page(s) for ${live:-?} Live item(s) after ${INDEX_TIMEOUT}s" >&2
+            psql_demo "select coalesce(last_error, 'no error recorded') from pagefind_index_status where id = 1" >&2 || true
+            exit 1
+        fi
+        # One request per cron period: asking again while a build is pending or
+        # running changes nothing.
+        if [ "$pending" != "t" ] && [ $((SECONDS - asked_at)) -ge 75 ]; then
+            psql_demo "update pagefind_index_status set rebuild_requested = true where id = 1" >/dev/null || true
+            asked_at=$SECONDS
+            echo "    index has ${pages:-0} of ${live:-?} Live items; rebuild requested"
         fi
         sleep 5
     done

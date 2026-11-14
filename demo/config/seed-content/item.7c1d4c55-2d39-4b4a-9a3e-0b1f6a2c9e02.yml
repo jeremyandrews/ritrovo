@@ -1,0 +1,31 @@
+# Static page: Contact, served at /contact (url_alias.9e3b0a61-4f0e-4a43-8d0c-2a6b5f1e7c02.yml).
+#
+# A kernel `page` item, so it is ordinary content: Live, searchable, editable at
+# /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e02/edit. The body is Markdown, rendered by Ritrovo's
+# elements/item--page.html through the kernel's own sanitizing `markdown` filter.
+id: 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e02
+type: page
+title: Contact
+language: en
+status: 1
+created: 1794700000
+changed: 1794700000
+fields:
+  body:
+    format: markdown
+    value: |
+      Ritrovo is run as an open-source project, so the best way to reach the people
+      behind it is in the open.
+      
+      - **A conference is missing or wrong.** If it came from confs.tech, correct it
+        there and the next daily import picks the change up: open an issue or pull
+        request at [github.com/tech-conferences/conference-data](https://github.com/tech-conferences/conference-data).
+        Otherwise, sign in and [submit it](/conferences/submit); an editor reviews
+        every submission before it goes live.
+      - **Something on the site is broken.** Open an issue at
+        [github.com/jeremyandrews/ritrovo/issues](https://github.com/jeremyandrews/ritrovo/issues).
+      - **A question about the platform underneath.** Trovato's issues are at
+        [github.com/jeremyandrews/trovato/issues](https://github.com/jeremyandrews/trovato/issues).
+      
+      There is no contact form on this demo: it would need to send mail, and this
+      site is configured to send none.

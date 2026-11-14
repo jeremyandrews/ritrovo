@@ -155,6 +155,78 @@ else
     bad "the Pagefind index does not contain \"$INDEX_MARKER\" — it is empty or stale"
 fi
 
+# The index covers what is on Live, all of it: Pagefind's entry file counts the
+# pages it holds, and one page is one item. serve-demo.sh waits for this before
+# it reports ready, so a short index here means it was rebuilt since, wrongly.
+live_items="$(sql "select count(*) from item where status = 1 and stage_id = '0193a5a0-0000-7000-8000-000000000001'")"
+index_pages="$(curl -s "$BASE/static/pagefind/pagefind-entry.json" \
+    | grep -o '"page_count":[0-9]*' | cut -d: -f2 | awk '{ n += $1 } END { print n + 0 }')"
+if [ -z "$live_items" ]; then
+    note "skipped the index size check: needs the $COMPOSE_FILE stack"
+elif [ "$index_pages" = "$live_items" ]; then
+    ok "the Pagefind index holds $index_pages pages, one per Live item"
+else
+    bad "the Pagefind index holds ${index_pages:-no} pages for $live_items Live items"
+fi
+
+# What a visitor's browser gets back. The page hands the query to Pagefind, so
+# the question is what Pagefind answers, asked through the same pagefind.js the
+# page loads (scripts/pagefind-query.mjs). Before A9 the fragment check above
+# passed while every title search in Chrome said "No results found": the
+# kernel's export leaves titles out of the indexed body
+# (G-PAGEFIND-INDEX-OMITS-TITLES), which ritrovo_importer now covers.
+#
+# A conference by its title and a speaker by name, both seeded so the answer is
+# fixed. Needs Node; without it the checks above are all there is.
+SPEAKER_MARKER="${SPEAKER_MARKER:-Bruno Sala}"
+if command -v node >/dev/null 2>&1; then
+    for want in "$INDEX_MARKER" "$SPEAKER_MARKER"; do
+        hits="$(node "$ROOT/scripts/pagefind-query.mjs" "$BASE" "$want" 2>&1)"
+        hit="$(printf '%s\n' "$hits" | awk -F '\t' -v t="$want" '$1 == t { print; exit }')"
+        if [ -n "$hit" ]; then
+            ok "a Pagefind search for \"$want\" returns it ($(printf '%s' "$hits" | grep -c .) hit(s))"
+        else
+            bad "a Pagefind search for \"$want\" does not return it: $(printf '%s' "$hits" | head -c 160)"
+            continue
+        fi
+        # Where the result links. The kernel picks one alias per item whatever
+        # its language and drops the prefix, so a seeded conference with an
+        # Italian alias can link to /conferenze/... with no /it/ in front, which
+        # is 404 (G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE). Reported, not
+        # failed: nothing in Ritrovo decides which alias the kernel picks.
+        href="$(printf '%s' "$hit" | cut -f2)"
+        href_code="$(code "$href")"
+        if [ "$href_code" = "200" ]; then
+            ok "  and links to $href, which is $href_code"
+        else
+            note "its result links to $href, which is $href_code (kernel: G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE)"
+        fi
+    done
+else
+    note "skipped the Pagefind queries: needs node to load pagefind.js"
+fi
+# The brief's weights, read back out of the tsvector the server ranks by: title
+# A, description B, city and topics C. The topics are the denormalized labels
+# ritrovo_importer writes (field_topic_names), because the tag uuids in
+# field_topics are not words (G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS). Codemotion
+# Roma 2026 is seeded in Roma under Web Platform, so all three are fixed.
+weighted="$(sql "select search_vector @@ to_tsquery('english', 'codemotion:A & roma:C & platform:C') from item where title = '$INDEX_MARKER'")"
+if [ -z "$weighted" ]; then
+    note "skipped the weight check: needs the $COMPOSE_FILE stack"
+elif [ "$weighted" = "t" ]; then
+    ok "\"$INDEX_MARKER\" is indexed with its title at A and its city and topic at C"
+else
+    bad "\"$INDEX_MARKER\" is not indexed with title A, city C and topic C"
+fi
+# The server's own search, the no-JavaScript half, finds the speaker too: the
+# brief's search is across conferences and speakers.
+server_speaker="$(curl -s -G "$BASE/search" --data-urlencode "q=$SPEAKER_MARKER")"
+if [[ "$server_speaker" == *">$SPEAKER_MARKER</a>"* ]]; then
+    ok "/search?q=$SPEAKER_MARKER finds the speaker in the server-rendered results"
+else
+    bad "/search?q=$SPEAKER_MARKER does not find the speaker server-side"
+fi
+
 head_ "conference detail page"
 # The seeded conference, so the name, dates and city are fixed rather than whatever
 # confs.tech happened to return today.
@@ -178,6 +250,37 @@ else
             bad "the conference page does not show \"$want\""
         fi
     done
+fi
+
+# Topic pills, from the generated labels (includes/topics.html), each a link to
+# its listing. The marker is seeded under Web Platform.
+if [ -n "$conf_id" ]; then
+    pill_href="$(printf '%s' "$conf_page" | tr '\n' ' ' | grep -o 'class="topic-pill" href="[^"]*"' | head -n 1 | sed 's/.*href="//; s/"$//')"
+    if [ -z "$pill_href" ]; then
+        bad "the conference page renders no topic pills"
+    elif [ "$(code "$pill_href")" = "200" ]; then
+        ok "the conference page renders topic pills; the first, $pill_href, is 200"
+    else
+        bad "the conference page's topic pill $pill_href answered $(code "$pill_href")"
+    fi
+fi
+# The CFP badge, on a Live conference whose call for papers is still open. Drawn
+# by the template from the same rule as ritrovo_cfp's, because the plugin's own
+# badge arrives in the `children` string the template cannot render
+# (G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT).
+open_cfp_id="$(sql "select id from item where type='conference' and status = 1 \
+    and stage_id = '0193a5a0-0000-7000-8000-000000000001' \
+    and fields->>'field_cfp_end_date' >= to_char(now() at time zone 'utc', 'YYYY-MM-DD') \
+    order by fields->>'field_cfp_end_date' limit 1")"
+if [ -z "$open_cfp_id" ]; then
+    note "skipped the CFP badge check: no Live conference has an open call for papers today"
+else
+    badge="$(curl -s "$BASE/item/$open_cfp_id" | grep -o '<span class="cfp-badge [^<]*' | head -n 1 | sed 's/<span class="//; s/">/: /')"
+    if [ -n "$badge" ]; then
+        ok "a Live conference with an open CFP shows its badge ($badge)"
+    else
+        bad "Live conference $open_cfp_id has an open CFP and shows no badge"
+    fi
 fi
 
 head_ "the content model"
@@ -280,26 +383,54 @@ else
 fi
 
 head_ "navigation"
-# Every seeded menu link, followed as rendered. A link in the site chrome that
-# 404s is the one defect a visitor meets before any content loads.
+# Every link in the main and footer menus, followed as rendered. A link in the
+# site chrome that 404s is the one defect a visitor meets before any content
+# loads, and "Call for Papers", "About" and "Contact" all did. Read off the page
+# rather than out of demo/config, so a link that renders and a link that is
+# configured cannot disagree without this noticing; each menu must render at
+# least the links the config names for it.
 nav_page="$(curl -s "$BASE/conferences")"
-nav_links="$(printf '%s\n' "$nav_page" \
-    | grep -o 'href="[^"]*"[^>]*>[^<]*</a>' \
-    | grep -E 'Call for Papers|Conferences</a>|Speakers</a>|Topics</a>' \
-    | sed 's/href="//; s/"[^>]*>/ /; s/<\/a>//; s/&#x2F;/\//g')"
-if [ -z "$nav_links" ]; then
-    bad "no main-menu links rendered on /conferences"
-else
-    while read -r href label; do
+menu_links() {
+    # $1 is the nav's class. Prints "href<TAB>label" per link.
+    printf '%s\n' "$nav_page" | tr '\n' ' ' \
+        | grep -o "<nav class=\"$1\"[^>]*>.*" | sed 's#</nav>.*##' \
+        | grep -o '<a href="[^"]*"[^>]*>[^<]*</a>' \
+        | sed 's/<a href="\([^"]*\)"[^>]*>\([^<]*\)<\/a>/\1	\2/; s/&#x2F;/\//g'
+}
+for menu in main:site-nav footer:footer-nav; do
+    menu_name="${menu%%:*}"
+    nav_class="${menu#*:}"
+    links="$(menu_links "$nav_class")"
+    configured="$(grep -l "^menu_name: $menu_name\$" "$ROOT"/demo/config/menu_link.*.yml 2>/dev/null | wc -l | tr -d ' ')"
+    rendered="$(printf '%s\n' "$links" | grep -c '^/' || true)"
+    if [ "$rendered" -lt "$configured" ]; then
+        bad "the $menu_name menu renders $rendered link(s); demo/config names $configured"
+    fi
+    if [ -z "$links" ]; then
+        bad "no $menu_name-menu links rendered on /conferences"
+        continue
+    fi
+    while IFS=$'\t' read -r href label; do
         [ -n "$href" ] || continue
         status="$(code "$href")"
         if [ "$status" = "200" ]; then
-            ok "main menu \"$label\" -> $href is $status"
+            ok "$menu_name menu \"$label\" -> $href is $status"
         else
-            bad "main menu \"$label\" -> $href is $status"
+            bad "$menu_name menu \"$label\" -> $href is $status"
         fi
-    done <<< "$nav_links"
-fi
+    done <<< "$links"
+done
+# The static pages carry their own content, not an empty page shell.
+for page in "/about:confs.tech" "/data-sources:confs.tech" "/privacy:cookie" "/contact:issues" "/api-docs:/api/v1/conferences"; do
+    page_path="${page%%:*}"
+    page_want="${page#*:}"
+    page_body="$(curl -s "$BASE$page_path")"
+    if [[ "$page_body" == *"$page_want"* ]] && [[ "$page_body" == *'item--page'* ]]; then
+        ok "$page_path renders its page, mentioning \"$page_want\""
+    else
+        bad "$page_path does not render its page content (looked for \"$page_want\")"
+    fi
+done
 
 head_ "Italian"
 for path in /it/conferenze /it/relatori /it/argomenti; do

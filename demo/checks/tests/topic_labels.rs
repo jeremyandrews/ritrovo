@@ -1,0 +1,203 @@
+//! The topic labels templates print, generated from the topic tree itself.
+//!
+//! An item template is handed `field_topics` as an array of tag uuids and
+//! nothing that turns one into a label or a link: the item route resolves record
+//! references and never a category tag, and the kernel registers no Tera
+//! function that could (FRICTION.md, G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS).
+//! A gather template on `/topics/{slug}` is no better off: it gets the tag's uuid
+//! in `filter_values` and neither its label nor its parents.
+//!
+//! The tree is Ritrovo's own configuration, `demo/config/tag.*.yml`, so the
+//! labels can be compiled into a template instead:
+//! `docs/tutorial/templates/includes/topics.html` holds two macros, `pill(id)`
+//! (a linked label) and `trail(id)` (the root-to-term chain), with one branch
+//! per term. This test is the generator AND the guard: it builds the file from
+//! the tag files and fails when the committed copy differs, and
+//!
+//!     RITROVO_WRITE_TOPIC_MACROS=1 cargo test -p ritrovo_demo_checks --test topic_labels
+//!
+//! rewrites it. So a term added, renamed or moved in the config cannot reach the
+//! demo with a stale label: the build goes red first.
+//!
+//! This is a workaround, recorded as one under the FRICTION entry above, and it
+//! goes away when the kernel resolves tags for templates.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::collections::BTreeMap;
+use std::fs;
+
+use ritrovo_demo_checks::repo_root;
+
+const OUTPUT: &str = "docs/tutorial/templates/includes/topics.html";
+
+#[derive(Debug, Clone)]
+struct Term {
+    id: String,
+    label: String,
+    slug: String,
+    parents: Vec<String>,
+}
+
+/// Read one `tag.*.yml`. The files are written by config export and hold flat
+/// `key: value` lines plus one `parents:` list, so a line reader is exact here;
+/// a value this does not understand fails the test rather than guessing.
+fn parse_tag(text: &str) -> Term {
+    let unquote = |v: &str| v.trim().trim_matches('\'').trim_matches('"').to_string();
+    let mut term = Term {
+        id: String::new(),
+        label: String::new(),
+        slug: String::new(),
+        parents: Vec::new(),
+    };
+    let mut in_parents = false;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("- ") {
+            if in_parents {
+                term.parents.push(unquote(rest));
+            }
+            continue;
+        }
+        in_parents = false;
+        if let Some((key, value)) = line.split_once(':') {
+            match key {
+                "id" => term.id = unquote(value),
+                "label" => term.label = unquote(value),
+                "slug" => term.slug = unquote(value),
+                "parents" => in_parents = value.trim().is_empty(),
+                _ => {}
+            }
+        }
+    }
+    assert!(
+        !term.id.is_empty() && !term.label.is_empty() && !term.slug.is_empty(),
+        "a tag file is missing its id, label or slug: {text}"
+    );
+    term
+}
+
+fn terms() -> BTreeMap<String, Term> {
+    let dir = repo_root().join("demo/config");
+    let mut out = BTreeMap::new();
+    for entry in fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        if name.starts_with("tag.") && name.ends_with(".yml") {
+            let text = fs::read_to_string(&path).unwrap();
+            if text.lines().any(|l| l.trim() == "category_id: topics") {
+                let term = parse_tag(&text);
+                out.insert(term.id.clone(), term);
+            }
+        }
+    }
+    out
+}
+
+/// HTML-escape a label. Labels are plain words today; this keeps one with an
+/// ampersand in it from becoming markup tomorrow.
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Root first. A term with two parents (Kotlin, under JVM and Mobile) follows
+/// the FIRST parent its file lists, which is the one it is filed under; a
+/// breadcrumb is one path, and the pill on the page already says the rest.
+fn lineage<'a>(terms: &'a BTreeMap<String, Term>, id: &str) -> Vec<&'a Term> {
+    let mut chain = Vec::new();
+    let mut current = terms.get(id);
+    while let Some(term) = current {
+        assert!(
+            chain.len() < 10,
+            "the topic tree has a cycle through {}",
+            term.label
+        );
+        chain.push(term);
+        current = term.parents.first().and_then(|p| terms.get(p));
+    }
+    chain.reverse();
+    chain
+}
+
+fn link(term: &Term) -> String {
+    format!(
+        "<a href=\"/topics/{}\">{}</a>",
+        esc(&term.slug),
+        esc(&term.label)
+    )
+}
+
+fn generate() -> String {
+    let terms = terms();
+    let mut out = String::new();
+    out.push_str(
+        "{# GENERATED by demo/checks/tests/topic_labels.rs from demo/config/tag.*.yml.\n   \
+         Do not edit: run\n       \
+         RITROVO_WRITE_TOPIC_MACROS=1 cargo test -p ritrovo_demo_checks --test topic_labels\n   \
+         after changing the topic tree, and commit what it writes.\n\n   \
+         The kernel gives a template a topic's uuid and never its label\n   \
+         (FRICTION.md, G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS), so the labels\n   \
+         are compiled in here, one branch per term.\n\n   \
+         pill(id)   a link to the term's listing, labelled; nothing for an unknown id\n   \
+         trail(id)  <li> items from the root down to the term itself, each linked\n   \
+         label(id)  the bare label, escaped #}\n",
+    );
+    for name in ["pill", "trail", "label"] {
+        out.push_str(&format!("{{% macro {name}(id) %}}"));
+        let mut first = true;
+        for term in terms.values() {
+            let html = match name {
+                "pill" => format!(
+                    "<a class=\"topic-pill\" href=\"/topics/{}\">{}</a>",
+                    esc(&term.slug),
+                    esc(&term.label)
+                ),
+                "trail" => lineage(&terms, &term.id)
+                    .iter()
+                    .map(|t| format!("<li class=\"topic-trail__step\">{}</li>", link(t)))
+                    .collect::<String>(),
+                _ => esc(&term.label),
+            };
+            let kw = if first { "if" } else { "elif" };
+            first = false;
+            out.push_str(&format!("{{% {kw} id == \"{}\" %}}{html}", term.id));
+        }
+        out.push_str(&format!("{{% endif %}}{{% endmacro {name} %}}\n"));
+    }
+    out
+}
+
+#[test]
+fn the_topic_macros_match_the_topic_tree() {
+    let want = generate();
+    let path = repo_root().join(OUTPUT);
+    if std::env::var_os("RITROVO_WRITE_TOPIC_MACROS").is_some() {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, &want).unwrap();
+    }
+    let have = fs::read_to_string(&path).unwrap_or_default();
+    assert!(
+        have == want,
+        "{OUTPUT} is stale against demo/config/tag.*.yml; regenerate it with\n  \
+         RITROVO_WRITE_TOPIC_MACROS=1 cargo test -p ritrovo_demo_checks --test topic_labels"
+    );
+}
+
+#[test]
+fn the_tree_is_three_levels_deep_somewhere() {
+    // The breadcrumb the brief asks for is three levels; if the tree ever
+    // flattened, the trail macro would still be right and the demo would no
+    // longer show what it claims to.
+    let terms = terms();
+    let deepest = terms
+        .keys()
+        .map(|id| lineage(&terms, id).len())
+        .max()
+        .unwrap_or(0);
+    assert_eq!(
+        deepest, 3,
+        "the topic tree's deepest term is {deepest} levels"
+    );
+}

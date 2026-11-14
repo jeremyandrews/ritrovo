@@ -1,0 +1,29 @@
+{# A static page: About, Contact, API documentation, Data sources, Privacy.
+
+   Ritrovo's pages keep their body as Markdown (`body.format: markdown`, see
+   demo/config/seed-content), rendered here through the kernel's own `markdown`
+   filter, which sanitizes what it produces. The kernel's item--page.html renders
+   `children` instead, the generic field dump, which prints Markdown as one
+   paragraph of literal asterisks and brackets.
+
+   A body in any other format goes through `text_format` with that format, which
+   is what the kernel's filter pipeline does for a TextLong field.
+
+   min_heading=2: the page title is the only <h1>. #}
+<article class="item item--page">
+    <header class="item__header">
+        <h1 class="item__title">{{ item.title }}</h1>
+    </header>
+    <div class="item__content prose">
+        {% set body = item.fields.body | default(value="") %}
+        {% if body is object %}
+        {% if body.format is defined and body.format == "markdown" %}
+        {{ body.value | default(value="") | markdown(min_heading=2) | safe }} {# SAFE: the kernel's markdown filter sanitizes its output #}
+        {% else %}
+        {{ body.value | default(value="") | text_format(format=body.format | default(value="plain_text")) | safe }} {# SAFE: FilterPipeline::for_format_safe sanitizes #}
+        {% endif %}
+        {% elif body %}
+        <p>{{ body }}</p>
+        {% endif %}
+    </div>
+</article>

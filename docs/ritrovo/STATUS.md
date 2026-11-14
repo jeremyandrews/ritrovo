@@ -71,12 +71,17 @@ P1 to P19.
 
 ## Tally
 
+Recounted at the end of A9 part 1 (2026-11-14) from the status cells below, by
+the first words of each: **part done** gathers every row that says part, half or
+partly done.
+
 | Status | Stories (63) | What It Demonstrates (25) | Plugin taps (19) | All (107) |
 | :- | -: | -: | -: | -: |
-| done | 9 | 1 | 4 | 14 |
-| kernel has it, Ritrovo does not use it | 21 | 5 | 0 | 26 |
-| Ritrovo must build it | 8 | 5 | 6 | 19 |
-| blocked on the kernel | 25 | 14 | 9 | 48 |
+| done | 28 | 5 | 12 | 45 |
+| part done | 6 | 7 | 1 | 14 |
+| kernel has it, Ritrovo does not use it | 13 | 4 | 0 | 17 |
+| Ritrovo must build it | 1 | 0 | 0 | 1 |
+| blocked on the kernel | 15 | 9 | 6 | 30 |
 
 ---
 
@@ -222,11 +227,11 @@ Each exists at the pinned release. "In the demo" is what the running demo showed
 | Form API (build, validate, submit, AJAX, `form_state_cache`) | `crates/kernel/src/form/service.rs:41-161`, `:193-222`, `:410-501` | Unreachable from any route except administrator AJAX (`G-FORM-TAPS-UNREACHABLE`). |
 | WYSIWYG | Editor.js for `Blocks` fields, `templates/admin/content-form.html:164-171`, `crates/kernel/src/content/form.rs:243-290`; upload and preview gated on `trovato_block_editor` (`crates/kernel/src/routes/file.rs:30-35`), disabled by default | The conference edit form shows a "Description" label and no editor. `TextLong` fields get a plain textarea. |
 | File fields, uploads, image styles | `crates/kernel/src/routes/file.rs:25-27`, `crates/kernel/src/file/service.rs:42-45` (magic bytes), `:504-602` (temporary to permanent), `crates/kernel/src/cron/tasks.rs:181-184` (cleanup); image styles `crates/kernel/src/routes/image_style.rs:18`, `trovato_image_styles` enabled, three styles seeded | Logo and venue photo file inputs render on the edit form. `/admin/content/files`: "No files found." |
-| Menus and breadcrumbs | `menu_link` admin `crates/kernel/src/routes/admin_menu.rs:892-910`; main and footer injected, `routes/helpers.rs:249-261`; breadcrumbs `routes/item.rs:714-725`, `routes/gather.rs:427`; tag breadcrumb API `routes/category.rs:76` | Main and footer menus and breadcrumbs render. "Call for Papers", "About" and "Contact" are 404. |
+| Menus and breadcrumbs | `menu_link` admin `crates/kernel/src/routes/admin_menu.rs:892-910`; main and footer injected, `routes/helpers.rs:249-261`; breadcrumbs `routes/item.rs:714-725`, `routes/gather.rs:427`; tag breadcrumb API `routes/category.rs:76` | Main and footer menus and breadcrumbs render; every link is 200 since A9. |
 | Tiles and slots | `crates/kernel/src/services/tile.rs:76-126`, admin `routes/tile_admin.rs:274-286`, role and path visibility `models/tile.rs:211-243` (config import only) | Five tiles placed; the two `gather_query` tiles render empty (`G-TILE-GATHER-QUERY-RENDERS-NOTHING`). |
 | `mail` host interface | `crates/wit/kernel.wit:212-225`, `crates/kernel/src/host/mail.rs:10-14`: site contact only | Unused. Cannot address a user (`G-MAIL-CANNOT-REACH-A-USER`). |
 | Config import and export | CLI `crates/kernel/src/main.rs:94-110`; 13 entity types in dependency order, `crates/kernel/src/config_storage/yaml.rs:51-65` | Used by the demo for import. Export unused. |
-| Pagefind search | `crates/kernel/src/cron/pagefind.rs:1-8`, `plugins/trovato_search` (disabled by default), `templates/search.html:100-121`, `static/js/scolta.js` | Not enabled; `/static/pagefind/pagefind.js` is 404 and `/search` is blank in a browser. |
+| Pagefind search | `crates/kernel/src/cron/pagefind.rs:1-8`, `plugins/trovato_search` (disabled by default), `templates/search.html:100-121`, `static/js/scolta.js` | Enabled since A4; built before the demo reports ready since A9, and searchable by title only through `ritrovo_importer`'s mirror (`G-PAGEFIND-INDEX-OMITS-TITLES`). |
 | tsvector search and field weights | `crates/kernel/src/search/mod.rs:58-176`, trigger `crates/kernel/migrations/20260213000002_create_search_trigger.sql`, admin `routes/admin_content_type.rs:963-994` | `/api/search?q=rust` and `/api/v1/search?q=rust` return ranked JSON; weights shown at `/admin/structure/types/conference/search`. |
 | Versioned JSON API | `crates/kernel/src/routes/api_v1.rs:69-92` (search, autocomplete, media, OpenAPI), `x-api-version` header | `/api/v1/search` 200. No per-type endpoints exist in the kernel. |
 | Gather and item JSON routes | `GET /api/query/{id}/execute`, `crates/kernel/src/routes/gather.rs:43-47`; `GET /api/items/{type}`, `/api/item/{id}`, `routes/item.rs:282-286`; categories `routes/category.rs:57-76` | `/api/item/{id}` and `/api/content-types` 200. |
@@ -262,7 +267,7 @@ impact and a recommendation, and names the rows it blocks.
 | `G-MAIL-UNAVAILABLE-IN-BACKGROUND` | Medium | 37.4, D10, P11, P12 |
 | `G-QUEUE-NO-CROSS-PLUGIN` | Medium | 37.5, 36.5, D9, P6 |
 | `G-TILE-GATHER-QUERY-RENDERS-NOTHING` | Medium | 34.4, D12 |
-| `G-SEARCH-PAGE-BLANK-WITHOUT-INDEX` | Medium | E4.5, 34.5, D14 |
+| `G-SEARCH-PAGE-BLANK-WITHOUT-INDEX` | Medium | nothing in the demo since A9 (re-verified open at 0.103.0); every site without an index |
 | `G-ADMIN-SCREENS-ARE-ADMIN-ONLY` | Medium | 37.2, 39.2, D25 |
 | `G-USER-PROFILE-NOT-EXTENSIBLE` | Medium | 36.7, D15 |
 | `G-BATCH-NO-EXECUTOR` | Medium | 39.2, D25 |
@@ -296,6 +301,12 @@ impact and a recommendation, and names the rows it blocks.
 | `G-REVISION-NO-COMPARE` | Low | 35.4, D20 |
 | `G-SEARCH-NO-ADMIN-OR-ANALYTICS` | Low | 30.3, 30.6, 30.7 |
 | `G-VIEW-TAP-INPUT-CARRIES-NO-VIEWER` | Low | nothing (documentation) |
+| `G-PAGEFIND-INDEX-OMITS-TITLES` | Medium | nothing since A9 (`ritrovo_importer` mirrors the title) |
+| `G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE` | Low | 30.2 (a result linking to a prefixless Italian alias) |
+| `G-PAGEFIND-IGNORES-FIELD-WEIGHTS` | Low | 34.5 (weights in the browser's results) |
+| `G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS` | Low | nothing since A9 (`field_topic_names`) |
+| `G-SEARCH-TRIGGER-INDEXES-BLOCKS-JSON` | Low | nothing (ranking noise) |
+| `G-MARKDOWN-FILTER-HAS-NO-TABLES` | Low | nothing (the API page's tables) |
 
 Two points from the brief's own list, settled:
 
@@ -350,8 +361,8 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| 30.1 | Pagefind index rebuilt by cron on content change | config | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/cron/pagefind.rs:1-8` with `plugins/trovato_search` (disabled by default; not enabled by the demo). The pagefind CLI is in the image (`Dockerfile:43-47`). No admin or CLI re-index trigger. | A9 |
-| 30.2 | Instant client-side search UI with no-JS fallback | config | **kernel has it, Ritrovo does not use it** | `templates/search.html:100-121` loads `static/js/scolta.js`. In the demo it 404s on `pagefind.js` and blanks the page (`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`). | A9 |
+| 30.1 | Pagefind index rebuilt by cron on content change | config | **done (A9)** | `trovato_search` is enabled by the bootstrap; its `tap_cron` asks for a rebuild whenever Live content has changed since the last build, and the kernel rebuilds in the same cron cycle (`crates/kernel/src/cron/pagefind.rs:1-8`). `scripts/serve-demo.sh` builds the index before it reports ready and waits until the index's page count equals the Live item count; `verify-demo.sh` asserts the same count on every run. Two kernel faults made the index useless until A9 and are covered by plugin code: no title was ever in the indexed body, and items with no configured text were left out (`G-PAGEFIND-INDEX-OMITS-TITLES`). No admin or CLI re-index trigger. | A9 |
+| 30.2 | Instant client-side search UI with no-JS fallback | config | **done (A9)** | In Chrome, `/search?q=Codemotion` and `/search?q=Bruno Sala` list the conference and the speaker from the Pagefind index (`scolta.js`); with JavaScript off the server's tsvector results render in the `<noscript>` block. `verify-demo.sh` runs the same query the page runs, through `pagefind.js` itself (`scripts/pagefind-query.mjs`). Kernel faults left open: the page still blanks if the index is missing, re-verified at 0.103.0 with the index moved aside (`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`; the demo always has one), and a result can link to an Italian alias without its prefix (`G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE`). | A9 |
 | 30.3 | Configurable client-side ranking signals | kernel | **blocked on the kernel** | Scoring exists in `static/js/scolta.js`, with its values hard-coded in `templates/search.html:100-121`; there is no configuration for them (`G-SEARCH-NO-ADMIN-OR-ANALYTICS`). | A9 |
 | 30.4 | AI query expansion | config | **kernel has it, Ritrovo does not use it** | `POST /api/v1/search/expand`, `crates/kernel/src/routes/api_search.rs:25-30`; needs a Chat provider. None configured. | A9 |
 | 30.5 | AI summary streamed over SSE | config | **kernel has it, Ritrovo does not use it** | `/api/v1/search/summarize`, `routes/api_search.rs:25-30`. | A9 |
@@ -382,17 +393,17 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | E4.2 | Cron-driven conference import | plugin | **done** | 263 batches queued, drained by cron, 5,656 conferences; `/admin/config/importer` shows state and "Jobs waiting 0". Caveats are P3's. | A4 |
 | E4.3 | Hierarchical topic taxonomy | config | **done** | The brief's tree exactly: 44 terms in `demo/config/tag.*.yml`, three levels, with Kotlin cross-listed under both JVM and Mobile. `verify-demo.sh` counts the terms, asserts a grandchild link exists and asserts a term with two parents exists. The confs.tech mapping is a data file, `plugins/ritrovo_importer/data/confs-tech-topics.json`; three feeds (general, opensource, testing) map to no term because the brief's tree has none, and the importer's admin screen names them rather than counting them as failures. | A4 |
 | E4.4 | Advanced gathers with exposed and contextual filters | config, template | **done except the speaker relationship** | `/location/{country}` and `/location/{country}/{city}` have templates of their own and render conference cards; the raw column dump is gone, and `verify-demo.sh` asserts `search_vector` is absent and cards are present. The two tile gathers exist, with templates and aliases of their own: `/conferences/this-month` and `/cfps/closing-soon`. Both are bounded by count rather than by the brief's date window, because a gather can express "today" and nothing else (`G-NO-RELATIVE-DATE-FILTER-VALUES`). The brief's speaker relationship on the upcoming gather is not expressible either: `QueryRelationship` joins a table on two columns (`crates/kernel/src/gather/types.rs:432-450`) and the reference is a uuid array inside JSONB. | A4 |
-| E4.5 | Full-text search | config | **kernel has it, Ritrovo does not use it** | Server search works (`/api/search?q=rust`, `/api/v1/search?q=rust`); the page visitors use is blank in a browser until `trovato_search` builds an index (`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`). | A9 |
+| E4.5 | Full-text search | config | **done (A9)** | Server search (`/search` without JavaScript, `/api/v1/search`) and the Pagefind page both find conferences by title, description, city and topic, and speakers by name and bio; asserted by `verify-demo.sh` and by `cron_writes_the_title_and_topic_labels_search_reads_at_the_brief_s_weights` (`plugins/ritrovo_importer/tests/ritrovo_importer_host.rs`). | A9 |
 
 ### Epic 5: Look and Feel (Part 3)
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| 34.1 | Render tree and conference templates | template | **Ritrovo must build it** | `docs/tutorial/templates/elements/item--conference.html` renders the header and links, then `{{ children }}` dumps every field again as `: value` lines (seen on "Gerrit User Summit"). Seeded Italian conferences render no description. `/cfps` cards render correctly. | A9 |
+| 34.1 | Render tree and conference templates | template | **done (A9)** | `item--conference.html` renders no `children` and so no field dump (`verify-demo.sh` asserts no `field__label`), and lays out the title, dates, location, online flag, language badge, CFP badge, topic pills, description (the seeded Italian conferences' too, in either language), logo, venue gallery, links, deadline and speakers. The CFP badge is drawn by the template from `ritrovo_cfp`'s rule because the plugin's own lands in `children` (`G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT`); the pill labels come from a generated include because the kernel resolves no tag for a template (`G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS`). Both asserted by `verify-demo.sh`. | A9 |
 | 34.2 | File uploads with security validation | config | **blocked on the kernel** | **[corrected]** the audit recorded this as available and unused. A demo cannot use it: no config entity can create a file (`G-NO-FILE-CONFIG-ENTITY`), and a file uploaded any other way is never promoted out of temporary and is deleted six hours later, because `mark_permanent_batch` is called only from the admin content form (`G-CONFIG-IMPORT-NEVER-PROMOTES-A-FILE`). So an image reaches a Trovato site only by a human using the admin UI. `logo`, `venue_photos`, `schedule_pdf` and `headshot` are declared and their templates render them when present. | A4 |
 | 34.3 | Speaker type with RecordReference | config | **done** | `demo/config/item_type.speaker.yml` is the brief's: bio, headshot, website, and no forward `field_conferences`, which duplicated a reverse reference. The conference holds `field_speakers`; a speaker page lists its conferences through `reverse_references`. Six speakers are seeded and `/speakers` renders them. `verify-demo.sh` follows a seeded conference to a speaker and back. | A4 |
 | 34.4 | Slots, tiles, navigation and breadcrumbs | config, template | **blocked on the kernel** | Header, sidebar and footer tiles and breadcrumbs render; the two `gather_query` tiles render empty (`G-TILE-GATHER-QUERY-RENDERS-NOTHING`). Ritrovo's part: the 404 menu links (`G-TUTORIAL-CONFIG-SET-DEFECTS`). | A9 |
-| 34.5 | Weighted full-text search page | config | **kernel has it, Ritrovo does not use it** | Six `search_field_config` rows imported; weights at `/admin/structure/types/conference/search`; `/search` blank with JavaScript (`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`). | A9 |
+| 34.5 | Weighted full-text search page | config | **done (A9), weights on the server's ranking only** | The brief's weights, read back out of the tsvector by `verify-demo.sh` and the importer host test: title A, description B, city C, topics C. Topics are `field_topic_names`, written by `ritrovo_importer` from the tag tree, because a tag uuid is not a word (`G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS`); the brief itself calls the field "topics (denormalized)". Country is also C, an addition the brief does not list. The browser's Pagefind results ignore the letters (`G-PAGEFIND-IGNORES-FIELD-WEIGHTS`), and a `Blocks` description indexes its JSON keys (`G-SEARCH-TRIGGER-INDEXES-BLOCKS-JSON`). | A9 |
 | 34.6 | Premium theme with design tokens | template | **Ritrovo must build it** | Kernel `theme.css` styles the site; `docs/tutorial/static/css/ritrovo.css` is served and linked by no page; no CSS for `.cfp-badge` or `.lang-badge` exists anywhere; `page--front.html` is never rendered because `/` redirects to `/conferences`. | A9 |
 
 ### Epic 6: The Editorial Engine (Part 4)
@@ -459,7 +470,7 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | D2 | Categories: three-level topics, nested queries, breadcrumbs, browsing | config, template | **blocked on the kernel** | The tree, the nested queries and the browsing are done (E4.3). The breadcrumb on a conference page is not: an item template can print a topic's uuid and nothing else, because the item route resolves record references but never a category tag (`G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS`). The gather side has breadcrumbs. | A4 |
 | D3 | Stages and Revisions: workflow, draft, preview, revert, stage a new version | kernel, plugin | **half done (A5)** | The workflow half is done and demonstrable: 35.3. The revision half is not, and none of draft, preview, revert or compare works on this kernel: 35.4. | A5 |
 | D4 | Gather: six definitions, exposed and contextual filters, relationships, paging | config | **done except relationships** | Eight definitions now, the brief's six plus its two tile gathers, all with templates and routes. Paging is the brief's 25. The speaker relationship is not expressible (E4.4). | A4 |
-| D5 | Render Tree: conference card, detail page, speaker card, CFP badge, topic pills, profile | template | **Ritrovo must build it** | Conference cards render; the detail page dumps raw fields; no topic pills; no speaker cards to show; the badge is unstyled text. | A9 |
+| D5 | Render Tree: conference card, detail page, speaker card, CFP badge, topic pills, profile | template | **done (A9)** | Cards (A4), the detail page and its badge and pills (34.1), speaker pages (34.3), the member bio page (36.7). Badge colours are 34.6. | A9 |
 | D6 | Form API: edit form, multi-step submission, profile form, subscription form | kernel, plugin | **part done (A6)** | Three of the four are usable: the edit form (36.1), the profile form (36.7) and the multi-step submission (36.4). The subscription form is 37.3, in A7. The kernel's own Form API is reachable from no route in any of them (`G-FORM-TAPS-UNREACHABLE`); every form Ritrovo serves is a `tap_api` route with a `_token` in the body. | A6 |
 | D7 | WYSIWYG for descriptions and bios, AJAX add another | config | **kernel has it, Ritrovo does not use it** | 36.2, 36.3. | A6 |
 | D8 | Five plugins demonstrating the full tap lifecycle | plugin | **blocked on the kernel** | All five install and enable; of the brief's 19 intended taps, 4 work and 9 are blocked (P1 to P19). | A7 |
@@ -468,11 +479,11 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | D11 | Queue: import validation queue with `tap_queue_info` and `tap_queue_worker` | plugin | **done** | 269 import jobs queued and drained on the current demo. The worker's error handling is fixed: see P3. | A4 |
 | D12 | Tiles: CFPs closing soon, this month, topic cloud, recent comments, my subscriptions | config, plugin | **blocked on the kernel** | 34.4; the topic cloud is a sentence with no topics in it; recent comments and my subscriptions need tile types plugins cannot add. | A9 |
 | D13 | Slots and the admin UI for placing tiles, with role and path visibility | config | **kernel has it, Ritrovo does not use it** | `/admin/structure/tiles` places tiles by region and weight; visibility exists in the model (`crates/kernel/src/models/tile.rs:211-243`) and is importable, and no demo tile uses it. | A9 |
-| D14 | Search: weighted fields, stage-aware, across conferences and speakers | config | **kernel has it, Ritrovo does not use it** | E4.5, 34.5. | A9 |
+| D14 | Search: weighted fields, stage-aware, across conferences and speakers | config | **part done (A9 part 1); stage awareness is part 3** | Weighted (34.5) and across both types (E4.5), in the browser and on the server. | A9 |
 | D15 | Users and Auth: registration, login, profiles with bio and avatar | kernel, plugin | **part done (A6)** | 35.1 for accounts. Profiles with a bio are done, on Ritrovo's own page (36.7); avatars are blocked (`G-FILE-NO-HOST-API`). | A6 |
 | D16 | Permissions: five roles, Grant and Deny, field visibility, stage scope | plugin, config | **blocked on the kernel** | 35.2, 36.6. | A5 |
 | D17 | Files: logo, gallery, headshot, PDF, local and S3, private files | config | **kernel has it, Ritrovo does not use it** | 34.2; S3 is `G-S3-STORAGE-REMOVED`. | A4 |
-| D18 | Menus: main, user, admin, footer, plugin entries, breadcrumbs | config | **Ritrovo must build it** | Menus render; "Call for Papers", "About" and "Contact" are 404; the brief's footer (API docs, data sources, privacy) does not exist; the importer's `tap_menu` entries appear in the admin menu listing. | A9 |
+| D18 | Menus: main, user, admin, footer, plugin entries, breadcrumbs | config | **part done (A9 part 1)** | Every main and footer link is 200, followed as rendered by `verify-demo.sh`: "Call for Papers" is `/cfps`, and About, Contact, API documentation (built from `docs/API.md` at bootstrap), Data sources (credits confs.tech) and Privacy are kernel `page` items in `demo/config/seed-content`. The API page's tables render as text (`G-MARKDOWN-FILTER-HAS-NO-TABLES`). User and admin menus, plugin entries and breadcrumbs are part 2. | A9 |
 | D19 | REST API with keys and rate limits | config, plugin | **read API done; keys blocked on the kernel** | 38.5 (read half), 38.6. `docs/API.md` is the reference; `/api/openapi.json` cannot be (`G-OPENAPI-IS-A-STATIC-LIST`). | A8 |
 | D20 | Revisions: log, preview, revert to N, compare | kernel | **blocked on the kernel** | 35.4. | A5 |
 | D21 | i18n: translated content, UI strings, aliases, switcher | config, plugin | **done except UI strings** | 38.1, 38.2, 38.3, 38.4. UI strings: `G-LOCALE-STRINGS-NEVER-LOADED`. | A8 |
@@ -618,13 +629,15 @@ blocked and are listed with what they wait on. Item 8 is done.
 
 ### A9: layout and search
 
-1. 30.1, 30.2, E4.5, 34.5, D14: enable `trovato_search`, make the bootstrap build the
-   index before it reports, and make `verify-demo.sh` check search in a browser or
-   check the index exists **[kernel: `G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`]** for a
-   page that survives a missing index.
-2. 34.1, D5: the conference template without the raw field dump; description for
-   the seed.
-3. D18: fix "Call for Papers"; create About; the brief's footer.
+1. ~~30.1, 30.2, E4.5, 34.5: search.~~ **Done (A9 part 1)**: the index is built
+   before the demo reports ready and holds every Live item; `verify-demo.sh` runs
+   the page's own Pagefind query for a conference title and a speaker name.
+   **[kernel: `G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`]** still holds for a site
+   without an index. D14's stage awareness is part 3.
+2. ~~34.1, D5: the conference template.~~ **Done (A9 part 1)**, with the CFP badge
+   and topic pills.
+3. ~~D18: fix "Call for Papers"; create About; the brief's footer.~~ **Done for
+   the footer (A9 part 1)**; user and admin menus and breadcrumbs are part 2.
 4. 34.6: link or fold `ritrovo.css`; badge styles; decide what `/` renders.
 5. D13: tile visibility rules in config.
 6. 39.1, D24: cache tags where Ritrovo renders **[kernel: `G-NO-REQUEST-PROFILER`]**.

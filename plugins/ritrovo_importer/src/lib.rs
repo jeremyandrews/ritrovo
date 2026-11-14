@@ -25,6 +25,7 @@ use std::collections::HashMap;
 #[path = "../../ritrovo_translate/src/detect.rs"]
 #[allow(dead_code)]
 mod detect;
+mod search_text;
 
 pub mod api;
 
@@ -722,8 +723,12 @@ fn scalar_i64(sql: &str, column: &str) -> i64 {
 pub fn tap_cron(input: CronInput) -> serde_json::Value {
     let now = input.timestamp;
 
+    // Every call, ahead of the once-a-day gate: the values search reads have to
+    // follow every way a conference changes, not only the daily fetch.
+    let search = search_text::refresh();
+
     if !should_import(now) {
-        return serde_json::json!({"status": "skipped", "reason": "too_soon"});
+        return serde_json::json!({"status": "skipped", "reason": "too_soon", "search_text": search});
     }
 
     let current_year = timestamp_to_year(now);
@@ -766,6 +771,7 @@ pub fn tap_cron(input: CronInput) -> serde_json::Value {
         "skipped_304": skipped_304,
         "errors": errors,
         "topics_processed": cycle_topics,
+        "search_text": search,
     })
 }
 

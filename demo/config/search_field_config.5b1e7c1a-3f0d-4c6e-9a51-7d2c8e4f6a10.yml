@@ -1,0 +1,13 @@
+# Search field config — conference topics, denormalized (weight C, as the brief
+# has it: "city/topics = C").
+#
+# field_topics itself is an array of tag uuids, which neither search index can
+# make words of (FRICTION.md, G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS). The brief
+# names this field "topics (denormalized)"; ritrovo_importer's tap_cron writes it
+# on every conference as the labels of its tags and their ancestors
+# (plugins/ritrovo_importer/src/search_text.rs). Not declared on the type, so no
+# form shows it and no editor can type into it.
+id: 5b1e7c1a-3f0d-4c6e-9a51-7d2c8e4f6a10
+bundle: conference
+field_name: field_topic_names
+weight: C

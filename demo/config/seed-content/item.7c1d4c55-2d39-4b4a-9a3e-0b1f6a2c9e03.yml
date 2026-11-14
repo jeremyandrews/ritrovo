@@ -1,0 +1,39 @@
+# Static page: Data sources, served at /data-sources (url_alias.9e3b0a61-4f0e-4a43-8d0c-2a6b5f1e7c03.yml).
+#
+# A kernel `page` item, so it is ordinary content: Live, searchable, editable at
+# /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e03/edit. The body is Markdown, rendered by Ritrovo's
+# elements/item--page.html through the kernel's own sanitizing `markdown` filter.
+id: 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e03
+type: page
+title: Data sources
+language: en
+status: 1
+created: 1794700000
+changed: 1794700000
+fields:
+  body:
+    format: markdown
+    value: |
+      ## confs.tech
+      
+      Most of the conferences on Ritrovo come from **[confs.tech](https://confs.tech)**,
+      an open, community-maintained list of developer conferences, published as JSON at
+      [github.com/tech-conferences/conference-data](https://github.com/tech-conferences/conference-data).
+      Thank you to everyone who maintains it.
+      
+      Ritrovo's importer fetches the current and next year's files for each topic once
+      a day, maps confs.tech's topics onto Ritrovo's own topic tree, and queues what
+      changed. New conferences land on the Incoming stage and are reviewed by an
+      editor before they are published, so a conference can be in confs.tech and not
+      yet here. Corrections belong upstream: fix the entry in confs.tech and the next
+      import carries the fix.
+      
+      ## Member submissions
+      
+      Signed-in members can [submit a conference](/conferences/submit). Submissions
+      are reviewed the same way imports are.
+      
+      ## Seed content
+      
+      Descriptions, speakers and the Italian translations of a handful of featured
+      conferences are demonstration content written for this site, not imported.

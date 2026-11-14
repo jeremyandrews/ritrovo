@@ -1,3 +1,4 @@
+{% import "includes/topics.html" as topics %}
 {# Conference detail page.
 
    This template renders the conference's fields in their own places. It
@@ -38,9 +39,52 @@
             <span class="conf-detail__online">Online</span>
             {% endif %}
             {% if item.fields.field_language %}
-            <span class="conf-detail__language" lang="{{ item.fields.field_language | lower }}">{{ item.fields.field_language | upper }}</span>
+            <span class="conf-detail__language lang-badge" lang="{{ item.fields.field_language | lower }}">{{ item.fields.field_language | upper }}</span>
+            {% endif %}
+            {# The CFP badge, drawn here because ritrovo_cfp's own badge arrives in
+               `children`, which this file cannot render
+               (G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT). Same rule
+               as plugins/ritrovo_cfp/src/lib.rs `render_badge`: the deadline is
+               the END of the closing day, days are whole days left, more than 14
+               is open, 8 to 14 closing, 7 or fewer urgent, and a passed deadline
+               draws nothing. `now()` is the server clock at render time; the
+               date filter reads a YYYY-MM-DD string as midnight UTC. A value
+               that is not a date draws nothing rather than a wrong countdown. #}
+            {% set cfp_end = item.fields.field_cfp_end_date | default(value="") %}
+            {% if cfp_end is string and cfp_end is matching("^[0-9]{4}-[0-9]{2}-[0-9]{2}$") %}
+            {% set cfp_end_ts = cfp_end | date(format="%s") | int %}
+            {% set cfp_left = cfp_end_ts + 86400 - now(timestamp=true) %}
+            {% if cfp_left > 0 %}
+            {% set cfp_days_exact = cfp_left / 86400 %}
+            {% set cfp_days = cfp_days_exact | round(method="floor") | int %}
+            {% if cfp_days > 14 %}
+            <span class="cfp-badge cfp-badge--open">CFP Open &mdash; {{ cfp_days }} days left</span>
+            {% elif cfp_days > 7 %}
+            <span class="cfp-badge cfp-badge--closing">CFP Closing &mdash; {{ cfp_days }} days left</span>
+            {% elif cfp_days > 1 %}
+            <span class="cfp-badge cfp-badge--urgent">CFP Urgent &mdash; {{ cfp_days }} days left</span>
+            {% elif cfp_days == 1 %}
+            <span class="cfp-badge cfp-badge--urgent">CFP Urgent &mdash; 1 day left</span>
+            {% else %}
+            <span class="cfp-badge cfp-badge--urgent">CFP Closes Today!</span>
+            {% endif %}
+            {% endif %}
             {% endif %}
         </div>
+        {# Topic pills. field_topics is an array of tag uuids and the kernel
+           resolves none of them for a template
+           (G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS), so the labels come from
+           includes/topics.html, generated from demo/config/tag.*.yml and held to
+           it by demo/checks/tests/topic_labels.rs. A uuid that names no term
+           renders nothing. #}
+        {% if item.fields.field_topics is defined and item.fields.field_topics is iterable and item.fields.field_topics | length > 0 %}
+        <ul class="topic-pills" aria-label="Topics">
+            {% for topic_id in item.fields.field_topics %}
+            {% set pill = topics::pill(id=topic_id) %}
+            {% if pill %}<li>{{ pill | safe }}</li>{% endif %} {# SAFE: generated from Ritrovo's own tag config, labels escaped by the generator #}
+            {% endfor %}
+        </ul>
+        {% endif %}
         {# The language switcher: a link to this conference in the site's other
            language, chosen by the language this page is in.
 
@@ -170,13 +214,6 @@
     </div>
     {% endif %}
 
-    {# The brief asks for topic pills and a topic breadcrumb here. field_topics is
-       an array of tag uuids and the item route resolves RecordReference targets
-       and reverse references but never a category tag, so a template on this page
-       can print uuids and nothing else: no label, no link
-       (G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS). Printing uuids would be
-       worse than printing nothing, so nothing is what this renders. The topic
-       LISTINGS work: /topics/{slug} resolves the term on the gather route. #}
 </article>
 
 {# Conference detail styles live in static/css/theme.css #}

@@ -153,6 +153,7 @@ jobs:
           for test in \
             the_queue_worker_drains_the_fixture_batches_into_conferences \
             replaying_the_import_adds_no_conference_and_no_duplicate \
+            cron_writes_the_title_and_topic_labels_search_reads_at_the_brief_s_weights \
             the_admin_screens_are_401_anonymous_and_200_html_for_an_administrator \
             incoming_and_curated_conferences_are_gated_by_permission \
             an_italian_conference_is_marked_for_translation_and_an_english_one_is_not \
