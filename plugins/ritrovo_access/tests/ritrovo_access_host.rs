@@ -795,3 +795,265 @@ fn the_demo_seed_waits_for_the_import_and_then_seeds_a_small_feed() {
         assert_eq!(again["status"], "skipped", "the seed ran twice: {again}");
     });
 }
+
+/// The titles `/api/search` answered, in order.
+fn search_titles(body: &str) -> Vec<String> {
+    let value = host::json(body);
+    value["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no results array in {body}"))
+        .iter()
+        .filter_map(|r| r["title"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// Search is stage-aware, and nobody reaches an editorial stage through it but
+/// an administrator who has switched to that stage.
+///
+/// One conference on each of the three stages, all three titled with the same
+/// unusual word, then the kernel's own search route asked for it:
+///
+/// - **anonymous**: the Live one only;
+/// - **an editor** (the demo's real `editor` role, which may read Incoming and
+///   Curated through `ritrovo_access`): the Live one only as well. Server search
+///   reads the stage from the session (`crates/kernel/src/routes/search.rs:26-46`)
+///   and only an administrator may set it (`routes/admin.rs:55`); the editor's
+///   attempt is refused, and search never offers the stages the editor may read
+///   (FRICTION.md, G-STAGE-SWITCH-IS-ADMIN-ONLY);
+/// - **an administrator switched to Incoming**: the Incoming one and the Live
+///   one, and still never the Curated one, because the stage set is the active
+///   stage plus Live, not every stage.
+///
+/// The browser's search is the Pagefind index, which the kernel builds from Live
+/// items only (`crates/kernel/src/cron/pagefind.rs:135-147`), so it has no
+/// editor view at all; `scripts/verify-demo.sh` holds the demo's index to the
+/// Live count and queries it for an Incoming and a Curated title.
+#[test]
+fn search_returns_live_to_everyone_and_another_stage_only_to_an_administrator_on_it() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::prepare_app_database(&pool, &[PLUGIN]).await;
+        host::import_demo_config(&pool).await;
+        let app = host::app().await;
+        host::clear_rate_limits().await;
+
+        sqlx::query("DELETE FROM item WHERE type = 'conference'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let items = host::items(&pool, &host::dispatcher(PLUGIN));
+        let mut fields = conference_fields(&pool).await;
+        let mut live_id = None;
+        for (title, stage, source) in [
+            ("Quokkafest Live", None, "stage-search-live"),
+            (
+                "Quokkafest Incoming",
+                Some(INCOMING_STAGE),
+                "stage-search-incoming",
+            ),
+            (
+                "Quokkafest Curated",
+                Some(CURATED_STAGE),
+                "stage-search-curated",
+            ),
+        ] {
+            fields["field_source_id"] = serde_json::json!(source);
+            let item = host::create_conference(&pool, &items, title, stage, fields.clone()).await;
+            if stage.is_none() {
+                live_id = Some(item.id);
+            }
+        }
+        // A session's CSRF token, from the kernel's own edit form for the Live
+        // conference, which both an editor and an administrator may open.
+        let edit_path = format!("/item/{}/edit", live_id.unwrap());
+        // The fixture really is on three stages, and the tsvector trigger has
+        // indexed all three: what search leaves out, it leaves out by stage.
+        let indexed: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT stage_id) FROM item \
+              WHERE title LIKE 'Quokkafest %' \
+                AND search_vector @@ to_tsquery('english', 'quokkafest')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            indexed, 3,
+            "the three fixtures are not indexed on three stages"
+        );
+
+        let anonymous = app.get("/api/search?q=quokkafest", "").await;
+        assert_eq!(anonymous.status, 200, "{}", anonymous.body);
+        assert_eq!(search_titles(&anonymous.body), vec!["Quokkafest Live"]);
+
+        let (editor, _) = app.login_as_new_member(&["editor"]).await;
+        let as_editor = app.get("/api/search?q=quokkafest", &editor).await;
+        assert_eq!(search_titles(&as_editor.body), vec!["Quokkafest Live"]);
+
+        // The editor asks for Incoming and is refused.
+        let page = app.get(&edit_path, &editor).await;
+        let switch = app
+            .send(
+                axum::http::Request::post("/admin/stage/switch")
+                    .header("content-type", "application/json")
+                    .header("x-csrf-token", csrf(&page.body))
+                    .header(axum::http::header::COOKIE, &editor)
+                    .body(axum::body::Body::from(format!(
+                        r#"{{"stage_id":"{INCOMING_STAGE}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await;
+        // Refused for being an editor, not for the token: the same kind of
+        // token, taken the same way, is accepted for the administrator below.
+        assert_eq!(
+            switch.status, 403,
+            "an editor's stage switch was not refused: {}",
+            switch.body
+        );
+        assert!(
+            !switch.body.contains("CSRF"),
+            "the editor's switch failed on its token, which proves nothing: {}",
+            switch.body
+        );
+        let still = app.get("/api/search?q=quokkafest", &editor).await;
+        assert_eq!(search_titles(&still.body), vec!["Quokkafest Live"]);
+
+        // An administrator on Incoming sees Incoming and Live, never Curated.
+        let admin = app.login_as_new_admin().await;
+        let page = app.get(&edit_path, &admin).await;
+        let switch = app
+            .send(
+                axum::http::Request::post("/admin/stage/switch")
+                    .header("content-type", "application/json")
+                    .header("x-csrf-token", csrf(&page.body))
+                    .header(axum::http::header::COOKIE, &admin)
+                    .body(axum::body::Body::from(format!(
+                        r#"{{"stage_id":"{INCOMING_STAGE}"}}"#
+                    )))
+                    .unwrap(),
+            )
+            .await;
+        assert_eq!(switch.status, 200, "{}", switch.body);
+        let mut on_incoming =
+            search_titles(&app.get("/api/search?q=quokkafest", &admin).await.body);
+        on_incoming.sort();
+        assert_eq!(on_incoming, vec!["Quokkafest Incoming", "Quokkafest Live"]);
+
+        // And the anonymous answer did not change while an administrator was
+        // looking at Incoming: the stage is per session, never shared.
+        let anonymous = app.get("/api/search?q=quokkafest", "").await;
+        assert_eq!(search_titles(&anonymous.body), vec!["Quokkafest Live"]);
+    });
+}
+
+/// What a page shows after each kind of write, read through the kernel's own
+/// item route, which reads through `ItemService`'s in-process cache.
+///
+/// - **A kernel edit** (the edit form, as an editor) is on the page at once:
+///   `ItemService::update` invalidates its own entry.
+/// - **A raw SQL write**, which is how `ritrovo_importer` updates a conference it
+///   has already landed (and how the submission form and config import write),
+///   is NOT: the page keeps the cached title until the entry expires
+///   (`CACHE_TTL_ITEMS`, 300 seconds by default and 10 on the demo), because no
+///   host call reaches `ItemService::invalidate`
+///   (FRICTION.md, G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE). The test then
+///   invalidates the entry the way only the kernel can, and the page catches up:
+///   the staleness is the cache's and nothing else's.
+/// - **An editor's view of a Curated conference never reaches an anonymous
+///   visitor.** The cache holds Items, not pages, and the access check runs on
+///   every request after the cache is read, so an editor loading the Curated
+///   item (and so caching it) changes nothing for the next anonymous request.
+///   There is no page cache for it to leak through: the kernel caches no
+///   rendered HTML (docs/CACHING.md).
+#[test]
+fn a_kernel_edit_shows_at_once_a_raw_write_waits_for_the_cache_and_no_view_leaks() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::prepare_app_database(&pool, &[PLUGIN]).await;
+        host::import_demo_config(&pool).await;
+        let app = host::app().await;
+        host::clear_rate_limits().await;
+
+        sqlx::query("DELETE FROM item WHERE type = 'conference'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let items = host::items(&pool, &host::dispatcher(PLUGIN));
+        let mut fields = conference_fields(&pool).await;
+        fields["field_source_id"] = serde_json::json!("cache-live");
+        let live =
+            host::create_conference(&pool, &items, "Wombatcon Original", None, fields.clone())
+                .await;
+        fields["field_source_id"] = serde_json::json!("cache-curated");
+        let curated = host::create_conference(
+            &pool,
+            &items,
+            "Wombatcon Curated Secret",
+            Some(CURATED_STAGE),
+            fields.clone(),
+        )
+        .await;
+        let page = format!("/item/{}", live.id);
+
+        // Warm the cache.
+        let first = app.get(&page, "").await;
+        assert_eq!(first.status, 200, "{}", first.body);
+        assert!(first.body.contains("Wombatcon Original"));
+
+        // A kernel edit: through the edit form, as an editor.
+        let (editor, _) = app.login_as_new_member(&["editor"]).await;
+        let edit = format!("/item/{}/edit", live.id);
+        let form = app.get(&edit, &editor).await;
+        assert_eq!(form.status, 200, "{}", form.body);
+        let body = [
+            format!("_csrf={}", csrf(&form.body)),
+            "title=Wombatcon+Edited".to_string(),
+            "status=1".to_string(),
+            "field_start_date=2027-05-01".to_string(),
+            "field_source_id=cache-live".to_string(),
+        ]
+        .join("&");
+        let saved = app.post_form(&edit, &body, &editor).await;
+        assert_eq!(saved.status, 200, "the edit was refused: {}", saved.body);
+        let after_edit = app.get(&page, "").await;
+        assert!(
+            after_edit.body.contains("Wombatcon Edited")
+                && !after_edit.body.contains("Wombatcon Original"),
+            "a kernel edit did not reach the page at once"
+        );
+
+        // A raw write, the importer's path.
+        sqlx::query("UPDATE item SET title = 'Wombatcon Imported' WHERE id = $1")
+            .bind(live.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let after_raw = app.get(&page, "").await;
+        assert!(
+            after_raw.body.contains("Wombatcon Edited")
+                && !after_raw.body.contains("Wombatcon Imported"),
+            "a raw write reached the page before the cache expired; \
+             G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE may be fixed, so update \
+             docs/CACHING.md rather than relaxing this"
+        );
+        app.state.items().invalidate(live.id);
+        let after_invalidate = app.get(&page, "").await;
+        assert!(
+            after_invalidate.body.contains("Wombatcon Imported"),
+            "the page did not catch up once the entry was invalidated"
+        );
+
+        // The editor reads the Curated conference, which caches it...
+        let curated_page = format!("/item/{}", curated.id);
+        let as_editor = app.get(&curated_page, &editor).await;
+        assert_eq!(as_editor.status, 200, "{}", as_editor.body);
+        assert!(as_editor.body.contains("Wombatcon Curated Secret"));
+        // ...and an anonymous visitor straight after is refused it.
+        let as_anonymous = app.get(&curated_page, "").await;
+        assert_ne!(as_anonymous.status, 200, "{}", as_anonymous.body);
+        assert!(
+            !as_anonymous.body.contains("Wombatcon Curated Secret"),
+            "an editor's view of a Curated conference reached an anonymous visitor"
+        );
+    });
+}

@@ -71,17 +71,18 @@ P1 to P19.
 
 ## Tally
 
-Recounted at the end of A9 part 2 (2026-11-14) from the status cells below, by
-the first words of each: **part done** gathers every row that says part, half or
-partly done.
+Recounted at the close of A9 (2026-11-14) from the status cells below, by the
+first words of each: **part done** gathers every row that says part, half or
+partly done. Every row whose milestone is A9 is done or blocked on the kernel; the
+AI rows are A9b.
 
 | Status | Stories (63) | What It Demonstrates (25) | Plugin taps (19) | All (107) |
 | :- | -: | -: | -: | -: |
 | done | 30 | 6 | 12 | 48 |
-| part done | 6 | 6 | 1 | 13 |
-| kernel has it, Ritrovo does not use it | 13 | 3 | 0 | 16 |
+| part done | 6 | 5 | 1 | 12 |
+| kernel has it, Ritrovo does not use it | 12 | 2 | 0 | 14 |
 | Ritrovo must build it | 0 | 0 | 0 | 0 |
-| blocked on the kernel | 14 | 10 | 6 | 30 |
+| blocked on the kernel | 15 | 12 | 6 | 33 |
 
 ---
 
@@ -371,27 +372,27 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | :- | :- | :- | :- | :- | :- |
 | 30.1 | Pagefind index rebuilt by cron on content change | config | **done (A9)** | `trovato_search` is enabled by the bootstrap; its `tap_cron` asks for a rebuild whenever Live content has changed since the last build, and the kernel rebuilds in the same cron cycle (`crates/kernel/src/cron/pagefind.rs:1-8`). `scripts/serve-demo.sh` builds the index before it reports ready and waits until the index's page count equals the Live item count; `verify-demo.sh` asserts the same count on every run. Two kernel faults made the index useless until A9 and are covered by plugin code: no title was ever in the indexed body, and items with no configured text were left out (`G-PAGEFIND-INDEX-OMITS-TITLES`). No admin or CLI re-index trigger. | A9 |
 | 30.2 | Instant client-side search UI with no-JS fallback | config | **done (A9)** | In Chrome, `/search?q=Codemotion` and `/search?q=Bruno Sala` list the conference and the speaker from the Pagefind index (`scolta.js`); with JavaScript off the server's tsvector results render in the `<noscript>` block. `verify-demo.sh` runs the same query the page runs, through `pagefind.js` itself (`scripts/pagefind-query.mjs`). Kernel faults left open: the page still blanks if the index is missing, re-verified at 0.103.0 with the index moved aside (`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`; the demo always has one), and a result can link to an Italian alias without its prefix (`G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE`). | A9 |
-| 30.3 | Configurable client-side ranking signals | kernel | **blocked on the kernel** | Scoring exists in `static/js/scolta.js`, with its values hard-coded in `templates/search.html:100-121`; there is no configuration for them (`G-SEARCH-NO-ADMIN-OR-ANALYTICS`). | A9 |
-| 30.4 | AI query expansion | config | **kernel has it, Ritrovo does not use it** | `POST /api/v1/search/expand`, `crates/kernel/src/routes/api_search.rs:25-30`; needs a Chat provider. None configured. | A9 |
-| 30.5 | AI summary streamed over SSE | config | **kernel has it, Ritrovo does not use it** | `/api/v1/search/summarize`, `routes/api_search.rs:25-30`. | A9 |
-| 30.6 | Conversational follow-up and sentiment analysis | kernel | **blocked on the kernel** | Follow-up exists (`/api/v1/search/followup`); no sentiment classification exists in `crates/kernel/src` (`G-SEARCH-NO-ADMIN-OR-ANALYTICS`). | A9 |
-| 30.7 | Search configuration admin and analytics dashboard | kernel | **blocked on the kernel** | No search settings screen and no query log (`G-SEARCH-NO-ADMIN-OR-ANALYTICS`). Per-type field weights exist at `/admin/structure/types/{type}/search`. | A9 |
+| 30.3 | Configurable client-side ranking signals | kernel | **blocked on the kernel** | Scoring exists in `static/js/scolta.js`, with its values hard-coded in `templates/search.html:100-121`; there is no configuration for them (`G-SEARCH-NO-ADMIN-OR-ANALYTICS`). Re-checked at 0.103.0 (A9 part 3): unchanged; out of A9's scope by the brief, recorded only. | A9 |
+| 30.4 | AI query expansion | config | **kernel has it, Ritrovo does not use it** | `POST /api/v1/search/expand`, `crates/kernel/src/routes/api_search.rs:25-30`; needs a Chat provider. None configured. | A9b |
+| 30.5 | AI summary streamed over SSE | config | **kernel has it, Ritrovo does not use it** | `/api/v1/search/summarize`, `routes/api_search.rs:25-30`. | A9b |
+| 30.6 | Conversational follow-up and sentiment analysis | kernel | **blocked on the kernel** | Follow-up exists (`/api/v1/search/followup`); no sentiment classification exists in `crates/kernel/src` (`G-SEARCH-NO-ADMIN-OR-ANALYTICS`). Re-checked at 0.103.0 (A9 part 3): unchanged; out of A9's scope by the brief, recorded only. | A9 |
+| 30.7 | Search configuration admin and analytics dashboard | kernel | **blocked on the kernel** | No search settings screen and no query log (`G-SEARCH-NO-ADMIN-OR-ANALYTICS`). Per-type field weights exist at `/admin/structure/types/{type}/search`. Re-checked at 0.103.0 (A9 part 3): unchanged; out of A9's scope by the brief, recorded only. | A9 |
 
 ### Epic 3: AI as a Building Block
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| 31.1 | AI provider registry, keys never in the database | config | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/routes/admin_ai_provider.rs`, `services/ai_provider.rs`; admin at `/admin/system/ai-providers` (linked from `/admin` in the demo). | A9 |
-| 31.2 | `ai_request()` host function | kernel | **kernel has it, Ritrovo does not use it** | `ai-api` interface in `crates/wit/kernel.wit`, `crates/kernel/src/host/ai.rs`. | A9 |
-| 31.3 | Token budgets | config | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/routes/admin_ai_budget.rs`, `/admin/system/ai-budgets`. | A9 |
-| 31.4 | AI permissions | config | **kernel has it, Ritrovo does not use it** | Kernel permissions, not `tap_perm` ones: `use ai`, `use ai chat` and others at `crates/kernel/src/models/role.rs:49-53`. | A9 |
-| 31.5 | Content enrichment field rules on presave | config | **kernel has it, Ritrovo does not use it** | `tap_item_presave` dispatched and its `fields` merged (`crates/kernel/src/content/item_service.rs:365-390`); `trovato_ai` disabled. | A9 |
-| 31.6 | AI Assist buttons in forms | kernel | **blocked on the kernel** | `POST /api/v1/ai/assist` exists (`routes/api_ai_assist.rs:54`); the buttons are injected by `tap_form_alter`, which never fires (`G-FORM-TAPS-UNREACHABLE`). | A9 |
-| 31.7 | Chatbot tile with SSE and RAG | config | **kernel has it, Ritrovo does not use it** | `chat` tile type (`crates/kernel/src/services/tile.rs:120-122`), `POST /api/v1/chat` (`routes/api_chat.rs:433`). | A9 |
-| 31.8 | Chatbot actions through tool calling | plugin | **kernel has it, Ritrovo does not use it** | `tap_chat_actions` is superseded; the dispatched surface is `tap_assistant_scopes`, `tap_assistant_context`, `tap_assistant_tool` (`crates/wit/kernel.wit:476-478`, `services/ai_assistant.rs:665`, `:696`). | A9 |
-| 31.9 | AI admin UI and usage dashboard | config | **kernel has it, Ritrovo does not use it** | `routes/admin_ai_provider.rs`, `admin_ai_budget.rs`, `admin_ai_chat.rs`, `admin_ai_features.rs`. | A9 |
-| 31.10 | MCP server | kernel | **kernel has it, Ritrovo does not use it** | `crates/mcp-server`. | A9 |
-| 31.11 | VectorStore trait and pgvector | kernel | **kernel has it, Ritrovo does not use it** | `trait VectorStore`, `crates/kernel/src/services/vector_store.rs:56`. The demo's Postgres image is `postgres:16-alpine`, without pgvector. | A9 |
+| 31.1 | AI provider registry, keys never in the database | config | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/routes/admin_ai_provider.rs`, `services/ai_provider.rs`; admin at `/admin/system/ai-providers` (linked from `/admin` in the demo). | A9b |
+| 31.2 | `ai_request()` host function | kernel | **kernel has it, Ritrovo does not use it** | `ai-api` interface in `crates/wit/kernel.wit`, `crates/kernel/src/host/ai.rs`. | A9b |
+| 31.3 | Token budgets | config | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/routes/admin_ai_budget.rs`, `/admin/system/ai-budgets`. | A9b |
+| 31.4 | AI permissions | config | **kernel has it, Ritrovo does not use it** | Kernel permissions, not `tap_perm` ones: `use ai`, `use ai chat` and others at `crates/kernel/src/models/role.rs:49-53`. | A9b |
+| 31.5 | Content enrichment field rules on presave | config | **kernel has it, Ritrovo does not use it** | `tap_item_presave` dispatched and its `fields` merged (`crates/kernel/src/content/item_service.rs:365-390`); `trovato_ai` disabled. | A9b |
+| 31.6 | AI Assist buttons in forms | kernel | **blocked on the kernel** | `POST /api/v1/ai/assist` exists (`routes/api_ai_assist.rs:54`); the buttons are injected by `tap_form_alter`, which never fires (`G-FORM-TAPS-UNREACHABLE`). | A9b |
+| 31.7 | Chatbot tile with SSE and RAG | config | **kernel has it, Ritrovo does not use it** | `chat` tile type (`crates/kernel/src/services/tile.rs:120-122`), `POST /api/v1/chat` (`routes/api_chat.rs:433`). | A9b |
+| 31.8 | Chatbot actions through tool calling | plugin | **kernel has it, Ritrovo does not use it** | `tap_chat_actions` is superseded; the dispatched surface is `tap_assistant_scopes`, `tap_assistant_context`, `tap_assistant_tool` (`crates/wit/kernel.wit:476-478`, `services/ai_assistant.rs:665`, `:696`). | A9b |
+| 31.9 | AI admin UI and usage dashboard | config | **kernel has it, Ritrovo does not use it** | `routes/admin_ai_provider.rs`, `admin_ai_budget.rs`, `admin_ai_chat.rs`, `admin_ai_features.rs`. | A9b |
+| 31.10 | MCP server | kernel | **kernel has it, Ritrovo does not use it** | `crates/mcp-server`. | A9b |
+| 31.11 | VectorStore trait and pgvector | kernel | **kernel has it, Ritrovo does not use it** | `trait VectorStore`, `crates/kernel/src/services/vector_store.rs:56`. The demo's Postgres image is `postgres:16-alpine`, without pgvector. | A9b |
 
 ### Epic 4: From Demo to Data-Driven (Part 2)
 
@@ -462,7 +463,7 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| 39.1 | Two-tier caching with tag invalidation | kernel | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/cache/mod.rs:84-208`. Nothing in Ritrovo tags or invalidates, and the importer's raw SQL skips item cache invalidation. | A9 |
+| 39.1 | Two-tier caching with tag invalidation | kernel | **blocked on the kernel** | The kernel's item cache is invalidated by its own writes and by nothing a plugin can call, and every Ritrovo write (the importer, the submission form, search text, tiles) is raw SQL: `G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE`. Measured, not assumed: `a_kernel_edit_shows_at_once_a_raw_write_waits_for_the_cache_and_no_view_leaks` (`plugins/ritrovo_access/tests/ritrovo_access_host.rs`) drives the item route; a form edit is on the page at once, a raw write waits for the TTL, and an editor's read of a Curated conference never reaches an anonymous request. `verify-demo.sh` shows the raw-write staleness on the demo (10 s). `docs/CACHING.md` has the hit and miss commands. | A9 |
 | 39.2 | Batch operations with progress | kernel, plugin | **partly done (A5); progress blocked** | Bulk stage moves work on Ritrovo's editorial screen, inline over the selection, the same way the kernel's own bulk publish works. There is no progress display and cannot be: nothing anywhere executes a batch, and `update_progress`, `complete` and `fail` have no callers outside their own module (`G-BATCH-NO-EXECUTOR`). A plugin also cannot add a stage action to `/admin/content` (`G-BULK-ACTIONS-NOT-EXTENSIBLE`). | A5 |
 | 39.3 | S3-compatible storage | kernel | **blocked on the kernel** | `G-S3-STORAGE-REMOVED`. | A4 |
 | 39.4 | Cron with distributed locking | kernel | **done** | `scripts/demo-cron.sh` posts to `/cron/{key}`; the kernel log shows "acquired cron lock, running tasks" each minute. | A4 |
@@ -487,7 +488,7 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | D11 | Queue: import validation queue with `tap_queue_info` and `tap_queue_worker` | plugin | **done** | 269 import jobs queued and drained on the current demo. The worker's error handling is fixed: see P3. | A4 |
 | D12 | Tiles: CFPs closing soon, this month, topic cloud, recent comments, my subscriptions | config, plugin | **blocked on the kernel, for My Subscriptions only** | CFPs Closing Soon, Conferences This Month, the Topic Cloud with counts and Recent Comments render real data on the front page and the sidebar, each checked row for row against Postgres by `verify-demo.sh` (plugin code, `tiles.rs`, since `G-TILE-GATHER-QUERY-RENDERS-NOTHING` is open). My Subscriptions is a role-limited signpost to `/user/bio`, which links the member's own list: a tile cannot vary by viewer and no template knows the viewer's uid (`G-NO-VIEWER-ID-IN-TEMPLATES`). | A9 |
 | D13 | Slots and the admin UI for placing tiles, with role and path visibility | config | **done (A9)** | Every tile's region, weight and visibility is in `demo/config/tile.*.yml` and editable at `/admin/structure/tiles`: path rules (`front_upcoming` on `/` only, the topic cloud on `/`, `/conferences` and `/topics*`, recent comments on `/` and `/item/*`), `paths_exclude: [/admin*]` on two, and one role rule, My Subscriptions for `authenticated user`, which `verify-demo.sh` asserts is shown to a member and not to a visitor. Only the kernel's three synthetic roles can be used (`G-TILE-ROLES-ARE-SYNTHETIC`). | A9 |
-| D14 | Search: weighted fields, stage-aware, across conferences and speakers | config | **part done (A9 part 1); stage awareness is part 3** | Weighted (34.5) and across both types (E4.5), in the browser and on the server. | A9 |
+| D14 | Search: weighted fields, stage-aware, across conferences and speakers | config | **blocked on the kernel, for the editor half of stage awareness** | Weighted (34.5) and across both types (E4.5), in the browser and on the server. Stage-aware for visitors: the Pagefind index holds Live only (its page count equals the Live count) and `verify-demo.sh` asks both indexes, anonymously, for an Incoming and a Curated title and gets neither. `search_returns_live_to_everyone_and_another_stage_only_to_an_administrator_on_it` (`plugins/ritrovo_access/tests/ritrovo_access_host.rs`) indexes one conference per stage: anonymous and editor get Live only, and only an administrator switched to Incoming gets Incoming and Live, never Curated. An editor cannot search the stages they edit (`G-STAGE-SWITCH-IS-ADMIN-ONLY`). | A9 |
 | D15 | Users and Auth: registration, login, profiles with bio and avatar | kernel, plugin | **part done (A6)** | 35.1 for accounts. Profiles with a bio are done, on Ritrovo's own page (36.7); avatars are blocked (`G-FILE-NO-HOST-API`). | A6 |
 | D16 | Permissions: five roles, Grant and Deny, field visibility, stage scope | plugin, config | **blocked on the kernel** | 35.2, 36.6. | A5 |
 | D17 | Files: logo, gallery, headshot, PDF, local and S3, private files | config | **kernel has it, Ritrovo does not use it** | 34.2; S3 is `G-S3-STORAGE-REMOVED`. | A4 |
@@ -497,7 +498,7 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | D21 | i18n: translated content, UI strings, aliases, switcher | config, plugin | **done except UI strings** | 38.1, 38.2, 38.3, 38.4. UI strings: `G-LOCALE-STRINGS-NEVER-LOADED`. | A8 |
 | D22 | Multi-step submission with state in PostgreSQL | plugin | **done (A6)** | 36.4. The state is in PostgreSQL as the brief asks, in `ritrovo_form_state` rather than the kernel's `form_state_cache`: that table, its writer and its expiry task all exist and a plugin can reach none of them (`G-NO-FORM-STATE-HOST-API`). | A6 |
 | D23 | AJAX: conditional fields, add another, autocomplete, subscription toggle, filters | plugin, kernel | **blocked on the kernel** | 36.3; the toggle is 37.3; the filter form submits by full page load. Every form Ritrovo now serves works without JavaScript, which is the half of "progressive enhancement" that can be built on this kernel; the enhancement half cannot, because form AJAX is administrator-only and routes through the `FormService` no route calls (`G-AJAX-ADMIN-ONLY-NO-CONDITIONAL-FIELDS`). | A6 |
-| D24 | Caching demonstrated through Gander | kernel | **kernel has it, Ritrovo does not use it** | 39.1; Gander does not exist (`G-NO-REQUEST-PROFILER`). | A9 |
+| D24 | Caching demonstrated through Gander | kernel | **blocked on the kernel** | Gander does not exist and `Server-Timing` carries one total (`G-NO-REQUEST-PROFILER`, narrowed at 0.103.0, open); the cache counters never move (`G-CACHE-METRICS-NEVER-COUNT`). The walkthrough is in `docs/CACHING.md`, by behaviour, and its claims are asserted as 39.1's are. | A9 |
 | D25 | Batch: bulk publish Curated to Live, bulk re-import, progress | plugin, kernel | **partly done (A5)** | Bulk publish Curated to Live is done, on `/admin/content/editorial`, and verified in the demo. Progress tracking is not, and nothing runs a batch: 39.2. | A5 |
 
 ## Status by intended plugin tap
@@ -652,12 +653,24 @@ blocked and are listed with what they wait on. Item 8 is done.
    **Done (A9 part 2)**: `/` and `/it/` render `page--front.html` around a
    translated welcome page; tokens, dark mode, phone layout, badges.
 5. ~~D13: tile visibility rules in config.~~ **Done (A9 part 2)**, path and role.
-6. 39.1, D24: cache tags where Ritrovo renders **[kernel: `G-NO-REQUEST-PROFILER`]**.
+6. 39.1, D24: see 10.
 7. ~~34.4, D12~~ **Done (A9 part 2) through plugin code** (`tiles.rs`);
    **[kernel: `G-TILE-GATHER-QUERY-RENDERS-NOTHING`]** stays open, and
    **[kernel: `G-NO-VIEWER-ID-IN-TEMPLATES`]** blocks My Subscriptions as a list.
-8. 30.3, 30.6, 30.7 **[kernel: `G-SEARCH-NO-ADMIN-OR-ANALYTICS`]**.
-9. 30.4, 30.5, 31.1 to 31.11 (31.6 **[kernel: `G-FORM-TAPS-UNREACHABLE`]**).
+8. 30.3, 30.6, 30.7 **[kernel: `G-SEARCH-NO-ADMIN-OR-ANALYTICS`]**, re-checked in
+   part 3 and unchanged; ranking configuration and analytics are out of A9's scope.
+9. ~~D14's stage awareness~~ **Done for visitors (A9 part 3)**, asserted in both
+   indexes; **[kernel: `G-STAGE-SWITCH-IS-ADMIN-ONLY`]** for the editor half.
+10. ~~39.1, D24: the cache walkthrough~~ `docs/CACHING.md`, with a host test and a
+   demo check behind every claim; **[kernel: `G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE`,
+   `G-NO-REQUEST-PROFILER`]**.
+
+### A9b: the AI rows
+
+Moved out of A9: 30.4, 30.5 and 31.1 to 31.11 (31.6 **[kernel:
+`G-FORM-TAPS-UNREACHABLE`]**). They need a provider key and no model calls or
+provider configuration were made in A9, by the brief. Their status cells are
+unchanged and their milestone column reads A9b.
 
 ### Proposed changes to the series
 

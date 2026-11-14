@@ -627,6 +627,12 @@ pub async fn app() -> &'static App {
         // route a browser posts to. In the kernel these sit behind a gate on
         // `trovato_comments` being enabled; [`enable_comments`] is that half.
         .merge(trovato_kernel::routes::comment::router())
+        // The kernel's server search (`/search`, `/api/search`) and its admin
+        // routes, `/admin/stage/switch` among them. A9 asserts which stages a
+        // search answers from, for whom, and that only the stage switch changes
+        // it; the honest way is the route a browser calls.
+        .merge(trovato_kernel::routes::search::router())
+        .merge(trovato_kernel::routes::admin::router())
         .merge(trovato_kernel::routes::plugin_api::build_plugin_api_router(
             &state.menu_registry().all().cloned().collect::<Vec<_>>(),
         ))
