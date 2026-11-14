@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{# Ritrovo's page layout. Starts from the kernel's templates/page.html at the
+   pinned release and keeps everything that makes it accessible: one <header>,
+   <main> and <footer> from base.html, a skip link, every <nav> labelled, the
+   active link marked with aria-current and not only a class, breadcrumbs as a
+   labelled nav. What it changes:
+
+   - It links /static/css/ritrovo.css after the kernel's theme.css: Ritrovo's
+     tokens, dark mode, the responsive layout, and the badge, pill and tile styles.
+   - Four menus instead of one. MAIN is the `main` config menu. ACCOUNT is the
+     user menu: the kernel renders only `main` and `footer` from config
+     (crates/kernel/src/routes/helpers.rs:249-262), so a config menu named `user`
+     would never reach a template, and the links are written here instead, with
+     the plugin entries that belong to a member. ADMIN is the kernel's Admin link
+     plus every plugin entry under /admin this viewer may open. FOOTER is the
+     `footer` config menu.
+   - Plugin entries arrive as `menus`: the ROOT entries every plugin declared in
+     tap_menu, already filtered to this viewer's permissions
+     (crates/kernel/src/menu/registry.rs:251). The kernel's page.html shows them
+     only when the main menu is empty; here they are split by path into the
+     account and admin menus. Only RITROVO's plugins' entries, and only those
+     with a concrete path: the list also holds the kernel's own plugins' roots
+     (Home, Blog, Media, a blog post at /blog/:slug) and admin routes with a
+     placeholder in them (/admin/content/:id/translate), which are not pages a
+     menu can link to. An entry WITH a parent is in no list a page is
+     given, which is why ritrovo_notify's "Your subscriptions" (parent /user)
+     appears in no menu (FRICTION.md, G-PLUGIN-MENU-ENTRIES-WITH-A-PARENT-RENDER-NOWHERE).
+   - The navigation region is its own block, so the front page can put the tiles
+     placed there inside the page instead of under the header.
+   - A content template that draws its own topic breadcrumb (a conference, a
+     topic listing) marks it `breadcrumb--topics`, and this layout then leaves
+     out the kernel's, which knows the content type and never the topic tree
+     (G-BREADCRUMBS-IGNORE-THE-TOPIC-TREE). Two trails on one page would be
+     two navs saying different things. #}
+
+{% block head %}
+<link rel="stylesheet" href="/static/css/ritrovo.css">
+{% endblock %}
+
+{% block header %}
+{% set active_path = requested_path | default(value=current_path | default(value="")) %}
+{% set lang_prefix = "" %}
+{% if active_language is defined and active_language == "it" %}{% set lang_prefix = "/it" %}{% endif %}
+<div class="site-header">
+    <div class="container site-header__bar">
+        <div class="site-branding">
+            <a href="{{ lang_prefix }}/" class="site-branding__name">{{ site_name | default(value="Trovato") }}</a>
+            {% if site_slogan %}
+            <span class="site-branding__slogan">{{ site_slogan }}</span>
+            {% endif %}
+        </div>
+        <nav class="site-nav" aria-label="Main">
+            {% if main_menu is defined and main_menu %}
+            {% for link in main_menu %}
+            {% if not link.hidden %}
+            <a href="{{ link.path }}" class="site-nav__link{% if active_path == link.path %} site-nav__link--active{% endif %}"{% if active_path == link.path %} aria-current="page"{% endif %}>{{ link.title }}</a>
+            {% endif %}
+            {% endfor %}
+            {% endif %}
+        </nav>
+        <nav class="user-nav" aria-label="Account">
+            {% if user_authenticated %}
+            {% if menus is defined %}
+            {% for menu in menus %}
+            {% if menu.plugin is starting_with("ritrovo_") and not menu.path is starting_with("/admin") and not menu.path is containing(":") and not menu.path is containing("{") %}
+            <a href="{{ menu.path }}" class="user-nav__link{% if active_path == menu.path %} user-nav__link--active{% endif %}"{% if active_path == menu.path %} aria-current="page"{% endif %}>{{ menu.title }}</a>
+            {% endif %}
+            {% endfor %}
+            {% endif %}
+            <a href="/user/bio" class="user-nav__link{% if active_path == "/user/bio" %} user-nav__link--active{% endif %}"{% if active_path == "/user/bio" %} aria-current="page"{% endif %}>Your profile</a>
+            <a href="/user/profile" class="user-nav__link{% if active_path == "/user/profile" %} user-nav__link--active{% endif %}"{% if active_path == "/user/profile" %} aria-current="page"{% endif %}>Account</a>
+            <form method="post" action="/user/logout" class="site-nav__logout-form">
+                <input type="hidden" name="_token" value="{{ csrf_token }}">
+                <button type="submit" class="user-nav__link site-nav__logout">Logout</button>
+            </form>
+            {% else %}
+            <a href="/user/login" class="user-nav__link">Login</a>
+            <a href="/user/register" class="user-nav__link user-nav__link--cta">Register</a>
+            {% endif %}
+        </nav>
+    </div>
+    {% if user_authenticated and (user_can_access_admin or menus is defined) %}
+    {% set_global admin_links = [] %}
+    {% if menus is defined %}{% for menu in menus %}{% if menu.plugin is starting_with("ritrovo_") and menu.path is starting_with("/admin") and not menu.path is containing(":") and not menu.path is containing("{") %}{% set_global admin_links = admin_links | concat(with=menu) %}{% endif %}{% endfor %}{% endif %}
+    {% if user_can_access_admin or admin_links | length > 0 %}
+    <div class="admin-bar">
+        <nav class="container admin-nav" aria-label="Administration">
+            {% if user_can_access_admin %}<a href="/admin" class="admin-nav__link">Admin</a>{% endif %}
+            {% for menu in admin_links %}
+            <a href="{{ menu.path }}" class="admin-nav__link{% if active_path == menu.path %} admin-nav__link--active{% endif %}"{% if active_path == menu.path %} aria-current="page"{% endif %}>{{ menu.title }}</a>
+            {% endfor %}
+        </nav>
+    </div>
+    {% endif %}
+    {% endif %}
+    {% if header_tiles is defined and header_tiles %}
+    <div class="container site-header__tiles">
+        {{ header_tiles | safe }} {# SAFE: kernel tile render pipeline output #}
+    </div>
+    {% endif %}
+</div>
+
+{% block navigation_slot %}
+{% if navigation_tiles is defined and navigation_tiles %}
+<div class="site-navigation">
+    <div class="container">
+        {{ navigation_tiles | safe }} {# SAFE: kernel tile render pipeline output #}
+    </div>
+</div>
+{% endif %}
+{% endblock navigation_slot %}
+{% endblock %}
+
+{% block content %}
+{% set has_topic_trail = content is defined and content is containing("breadcrumb--topics") %}
+{% if sidebar_tiles is defined and sidebar_tiles %}
+<div class="page-layout">
+    <div class="page-layout__main">
+        {% if breadcrumbs is defined and breadcrumbs and not has_topic_trail %}
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+            {% for crumb in breadcrumbs %}
+            {% if not loop.last %}
+            <a href="{{ crumb.path }}">{{ crumb.title }}</a>
+            <span class="breadcrumb__separator">&rsaquo;</span>
+            {% else %}
+            <span aria-current="page">{{ crumb.title }}</span>
+            {% endif %}
+            {% endfor %}
+        </nav>
+        {% endif %}
+        {% if page_heading is defined and page_heading %}<h1 class="page-title">{{ page_heading }}</h1>{% endif %}
+        {{ content | safe }} {# SAFE: kernel render pipeline output — HTML sanitized via SAFE_TAGS and Tera autoescape #}
+    </div>
+    <aside class="page-layout__sidebar" aria-label="Sidebar">
+        {{ sidebar_tiles | safe }} {# SAFE: kernel tile render pipeline output #}
+    </aside>
+</div>
+{% else %}
+{% if breadcrumbs is defined and breadcrumbs and not has_topic_trail %}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+    {% for crumb in breadcrumbs %}
+    {% if not loop.last %}
+    <a href="{{ crumb.path }}">{{ crumb.title }}</a>
+    <span class="breadcrumb__separator">&rsaquo;</span>
+    {% else %}
+    <span aria-current="page">{{ crumb.title }}</span>
+    {% endif %}
+    {% endfor %}
+</nav>
+{% endif %}
+{% if page_heading is defined and page_heading %}<h1 class="page-title">{{ page_heading }}</h1>{% endif %}
+{{ content | safe }} {# SAFE: kernel render pipeline output — HTML sanitized via SAFE_TAGS and Tera autoescape #}
+{% endif %}
+{% endblock %}
+
+{% block footer %}
+<div class="site-footer">
+    {% if footer_menu is defined and footer_menu %}
+    <nav class="footer-nav" aria-label="Footer">
+        {% for link in footer_menu %}
+        {% if not link.hidden %}
+        <a href="{{ link.path }}">{{ link.title }}</a>
+        {% endif %}
+        {% endfor %}
+    </nav>
+    {% endif %}
+    {% if footer_tiles is defined and footer_tiles %}
+    {{ footer_tiles | safe }} {# SAFE: kernel tile render pipeline output #}
+    {% endif %}
+    &copy; {{ site_name | default(value="Trovato") }}. Powered by Trovato.
+</div>
+{% endblock %}

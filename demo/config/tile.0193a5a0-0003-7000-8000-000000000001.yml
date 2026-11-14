@@ -1,15 +1,29 @@
-# Conferences This Month tile (machine_name: conferences_this_month) — Sidebar.
+# Conferences This Month (machine_name: conferences_this_month), sidebar.
+#
+# The tutorial set made this a gather_query tile, and the kernel renders a
+# gather_query tile as an empty <div data-query-id> that nothing fills
+# (FRICTION.md, G-TILE-GATHER-QUERY-RENDERS-NOTHING, still open). So it is a
+# custom_html tile, the one type the kernel renders, and the body below is a
+# placeholder: ritrovo_importer's cron rewrites it from the Live conferences
+# starting this calendar month (plugins/ritrovo_importer/src/tiles.rs). Placement,
+# weight and visibility stay here and in /admin/structure/tiles.
+#
+# Shown everywhere but the admin pages.
 id: 0193a5a0-0003-7000-8000-000000000001
 machine_name: conferences_this_month
 label: Conferences This Month
 region: sidebar
-tile_type: gather_query
+tile_type: custom_html
 config:
-  query_id: ritrovo.upcoming_conferences
-visibility: {}
+  body: |
+    <p class="tile-list__empty">Filled in by ritrovo_importer on its next cron call.</p>
+  format: full_html
+visibility:
+  paths_exclude:
+  - /admin*
 weight: 0
 status: 1
 plugin: core
 stage_id: 0193a5a0-0000-7000-8000-000000000001
 created: 1767225600
-changed: 1767225600
+changed: 1794700000

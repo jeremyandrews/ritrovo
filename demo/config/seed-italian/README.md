@@ -1,4 +1,4 @@
-# `seed-italian/` — fifteen Italian conferences, in the kernel's translation shape
+# `seed-italian/` — fifteen Italian conferences and the front page, in the kernel's translation shape
 
 A separate config import, run by `scripts/demo-bootstrap.sh` after the plugins are
 enabled. Import reads the `.yml` files only, so this file is not part of it.
@@ -17,6 +17,12 @@ enabled. Import reads the `.yml` files only, so this file is not part of it.
   `en` and `/conferenze/<italian-slug>` in `it`, both pointing at `/item/<id>`.
   Stored without the `/it` prefix, because the kernel strips that prefix before it
   looks an alias up (see `../README.md`).
+
+One more `item_translation` is not a conference:
+`item_translation.7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06.it.yml` is the Italian of
+the front page (the `page` item in `../seed-content`), so `/it/` greets an Italian
+reader in Italian. It lives here because this import runs after `seed-content`,
+where its item is.
 
 ## Why the record is English and the translation Italian
 

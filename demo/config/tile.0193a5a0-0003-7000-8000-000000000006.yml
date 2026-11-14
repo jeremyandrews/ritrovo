@@ -1,0 +1,25 @@
+# Upcoming conferences on the front page (machine_name: front_upcoming).
+#
+# The next six conferences as cards, rewritten by ritrovo_importer's cron. In the
+# navigation region and on the path / only, which is the path the kernel matches
+# for the front page in every language (crates/kernel/src/routes/front.rs:254), so
+# /it/ shows it too. Ritrovo's page--front.html renders the navigation region
+# inside the page body rather than under the header.
+id: 0193a5a0-0003-7000-8000-000000000006
+machine_name: front_upcoming
+label: Upcoming conferences
+region: navigation
+tile_type: custom_html
+config:
+  body: |
+    <p class="tile-list__empty">Filled in by ritrovo_importer on its next cron call.</p>
+  format: full_html
+visibility:
+  paths:
+  - /
+weight: 0
+status: 1
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1794700000

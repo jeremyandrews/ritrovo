@@ -169,9 +169,12 @@ curl -X POST http://localhost:3000/cron/$CRON_KEY
 ./target/release/trovato config import $RITROVO/demo/config
 ```
 
-Step 9 is what the tutorial does by hand at `/admin/config/site`. Either way, a
-non-item front path redirects rather than rendering inline, which is the
-documented behaviour, so `/` answers 307 to `/conferences`.
+Step 9 is what the tutorial does by hand at `/admin/config/site`. The kernel
+renders a front page in place only when it names an item, and redirects for any
+other path. Since A9 the demo's front page is the welcome page item in
+`demo/config/seed-content`, so `/` renders Ritrovo's `page--front.html` once that
+seed is imported (`scripts/demo-bootstrap.sh` does it); until then `/` shows the
+kernel's promoted listing.
 
 ### Checking the install
 

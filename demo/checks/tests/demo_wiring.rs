@@ -36,6 +36,7 @@ const IMAGE_REPO: &str = "ghcr.io/jeremyandrews/trovato";
 /// gather whose template is missing falls back to the kernel's generic table,
 /// which prints every column of every row including `search_vector`.
 const TUTORIAL_TEMPLATES: &[&str] = &[
+    "page.html",
     "page--front.html",
     "page--admin--content--translations.html",
     "elements/item--conference.html",
@@ -485,10 +486,17 @@ fn pagefind_index_dir_is_first_and_is_not_a_read_only_mount() {
 }
 
 #[test]
-fn demo_config_sets_the_front_page_to_the_conference_listing() {
+fn demo_config_sets_the_front_page_to_the_welcome_page_item() {
     // Setting the front page is the last step of the install, and the only one
     // the tutorial config set does not carry. It rides in as its own one-file
     // config set so the demo needs no admin form and no SQL.
+    //
+    // Until A9 this asserted /conferences, which the kernel answers with a 307
+    // because it renders a front page in place only when it names an item. The
+    // brief replaced the redirect with a rendered page--front.html, so the value
+    // is now an item, and that item has to be one the demo seeds, in English
+    // and with the Italian translation /it/ overlays.
+    const WELCOME: &str = "7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06";
     let front_page = read("demo/config/variable.site_front_page.yml");
     assert!(
         front_page.contains("key: site_front_page"),
@@ -496,8 +504,22 @@ fn demo_config_sets_the_front_page_to_the_conference_listing() {
          site_front_page variable, got:\n{front_page}"
     );
     assert!(
-        front_page.contains("/conferences"),
-        "the demo front page must be /conferences, got:\n{front_page}"
+        front_page
+            .lines()
+            .any(|l| l.trim() == format!("value: /item/{WELCOME}")),
+        "the demo front page must be /item/{WELCOME}, got:\n{front_page}"
+    );
+    let item = read(&format!("demo/config/seed-content/item.{WELCOME}.yml"));
+    assert!(
+        item.contains("type: page") && item.contains("status: 1"),
+        "the front page item must be a published page"
+    );
+    let italian = read(&format!(
+        "demo/config/seed-italian/item_translation.{WELCOME}.it.yml"
+    ));
+    assert!(
+        italian.contains(&format!("item_id: {WELCOME}")) && italian.contains("language: it"),
+        "the front page item has no Italian translation for /it/"
     );
 }
 

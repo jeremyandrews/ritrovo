@@ -79,10 +79,15 @@ else
 fi
 
 head_ "front page"
+# `/` used to answer 307 to /conferences, and this check asserted the redirect.
+# A9 made the front page an item the kernel renders in place, through Ritrovo's
+# page--front.html, so the check now asserts the opposite: 200, no Location. The
+# tiles on it are checked under "the front page and its tiles", once the
+# importer's cron has had a chance to fill them.
 front="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$BASE/")"
 case "$front" in
-    30*conferences) ok "/ redirects to the conference listing ($front)" ;;
-    *) bad "/ answered '$front', expected a redirect to /conferences" ;;
+    "200 ") ok "/ renders in place (200, no redirect)" ;;
+    *) bad "/ answered '$front', expected 200 with no redirect" ;;
 esac
 
 head_ "content"
@@ -397,7 +402,10 @@ menu_links() {
         | grep -o '<a href="[^"]*"[^>]*>[^<]*</a>' \
         | sed 's/<a href="\([^"]*\)"[^>]*>\([^<]*\)<\/a>/\1	\2/; s/&#x2F;/\//g'
 }
-for menu in main:site-nav footer:footer-nav; do
+# `user` is the account menu Ritrovo's page.html writes (Login and Register for a
+# visitor), because the kernel renders no config menu but main and footer
+# (G-ONLY-MAIN-AND-FOOTER-MENUS-RENDER); demo/config names none of its links.
+for menu in main:site-nav user:user-nav footer:footer-nav; do
     menu_name="${menu%%:*}"
     nav_class="${menu#*:}"
     links="$(menu_links "$nav_class")"
@@ -431,6 +439,168 @@ for page in "/about:confs.tech" "/data-sources:confs.tech" "/privacy:cookie" "/c
         bad "$page_path does not render its page content (looked for \"$page_want\")"
     fi
 done
+
+head_ "the front page and its tiles"
+# The tiles are custom_html tiles whose bodies ritrovo_importer's cron renders
+# from SQL (plugins/ritrovo_importer/src/tiles.rs), because the kernel's
+# gather_query tile renders nothing (G-TILE-GATHER-QUERY-RENDERS-NOTHING). Each is
+# held to the same query run here against Postgres: right rows, right count.
+LIVE_STAGE="0193a5a0-0000-7000-8000-000000000001"
+WELCOME="7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06"
+front_page="$(curl -s "$BASE/" | tr '\n' ' ')"
+front_admin="$(curl -s -b "$JAR" "$BASE/" | tr '\n' ' ')"
+# One tile's HTML: from its id to the next tile's.
+tile_html() {
+    printf '%s' "$2" | sed -n "s/.*id=\"tile-$1\"\(.*\)/\1/p" | sed 's/id="tile-.*//'
+}
+count_in() { printf '%s' "$2" | grep -o "$1" | wc -l | tr -d ' '; }
+
+welcome_title="$(sql_text "select title from item where id='$WELCOME'")"
+if [ -n "$welcome_title" ] && [[ "$front_page" == *"$welcome_title"* ]] && [[ "$front_page" == *'front__intro'* ]]; then
+    ok "/ renders page--front.html with the welcome page \"$welcome_title\""
+else
+    bad "/ does not render the welcome page through page--front.html"
+fi
+italian_front="$(curl -s "$BASE/it/" | tr '\n' ' ')"
+welcome_it="$(sql_text "select title from item_translation where item_id='$WELCOME' and language='it'")"
+if [ -n "$welcome_it" ] && [[ "$italian_front" == *"$welcome_it"* ]] && [[ "$italian_front" == *'lang="it"'* ]] && [[ "$italian_front" == *'tile--front_upcoming'* ]]; then
+    ok "/it/ renders the Italian welcome \"$welcome_it\" with the tiles"
+else
+    bad "/it/ does not render the Italian front page with its tiles"
+fi
+
+upcoming_ids="$(sql "select string_agg(id::text, ',' order by fields->>'field_start_date', title) from (select id, title, fields from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and fields->>'field_start_date' >= to_char(current_date,'YYYY-MM-DD') order by fields->>'field_start_date', title limit 6) s")"
+upcoming_tile="$(tile_html front_upcoming "$front_page")"
+if [ -n "$upcoming_ids" ]; then
+    want="$(printf '%s' "$upcoming_ids" | tr ',' '\n' | grep -c .)"
+    have="$(count_in 'class="front-card"' "$upcoming_tile")"
+    first="${upcoming_ids%%,*}"
+    if [ "$have" = "$want" ] && [[ "$upcoming_tile" == *"/item/$first\""* ]]; then
+        ok "front page: upcoming conferences shows the next $have, starting with /item/$first"
+    else
+        bad "front page: upcoming conferences shows $have card(s), want $want starting with /item/$first"
+    fi
+else
+    note "skipped the upcoming-conferences comparison: no database access"
+fi
+
+check_list_tile() {
+    # $1 tile, $2 limit, $3 the WHERE clause that defines it
+    want="$(sql "select least(count(*), $2) from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and $3")"
+    first="$(sql "select id from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and $3 order by $4, title limit 1")"
+    body="$(tile_html "$1" "$front_page")"
+    have="$(count_in 'class="tile-list__item"' "$body")"
+    if [ -z "$want" ]; then
+        note "skipped the $1 comparison: no database access"
+    elif [ "$have" = "$want" ] && { [ "$want" = "0" ] || [[ "$body" == *"/item/$first\""* ]]; }; then
+        ok "front page: $1 lists $have conference(s), as Postgres does${first:+, first /item/$first}"
+    else
+        bad "front page: $1 lists $have, Postgres says $want${first:+ starting with /item/$first}"
+    fi
+}
+check_list_tile cfps_closing_soon 5 "fields->>'field_cfp_end_date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}\$' and fields->>'field_cfp_end_date' between to_char(current_date,'YYYY-MM-DD') and to_char(current_date + 14,'YYYY-MM-DD') and coalesce(fields->>'field_cfp_url','') <> ''" "fields->>'field_cfp_end_date'"
+check_list_tile conferences_this_month 5 "fields->>'field_start_date' >= to_char(date_trunc('month', current_date),'YYYY-MM-DD') and fields->>'field_start_date' < to_char(date_trunc('month', current_date) + interval '1 month','YYYY-MM-DD')" "fields->>'field_start_date'"
+
+cloud="$(tile_html topic_cloud "$front_page")"
+cloud_want="$(sql "select count(distinct t.value) from item i cross join lateral jsonb_array_elements_text(case when jsonb_typeof(i.fields->'field_topics')='array' then i.fields->'field_topics' else '[]'::jsonb end) t(value) join category_tag c on c.id::text=t.value and c.category_id='topics' where i.type='conference' and i.status=1 and i.stage_id='$LIVE_STAGE' and i.fields->>'field_start_date' >= to_char(current_date,'YYYY-MM-DD')")"
+cloud_top="$(sql_text "select c.slug || ' ' || count(distinct i.id) from item i cross join lateral jsonb_array_elements_text(case when jsonb_typeof(i.fields->'field_topics')='array' then i.fields->'field_topics' else '[]'::jsonb end) t(value) join category_tag c on c.id::text=t.value and c.category_id='topics' where i.type='conference' and i.status=1 and i.stage_id='$LIVE_STAGE' and i.fields->>'field_start_date' >= to_char(current_date,'YYYY-MM-DD') group by c.slug order by count(distinct i.id) desc, c.slug limit 1")"
+cloud_have="$(count_in 'class="topic-cloud__term' "$cloud")"
+top_slug="${cloud_top% *}"
+top_n="${cloud_top##* }"
+if [ -z "$cloud_want" ]; then
+    note "skipped the topic cloud comparison: no database access"
+elif [ "$cloud_have" = "$cloud_want" ] && [ "$cloud_want" -gt 0 ] \
+    && printf '%s' "$cloud" | grep -q "href=\"/topics/$top_slug\">[^<]*<span class=\"topic-cloud__count\">$top_n</span>"; then
+    ok "front page: the topic cloud has $cloud_have topics with counts; the busiest, $top_slug, shows $top_n"
+else
+    bad "front page: the topic cloud has $cloud_have topics, Postgres $cloud_want (busiest $top_slug at $top_n)"
+fi
+
+comments_want="$(sql "select least(count(*), 5) from comment c join item i on i.id=c.item_id where c.status=1 and i.status=1 and i.stage_id='$LIVE_STAGE'")"
+comments_have="$(count_in 'class="tile-list__item"' "$(tile_html recent_comments "$front_page")")"
+if [ -z "$comments_want" ]; then
+    note "skipped the recent comments comparison: no database access"
+elif [ "$comments_have" = "$comments_want" ]; then
+    ok "front page: recent comments lists $comments_have, as Postgres does"
+else
+    bad "front page: recent comments lists $comments_have, Postgres says $comments_want"
+fi
+
+# The role-limited tile: My Subscriptions is for signed-in members only.
+if [[ "$front_page" != *'tile--my_subscriptions'* ]] && [[ "$front_admin" == *'tile--my_subscriptions'* ]]; then
+    ok "the My Subscriptions tile shows to a signed-in member and not to a visitor"
+else
+    bad "the My Subscriptions tile's role rule does not hold (visitor or member sees the wrong thing)"
+fi
+
+# The admin bar: the importer's two screens arrive through tap_menu as root
+# entries and are shown to whoever may open them, and to nobody else.
+admin_nav="$(printf '%s' "$front_admin" | grep -o '<nav class="container admin-nav"[^>]*>.*' | sed 's#</nav>.*##; s/&#x2F;/\//g')"
+if [[ "$admin_nav" == *'href="/admin/content/conferences"'* ]] && [[ "$admin_nav" == *'href="/admin/config/importer"'* ]] \
+    && [[ "$admin_nav" != *':id'* ]] && [[ "$front_page" != *'admin-nav'* ]]; then
+    ok "the admin menu carries the importer's tap_menu entries for an administrator, and is absent for a visitor"
+else
+    bad "the admin menu does not carry the importer's tap_menu entries, or shows to a visitor"
+fi
+user_nav_admin="$(printf '%s' "$front_admin" | grep -o '<nav class="user-nav"[^>]*>.*' | sed 's#</nav>.*##; s/&#x2F;/\//g')"
+if [[ "$user_nav_admin" == *'href="/user/bio"'* ]] && [[ "$user_nav_admin" == *'/user/logout'* ]] \
+    && [[ "$user_nav_admin" == *'href="/conferences/submit"'* ]]; then
+    ok "the account menu offers Submit a Conference (ritrovo_forms' tap_menu), Your profile and Logout to a member"
+else
+    bad "the account menu is wrong for a signed-in member"
+fi
+
+# Every link the two signed-in menus render answers 200 to the member they are
+# rendered for.
+for nav in "$admin_nav" "$user_nav_admin"; do
+    while IFS= read -r href; do
+        [ -n "$href" ] || continue
+        status="$(code_as_admin "$href")"
+        if [ "$status" = "200" ]; then ok "signed-in menu link $href is $status"; else bad "signed-in menu link $href is $status"; fi
+    done < <(printf '%s' "$nav" | grep -o '<a href="[^"]*"' | sed 's/<a href="\(.*\)"/\1/')
+done
+
+# Landmarks and labels: the kernel ships no accessibility check to run
+# (G-NO-ACCESSIBILITY-CHECK), so the structure the theme promises is asserted.
+landmarks_ok=1
+for want in 'class="skip-link"' '<header class="header">' '<main id="main-content"' '<footer class="footer">' \
+    'aria-label="Main"' 'aria-label="Account"' 'aria-label="Footer"' '/static/css/ritrovo.css'; do
+    [[ "$front_page" == *"$want"* ]] || { landmarks_ok=0; bad "front page is missing $want"; }
+done
+[ "$landmarks_ok" = "1" ] && ok "front page keeps the skip link, header, main and footer landmarks and labels its navs"
+css="$(curl -s "$BASE/static/css/ritrovo.css")"
+css_ok=1
+for want in 'prefers-color-scheme: dark' '.cfp-badge--urgent' '.cfp-badge--open' '.lang-badge' '--rt-accent' '@media (max-width: 600px)'; do
+    [[ "$css" == *"$want"* ]] || { css_ok=0; bad "ritrovo.css has no $want"; }
+done
+[ "$css_ok" = "1" ] && ok "ritrovo.css is served with tokens, dark mode, badge styles and a phone layout"
+
+# The breadcrumb from the topic tree, three levels: on a topic page and on a
+# conference filed under a third-level topic.
+trail_links() {
+    printf '%s' "$1" | grep -o '<nav class="breadcrumb breadcrumb--topics".*' | sed 's#</nav>.*##' \
+        | grep -o 'href="/topics/[^"]*"' | sed 's/href="\/topics\/\(.*\)"/\1/' | tr '\n' ' '
+}
+kotlin_trail="$(trail_links "$(curl -s "$BASE/topics/kotlin" | tr '\n' ' ')")"
+if [ "$kotlin_trail" = "languages jvm kotlin " ]; then
+    ok "/topics/kotlin has the three-level breadcrumb Languages > JVM > Kotlin"
+else
+    bad "/topics/kotlin breadcrumb is '$kotlin_trail', want 'languages jvm kotlin'"
+fi
+if curl -s "$BASE/topics/kotlin" | grep -q '<nav class="breadcrumb" '; then
+    bad "/topics/kotlin also renders the kernel's breadcrumb"
+fi
+deep_conf="$(sql "select i.id from item i join category_tag_hierarchy h1 on h1.tag_id::text = i.fields->'field_topics'->>0 join category_tag_hierarchy h2 on h2.tag_id = h1.parent_id where h2.parent_id is not null and i.type='conference' and i.status=1 and i.stage_id='$LIVE_STAGE' order by i.title limit 1")"
+if [ -n "$deep_conf" ]; then
+    conf_trail="$(trail_links "$(curl -s "$BASE/item/$deep_conf" | tr '\n' ' ')")"
+    if [ "$(printf '%s' "$conf_trail" | wc -w | tr -d ' ')" = "3" ]; then
+        ok "/item/$deep_conf has a three-level topic breadcrumb: $conf_trail"
+    else
+        bad "/item/$deep_conf topic breadcrumb is '$conf_trail', want three levels"
+    fi
+else
+    note "skipped the conference breadcrumb: no database access, or no conference under a third-level topic"
+fi
 
 head_ "Italian"
 for path in /it/conferenze /it/relatori /it/argomenti; do

@@ -26,6 +26,7 @@ use std::collections::HashMap;
 #[allow(dead_code)]
 mod detect;
 mod search_text;
+mod tiles;
 
 pub mod api;
 
@@ -429,21 +430,28 @@ pub fn tap_perm() -> Vec<PermissionDefinition> {
 /// callback — so declaring a callback on a page entry produced two admin paths
 /// that were registered, gated, listed in navigation, and 404.
 ///
-/// `.visible()` because both are meant to appear under their parent in the admin
-/// navigation; an api route defaults to invisible, which is right for a REST
-/// endpoint and wrong for a screen.
+/// `.visible()` because both are screens; an api route defaults to invisible,
+/// which is right for a REST endpoint and wrong for a screen.
+///
+/// **No `.parent`.** Both used to name `/admin/content` and `/admin/config` as
+/// parents, meant to put them under those headings in the admin navigation. The
+/// kernel renders no plugin entry that has a parent anywhere: the admin sidebar
+/// is a fixed list in `page--admin.html`, and the only plugin entries a page
+/// template is given are ROOT entries, filtered per viewer by permission
+/// (`menus`, from `MenuRegistry::root_menus_for`). So as root entries they reach
+/// Ritrovo's `page.html`, which lists the `/admin` ones in the header for the
+/// people allowed to open them (FRICTION.md,
+/// G-PLUGIN-MENU-ENTRIES-WITH-A-PARENT-RENDER-NOWHERE).
 #[plugin_tap]
 pub fn tap_menu() -> Vec<MenuRoute> {
     vec![
         MenuRoute::api("GET", "/admin/content/conferences", "conference_list")
             .title("Conferences")
             .permission("view conference content")
-            .parent("/admin/content")
             .visible(),
         MenuRoute::api("GET", "/admin/config/importer", "importer_config")
             .title("Conference Import")
             .permission("administer conference import")
-            .parent("/admin/config")
             .visible(),
         // The two JSON API endpoints a gather cannot serve (see `api`). Gated on
         // `access content`, the permission the kernel's own item and gather
@@ -726,9 +734,11 @@ pub fn tap_cron(input: CronInput) -> serde_json::Value {
     // Every call, ahead of the once-a-day gate: the values search reads have to
     // follow every way a conference changes, not only the daily fetch.
     let search = search_text::refresh();
+    // And the tiles, which are views of the same data (see `tiles`).
+    let tiles = tiles::refresh();
 
     if !should_import(now) {
-        return serde_json::json!({"status": "skipped", "reason": "too_soon", "search_text": search});
+        return serde_json::json!({"status": "skipped", "reason": "too_soon", "search_text": search, "tiles": tiles});
     }
 
     let current_year = timestamp_to_year(now);
@@ -772,6 +782,7 @@ pub fn tap_cron(input: CronInput) -> serde_json::Value {
         "errors": errors,
         "topics_processed": cycle_topics,
         "search_text": search,
+        "tiles": tiles,
     })
 }
 
