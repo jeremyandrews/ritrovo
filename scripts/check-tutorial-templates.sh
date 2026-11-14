@@ -90,6 +90,12 @@ UPDATE=0
 #       `search_vector`, on the location pages a visitor reaches from a
 #       conference. The last two render the brief's tile gathers through their own
 #       routes, because the tiles themselves render nothing on this kernel.
+#
+#   page--admin--content--translations.html
+#       New here and absent from the release. Supplies the one variable the
+#       kernel's admin page template needs and the kernel does not give a plugin
+#       page, so the translation queue renders in the admin layout rather than
+#       unwrapped (FRICTION.md, G-THEMED-PLUGIN-PAGE-UNDER-ADMIN-RENDERS-UNWRAPPED).
 OWNED_TEMPLATES="
 elements/item--conference.html
 elements/item--speaker.html
@@ -99,6 +105,7 @@ gather/query--ritrovo.by_country.html
 gather/query--ritrovo.by_city.html
 gather/query--ritrovo.conferences_this_month.html
 gather/query--ritrovo.cfps_closing_soon.html
+page--admin--content--translations.html
 "
 
 is_owned() {
