@@ -26,12 +26,14 @@ use std::collections::HashMap;
 #[allow(dead_code)]
 mod detect;
 
+pub mod api;
+
 use trovato_sdk::host;
 use trovato_sdk::prelude::*;
 use trovato_sdk::types::{ApiRequest, ApiResponse, MenuRoute};
 
 /// Plugin name for logging calls.
-const PLUGIN_NAME: &str = "ritrovo_importer";
+pub(crate) const PLUGIN_NAME: &str = "ritrovo_importer";
 
 /// Base URL for raw conference JSON from the confs.tech GitHub repo.
 const DATA_BASE_URL: &str =
@@ -442,6 +444,15 @@ pub fn tap_menu() -> Vec<MenuRoute> {
             .permission("administer conference import")
             .parent("/admin/config")
             .visible(),
+        // The two JSON API endpoints a gather cannot serve (see `api`). Gated on
+        // `access content`, the permission the kernel's own item and gather
+        // routes ask of a reader, which the demo's anonymous role holds.
+        MenuRoute::api("GET", "/api/v1/conferences/:id", "api_conference")
+            .title("Conference (API)")
+            .permission("access content"),
+        MenuRoute::api("GET", "/api/v1/topics", "api_topics")
+            .title("Topics (API)")
+            .permission("access content"),
     ]
 }
 
@@ -461,6 +472,8 @@ pub fn tap_api(request: ApiRequest) -> ApiResponse {
     match request.callback.as_str() {
         "conference_list" => conference_list(&request),
         "importer_config" => importer_config(),
+        "api_conference" => api::conference(&request),
+        "api_topics" => api::topics(),
         other => ApiResponse::error(404, &format!("no such callback: {other}")),
     }
 }
@@ -1525,11 +1538,13 @@ mod tests {
     }
 
     #[test]
-    fn menu_returns_two_routes() {
+    fn menu_returns_two_screens_and_two_api_routes() {
         let menus = __inner_tap_menu();
-        assert_eq!(menus.len(), 2);
+        assert_eq!(menus.len(), 4);
         assert_eq!(menus[0].path, "/admin/content/conferences");
         assert_eq!(menus[1].path, "/admin/config/importer");
+        assert_eq!(menus[2].path, "/api/v1/conferences/:id");
+        assert_eq!(menus[3].path, "/api/v1/topics");
     }
 
     /// The kernel dispatches to `tap_api` only for an entry whose
@@ -1537,7 +1552,7 @@ mod tests {
     /// the callback and false of the handler type, which is why both screens
     /// were registered and 404.
     #[test]
-    fn both_menu_entries_are_routable_api_entries() {
+    fn every_menu_entry_is_a_routable_api_entry() {
         for entry in __inner_tap_menu() {
             assert_eq!(
                 entry.handler_type, "api",
@@ -1554,9 +1569,11 @@ mod tests {
                 "{} must be gated on a permission",
                 entry.path
             );
-            assert!(
+            // The admin screens belong in navigation; a JSON endpoint does not.
+            assert_eq!(
                 entry.visible,
-                "{} is a screen, so it belongs in navigation",
+                entry.path.starts_with("/admin/"),
+                "{} is in navigation if and only if it is a screen",
                 entry.path
             );
         }
@@ -1565,6 +1582,11 @@ mod tests {
     /// Every callback the menu registers is one `tap_api` answers, and every
     /// callback `tap_api` answers is one the menu registers. A drift either way
     /// is a 404 or dead code.
+    ///
+    /// The screens are rendered here in full. The API callbacks read the
+    /// database, which a unit test has none of, so here they are only checked to
+    /// be answered as JSON rather than refused as an unknown callback; the host
+    /// suite drives them against a real database.
     #[test]
     fn every_registered_callback_is_served() {
         for entry in __inner_tap_menu() {
@@ -1576,17 +1598,31 @@ mod tests {
                 true,
             );
             let response = __inner_tap_api(request);
-            assert_eq!(
-                response.status, 200,
-                "callback {} answered {}",
-                entry.callback, response.status
-            );
             assert!(
-                response.content_type.starts_with("text/html"),
-                "callback {} served {}",
-                entry.callback,
-                response.content_type
+                !response.body.contains("no such callback"),
+                "callback {} is not served",
+                entry.callback
             );
+            if entry.path.starts_with("/admin/") {
+                assert_eq!(
+                    response.status, 200,
+                    "callback {} answered {}",
+                    entry.callback, response.status
+                );
+                assert!(
+                    response.content_type.starts_with("text/html"),
+                    "callback {} served {}",
+                    entry.callback,
+                    response.content_type
+                );
+            } else {
+                assert!(
+                    response.content_type.starts_with("application/json"),
+                    "callback {} served {}",
+                    entry.callback,
+                    response.content_type
+                );
+            }
         }
     }
 

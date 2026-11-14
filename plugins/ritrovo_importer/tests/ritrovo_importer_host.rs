@@ -524,6 +524,105 @@ fn the_admin_screens_are_401_anonymous_and_200_html_for_an_administrator() {
 }
 
 // ===========================================================================
+// The JSON API's two plugin endpoints
+// ===========================================================================
+
+/// `/api/v1/conferences/{id}` serves a Live, published conference to an
+/// anonymous caller with only its public fields, and answers 404 for one on any
+/// other stage, exactly as it does for an id that does not exist. `/api/v1/topics`
+/// returns the topic tags as a tree.
+#[test]
+fn the_api_serves_live_conferences_only_and_the_topic_tree() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        clean_install(&pool).await;
+        let server = fixtures().await;
+        run_tap_install(&pool, &server).await;
+        drain(&pool).await;
+        host::prepare_app_database(&pool, &[PLUGIN]).await;
+
+        // The importer lands everything on Incoming. Publish one conference to
+        // Live with an editor's note on it, and leave another where it landed.
+        let live: String = sqlx::query_scalar(
+            "UPDATE item SET stage_id = '0193a5a0-0000-7000-8000-000000000001', status = 1, \
+                    fields = fields || '{\"field_editor_notes\": \"internal only\"}'::jsonb \
+             WHERE id = (SELECT id FROM item WHERE type = 'conference' AND title = 'RustConf' \
+                         ORDER BY fields->>'field_start_date' DESC LIMIT 1) \
+             RETURNING id::text",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let incoming: String = sqlx::query_scalar(
+            "SELECT id::text FROM item WHERE type = 'conference' \
+               AND stage_id = '0193a5a0-0000-7000-8000-000000000002' LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        let app = host::app().await;
+
+        let found = app.get(&format!("/api/v1/conferences/{live}"), "").await;
+        assert_eq!(found.status, 200, "{}", found.body);
+        assert!(
+            found.content_type.starts_with("application/json"),
+            "{}",
+            found.content_type
+        );
+        let body = host::json(&found.body);
+        assert_eq!(body["id"], live.as_str());
+        assert_eq!(body["title"], "RustConf");
+        assert_eq!(body["stage"], "live");
+        assert!(body["fields"]["field_start_date"].is_string(), "{body}");
+        assert!(
+            body["fields"].get("field_editor_notes").is_none(),
+            "an editor's note reached an anonymous caller: {body}"
+        );
+        assert!(
+            body["fields"].get("field_source_id").is_none(),
+            "an internal field reached an anonymous caller: {body}"
+        );
+
+        for (what, path) in [
+            (
+                "an Incoming conference",
+                format!("/api/v1/conferences/{incoming}"),
+            ),
+            (
+                "an id that does not exist",
+                "/api/v1/conferences/00000000-0000-0000-0000-00000000dead".to_string(),
+            ),
+            (
+                "an id that is not a uuid",
+                "/api/v1/conferences/rustconf".to_string(),
+            ),
+        ] {
+            let missing = app.get(&path, "").await;
+            assert_eq!(missing.status, 404, "{what}: {}", missing.body);
+            assert_eq!(host::json(&missing.body)["error"], "not found", "{what}");
+        }
+
+        let topics = app.get("/api/v1/topics", "").await;
+        assert_eq!(topics.status, 200, "{}", topics.body);
+        let tree = host::json(&topics.body);
+        let tags: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM category_tag WHERE category_id = 'topics'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(tree["total"], tags, "{tree}");
+        let roots = tree["data"].as_array().unwrap();
+        assert!(!roots.is_empty(), "{tree}");
+        let nested = roots
+            .iter()
+            .any(|root| !root["children"].as_array().unwrap().is_empty());
+        assert!(nested, "no topic has a child; the tree is flat: {tree}");
+        assert!(roots.len() < usize::try_from(tags).unwrap(), "{tree}");
+    });
+}
+
+// ===========================================================================
 // Repairing what the source-id bug left behind
 // ===========================================================================
 

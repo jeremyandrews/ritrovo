@@ -945,6 +945,190 @@ if [ -n "$translate_perm" ]; then
     if [ "$translate_perm" = "1" ]; then ok "the editor role holds translate content"; else bad "the editor role does not hold translate content"; fi
 fi
 
+head_ "the JSON API"
+
+# docs/API.md, checked against the running site. /api/v1/conferences is a URL
+# alias onto the listing's own gather; /api/v1/conferences/{id} and
+# /api/v1/topics are ritrovo_importer's; /api/v1/search is the kernel's. Every
+# request here is anonymous unless it says otherwise.
+LIVE_STAGE="0193a5a0-0000-7000-8000-000000000001"
+INCOMING_STAGE="0193a5a0-0000-7000-8000-000000000002"
+total_of() { printf '%s' "$1" | grep -o '"total":[0-9]*' | head -1 | sed 's/.*://'; }
+pages_of() { printf '%s' "$1" | grep -o '"total_pages":[0-9]*' | head -1 | sed 's/.*://'; }
+# Every page of a list request, concatenated. $1 is the path with its query.
+all_pages() {
+    first="$(curl -s "$BASE$1")"
+    printf '%s' "$first"
+    n="$(pages_of "$first")"
+    p=2
+    while [ -n "$n" ] && [ "$p" -le "$n" ]; do
+        case "$1" in *\?*) sep='&' ;; *) sep='?' ;; esac
+        curl -s "$BASE$1${sep}page=$p"
+        p=$((p + 1))
+    done
+}
+
+api_type="$(curl -s -o /dev/null -w '%{http_code} %{content_type}' "$BASE/api/v1/conferences")"
+api_list="$(curl -s "$BASE/api/v1/conferences")"
+api_total="$(total_of "$api_list")"
+case "$api_type" in
+    "200 application/json"*)
+        if [ -n "$api_total" ] && [ "$api_total" -gt 0 ]; then
+            ok "/api/v1/conferences answers JSON with $api_total upcoming conference(s)"
+        else
+            bad "/api/v1/conferences answered JSON with no conferences in it"
+        fi ;;
+    *) bad "/api/v1/conferences answered '$api_type', expected 200 application/json" ;;
+esac
+
+listed_upcoming="$(sql "select count(*) from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD')")"
+if [ -n "$listed_upcoming" ] && [ "$api_total" = "$listed_upcoming" ]; then
+    ok "it lists exactly the Live upcoming conferences ($listed_upcoming)"
+else
+    bad "/api/v1/conferences lists ${api_total:-nothing}; the database has ${listed_upcoming:-?} Live upcoming"
+fi
+
+api_all="$(all_pages /api/v1/conferences)"
+other_stages="$(printf '%s' "$api_all" | grep -o '"stage_id":"[^"]*"' | grep -vc "$LIVE_STAGE")"
+if [ "$other_stages" = "0" ]; then
+    ok "every conference it lists is Live"
+else
+    bad "$other_stages conference(s) on /api/v1/conferences are not Live"
+fi
+
+# The proof that matters: a non-Live conference that WOULD match is absent.
+hidden_id="$(sql "select id from item where type='conference' and stage_id='$INCOMING_STAGE' and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') order by fields->>'field_start_date' limit 1")"
+if [ -z "$hidden_id" ]; then
+    bad "no upcoming Incoming conference to prove the API withholds"
+else
+    if printf '%s' "$api_all" | grep -q "$hidden_id"; then
+        bad "Incoming conference $hidden_id is on /api/v1/conferences for an anonymous caller"
+    else
+        ok "an upcoming Incoming conference ($hidden_id) is absent from every page"
+    fi
+    staged="$(curl -s "$BASE/api/v1/conferences?stage=$INCOMING_STAGE")"
+    if [ "$(total_of "$staged")" = "0" ]; then
+        ok "asking for the Incoming stage anonymously returns nothing"
+    else
+        bad "?stage=Incoming returned $(total_of "$staged") conference(s) to an anonymous caller"
+    fi
+    hidden_code="$(code "/api/v1/conferences/$hidden_id")"
+    if [ "$hidden_code" = "404" ]; then
+        ok "/api/v1/conferences/{id} is 404 for that Incoming conference"
+    else
+        bad "/api/v1/conferences/$hidden_id answered $hidden_code, expected 404"
+    fi
+fi
+
+page_two="$(curl -s "$BASE/api/v1/conferences?page=2")"
+if [ "$(pages_of "$api_list")" -ge 2 ] 2>/dev/null; then
+    if printf '%s' "$page_two" | grep -q '"page":2' && printf '%s' "$page_two" | grep -q '"has_prev":true'; then
+        ok "it pages: page 2 says so and has a previous page"
+    else
+        bad "?page=2 did not return page 2"
+    fi
+else
+    note "one page of conferences, so paging is not exercised"
+fi
+
+# The four filters, each against the database's own count.
+api_country="$(sql_text "select fields->>'field_country' from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') and coalesce(fields->>'field_country','') <> '' group by 1 order by count(*) desc, 1 limit 1")"
+if [ -n "$api_country" ]; then
+    want="$(sql "select count(*) from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') and fields->>'field_country' = '$api_country'")"
+    got="$(total_of "$(curl -s -G "$BASE/api/v1/conferences" --data-urlencode "fields.field_country=$api_country")")"
+    if [ "$got" = "$want" ]; then ok "country filter: $got in $api_country"; else bad "country filter for $api_country returned ${got:-nothing}, expected $want"; fi
+fi
+want="$(sql "select count(*) from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') and fields->'field_online' = 'true'::jsonb")"
+got="$(total_of "$(curl -s "$BASE/api/v1/conferences?fields.field_online=true")")"
+if [ "$got" = "$want" ]; then ok "online filter: $got online"; else bad "online filter returned ${got:-nothing}, expected $want"; fi
+want="$(sql "select count(*) from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') and fields->>'field_language' = 'it'")"
+got="$(total_of "$(curl -s "$BASE/api/v1/conferences?fields.field_language=it")")"
+if [ "$got" = "$want" ]; then ok "language filter: $got in Italian"; else bad "language filter returned ${got:-nothing}, expected $want"; fi
+api_topic="$(sql "select t.value from item i, jsonb_array_elements_text(i.fields->'field_topics') t where i.type='conference' and i.status=1 and i.stage_id='$LIVE_STAGE' and i.fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') group by 1 order by count(*) desc limit 1")"
+if [ -n "$api_topic" ]; then
+    want="$(sql "select count(distinct i.id) from item i where i.type='conference' and i.status=1 and i.stage_id='$LIVE_STAGE' and i.fields->>'field_start_date' >= to_char(now(), 'YYYY-MM-DD') and exists (select 1 from jsonb_array_elements_text(i.fields->'field_topics') t where t.value::uuid in (with recursive d(id) as (select '$api_topic'::uuid union select h.tag_id from category_tag_hierarchy h join d on h.parent_id = d.id) select id from d))")"
+    got="$(total_of "$(curl -s "$BASE/api/v1/conferences?fields.field_topics=$api_topic")")"
+    if [ "$got" = "$want" ]; then ok "topic filter: $got under topic $api_topic"; else bad "topic filter for $api_topic returned ${got:-nothing}, expected $want"; fi
+fi
+
+# One conference, with its public fields and nothing an editor wrote.
+noted_id="$(sql "select id from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and coalesce(fields->>'field_editor_notes','') <> '' limit 1")"
+if [ -n "$noted_id" ]; then
+    one="$(curl -s "$BASE/api/v1/conferences/$noted_id")"
+    one_code="$(code "/api/v1/conferences/$noted_id")"
+    if [ "$one_code" = "200" ] && printf '%s' "$one" | grep -q '"stage":"live"' && printf '%s' "$one" | grep -q "\"id\":\"$noted_id\""; then
+        ok "/api/v1/conferences/{id} serves a Live conference"
+    else
+        bad "/api/v1/conferences/$noted_id answered $one_code: $(printf '%s' "$one" | head -c 120)"
+    fi
+    if printf '%s' "$one" | grep -q 'field_editor_notes'; then
+        bad "/api/v1/conferences/$noted_id carries the editor's notes"
+    else
+        ok "and leaves out the editor's notes it has"
+    fi
+fi
+bad_id_code="$(code "/api/v1/conferences/not-a-uuid")"
+if [ "$bad_id_code" = "404" ]; then ok "/api/v1/conferences/not-a-uuid is 404"; else bad "/api/v1/conferences/not-a-uuid answered $bad_id_code"; fi
+
+topics_body="$(curl -s "$BASE/api/v1/topics")"
+topic_tags="$(sql "select count(*) from category_tag where category_id='topics'")"
+if [ "$(total_of "$topics_body")" = "$topic_tags" ] && printf '%s' "$topics_body" | grep -q '"children":\[{'; then
+    ok "/api/v1/topics returns all $topic_tags topics as a tree"
+else
+    bad "/api/v1/topics did not return the $topic_tags topics nested: $(printf '%s' "$topics_body" | head -c 120)"
+fi
+
+# Search is the kernel's, Live only. A seeded Live conference is found; an
+# Incoming conference's own title finds nothing of it.
+search_live="$(curl -s -G "$BASE/api/v1/search" --data-urlencode 'q=Codemotion')"
+if printf '%s' "$search_live" | grep -q '"title":"Codemotion Roma 2026"'; then
+    ok "/api/v1/search?q=Codemotion finds the Live seed conference"
+else
+    bad "/api/v1/search?q=Codemotion did not find Codemotion Roma 2026: $(printf '%s' "$search_live" | head -c 120)"
+fi
+if [ -n "$hidden_id" ]; then
+    hidden_title="$(sql_text "select title from item where id='$hidden_id'")"
+    search_hidden="$(curl -s -G "$BASE/api/v1/search" --data-urlencode "q=$hidden_title")"
+    if printf '%s' "$search_hidden" | grep -q "$hidden_id"; then
+        bad "/api/v1/search returns Incoming conference $hidden_id"
+    else
+        ok "/api/v1/search does not return the Incoming conference"
+    fi
+fi
+
+# Tokens: issued by the kernel, refused by the kernel. Reported, not asserted
+# as a pass: a token that authenticates nothing is FRICTION.md's
+# G-API-TOKENS-NEVER-AUTHENTICATE, and this line will say so until it changes.
+token_csrf="$(curl -s -b "$editor_jar" "$BASE/user/profile" | sed -n 's/.*name="csrf-token" content="\([^"]*\)".*/\1/p' | head -1)"
+token_json="$(curl -s -b "$editor_jar" -X POST "$BASE/api/tokens" -H 'Content-Type: application/json' -H "X-CSRF-Token: $token_csrf" -d '{"name":"verify-demo"}')"
+api_token="$(printf '%s' "$token_json" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+token_id="$(printf '%s' "$token_json" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+if [ -n "$api_token" ]; then
+    ok "an editor can create an API token at /api/tokens"
+    bearer_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $api_token" "$BASE/api/v1/topics")"
+    note "that token, sent as a bearer to /api/v1/topics, answers $bearer_code (G-API-TOKENS-NEVER-AUTHENTICATE)"
+    curl -s -o /dev/null -b "$editor_jar" -X DELETE -H "X-CSRF-Token: $token_csrf" "$BASE/api/tokens/$token_id"
+else
+    bad "/api/tokens issued no token to an editor: $(printf '%s' "$token_json" | head -c 120)"
+fi
+
+# The kernel's ad-hoc gather route, which Ritrovo cannot close: an anonymous
+# definition that selects the whole `fields` column skips field access. Reported
+# so the day it stops leaking is visible here (G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS).
+adhoc="$(curl -s -X POST "$BASE/api/gather/query" -H 'Content-Type: application/json' \
+    -d '{"definition":{"base_table":"item","item_type":"conference","fields":[{"field_name":"id"},{"field_name":"fields"}],"filters":[],"sorts":[],"relationships":[],"includes":{},"stage_aware":true},"display":{"format":"table","items_per_page":100,"pager":{"enabled":false,"show_count":false,"style":"full"}}}')"
+if printf '%s' "$adhoc" | grep -q 'field_editor_notes'; then
+    note "an anonymous POST to /api/gather/query still returns editors' notes (G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS)"
+else
+    note "an anonymous POST to /api/gather/query no longer returns editors' notes; re-check G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS"
+fi
+
+openapi_paths="$(curl -s "$BASE/api/openapi.json" | grep -o '"/api/v1/[a-z/{}]*"' | sort -u | tr '\n' ' ')"
+case "$openapi_paths" in
+    *conferences*) note "/api/openapi.json lists Ritrovo's conference routes" ;;
+    *) note "/api/openapi.json lists none of Ritrovo's routes (G-OPENAPI-IS-A-STATIC-LIST)" ;;
+esac
+
 printf '\n'
 if [ "$failures" -eq 0 ]; then
     echo "all checks passed"

@@ -285,7 +285,12 @@ impact and a recommendation, and names the rows it blocks.
 | `G-QUEUE-WORKER-ERROR-IS-SUCCESS` | Low | P3 |
 | `G-FILE-NO-HOST-API` | Low | 36.4, 36.7 |
 | `G-PLUGIN-ROUTE-NO-HEADERS` | Low | 37.3 |
-| `G-API-RATE-LIMITS-FIXED` | Low | 38.6 |
+| `G-API-RATE-LIMITS-FIXED` | Low | 38.6 (per-role limits; site-wide override since 0.103.0) |
+| `G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS` | High | nothing Ritrovo can build; a confidentiality hole in every field `tap_field_access` hides |
+| `G-API-TOKENS-NEVER-AUTHENTICATE` | High | 38.6, D19 (keys) |
+| `G-OPENAPI-IS-A-STATIC-LIST` | Low | D19 (a generated spec) |
+| `G-GATHER-EXPLICIT-COLUMNS-ARE-TEXT` | Low | nothing (the API uses `item.*`) |
+| `G-UNKNOWN-GATHER-IS-A-500` | Low | nothing |
 | `G-S3-STORAGE-REMOVED` | Low | 39.3, D17 |
 | `G-NO-REQUEST-PROFILER` | Low | D24 |
 | `G-REVISION-NO-COMPARE` | Low | 35.4, D20 |
@@ -431,8 +436,8 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | 38.2 | Language routing, localized aliases, switcher, hreflang, UI strings | config, template | **done except UI strings and the topics page** | Prefix routing, translated aliases (`/conferences/<slug>` and `/it/conferenze/<slug>` for all 15 seeded conferences), hreflang (the kernel's) and a switcher in `item--conference.html`, followed both ways by `verify-demo.sh`; it offers the other language even where no translation exists (`G-ITEM-TEMPLATE-RENDERED-BEFORE-ITS-TRANSLATIONS`). The three doubled `/it/…` alias rows are gone. Blocked: every UI string stays English (`G-LOCALE-STRINGS-NEVER-LOADED`, re-checked at 0.103.0); `/it/argomenti` renders `lang="en"` (`G-TOPICS-PAGE-IGNORES-LANGUAGE`); pathauto writes no language (`crates/kernel/src/services/pathauto.rs:167`, `:204`), so imported conferences have no alias in either language. | A8 |
 | 38.3 | `ritrovo_translate`: detection, queue, side-by-side translation | plugin | **done** | Detection in the importer (feed first) and in `tap_item_presave` for conferences people create. The queue is `/admin/content/translations` (401 / 403 / 200 to visitor / reader / editor), listing upcoming conferences with no translation in the other language, each linked to the kernel's side-by-side translate screen, which saves. Verified end to end by `verify-demo.sh` as editor_alice. Two kernel limits remain: a `Blocks` description is not on the screen (`G-TRANSLATE-SCREEN-TEXT-FIELDS-ONLY`), and an English translation of an Italian-written conference saves and does not render (`G-TRANSLATION-OVERLAY-SKIPS-THE-DEFAULT-LANGUAGE`). | A8 |
 | 38.4 | About 20 Italian conferences with English translations | config | **done, the other way round** | 15 Italian conferences, every one fully translated: records in English, `field_language: it`, and an `item_translation.<uuid>.it.yml` each with title and description. `/` shows English and `/it/` Italian. Shipped English-first because an Italian record's English translation never renders (`G-TRANSLATION-OVERLAY-SKIPS-THE-DEFAULT-LANGUAGE`). The two-languages-in-one-field JSONB is gone. | A8 |
-| 38.5 | REST endpoints under `/api/v1/conferences`, topics, speakers, subscribe | plugin | **blocked on the kernel** | All 404. The read endpoints are buildable now as `tap_api` routes over the kernel's gather execution; the write endpoints would skip access checks and revisions (`G-ITEM-API-BYPASSES-ITEM-SERVICE`). | A8 |
-| 38.6 | API keys and per-role rate limits | kernel, config | **kernel has it, Ritrovo does not use it** | Tokens and bearer auth exist (`crates/kernel/src/routes/api_token.rs:162-163`); limits are fixed at 100 a minute for everyone and there is no token page (`G-API-RATE-LIMITS-FIXED`). No demo key. | A8 |
+| 38.5 | REST endpoints under `/api/v1/conferences`, topics, speakers, subscribe | config, plugin | **read half done for conferences and topics; speakers not built; writes blocked** | `docs/API.md`. `/api/v1/conferences` is a URL alias onto the listing's own gather (paged; topic, country, online and language filters); `/api/v1/conferences/{id}` and `/api/v1/topics` (a tree) are `ritrovo_importer` `tap_api` routes, because a gather cannot take a path parameter and the kernel returns tags flat; search is the kernel's `/api/v1/search`. Anonymous callers get Live only, proved by `verify-demo.sh` against an upcoming Incoming conference, and a host test. Speakers were not in A8's scope. Writes, subscribe included, would skip access checks and revisions (`G-ITEM-API-BYPASSES-ITEM-SERVICE`). The kernel's ad-hoc gather route leaks editors' notes to anyone (`G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS`), which no Ritrovo code can close. | A8 |
+| 38.6 | API keys and per-role rate limits | kernel, config | **blocked on the kernel** | `/api/tokens` issues a token and no request can use it: the JWT middleware refuses every bearer before the token middleware runs (`G-API-TOKENS-NEVER-AUTHENTICATE`, observed on the demo). The `api` limit is 100 a minute for everyone, now overridable site-wide by `TROVATO_RATE_LIMIT_API` or `rate_limit.api` but not per role (`G-API-RATE-LIMITS-FIXED`, narrowed at 0.103.0). Documented in `docs/API.md`. | A8 |
 
 ### Epic 10: Production Ready (Part 8)
 
@@ -468,7 +473,7 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | D16 | Permissions: five roles, Grant and Deny, field visibility, stage scope | plugin, config | **blocked on the kernel** | 35.2, 36.6. | A5 |
 | D17 | Files: logo, gallery, headshot, PDF, local and S3, private files | config | **kernel has it, Ritrovo does not use it** | 34.2; S3 is `G-S3-STORAGE-REMOVED`. | A4 |
 | D18 | Menus: main, user, admin, footer, plugin entries, breadcrumbs | config | **Ritrovo must build it** | Menus render; "Call for Papers", "About" and "Contact" are 404; the brief's footer (API docs, data sources, privacy) does not exist; the importer's `tap_menu` entries appear in the admin menu listing. | A9 |
-| D19 | REST API with keys and rate limits | plugin | **blocked on the kernel** | 38.5, 38.6. | A8 |
+| D19 | REST API with keys and rate limits | config, plugin | **read API done; keys blocked on the kernel** | 38.5 (read half), 38.6. `docs/API.md` is the reference; `/api/openapi.json` cannot be (`G-OPENAPI-IS-A-STATIC-LIST`). | A8 |
 | D20 | Revisions: log, preview, revert to N, compare | kernel | **blocked on the kernel** | 35.4. | A5 |
 | D21 | i18n: translated content, UI strings, aliases, switcher | config, plugin | **done except UI strings** | 38.1, 38.2, 38.3, 38.4. UI strings: `G-LOCALE-STRINGS-NEVER-LOADED`. | A8 |
 | D22 | Multi-step submission with state in PostgreSQL | plugin | **done (A6)** | 36.4. The state is in PostgreSQL as the brief asks, in `ritrovo_form_state` rather than the kernel's `form_state_cache`: that table, its writer and its expiry task all exist and a plugin can reach none of them (`G-NO-FORM-STATE-HOST-API`). | A6 |
@@ -598,11 +603,12 @@ blocked and are listed with what they wait on. Item 8 is done.
 
 ### A8: global and API
 
-1. 38.5 read endpoints, D19: `tap_api` routes for conferences, topics, speakers and
-   search over gather execution.
+1. ~~38.5 read endpoints, D19.~~ **Done** for conferences and topics, as a gather
+   alias and two `tap_api` routes; search is the kernel's (`docs/API.md`).
 2. P14: badge from `item.language`; switcher links to `/it/item/{id}` and
    `/item/{id}` **[kernel: `G-NO-REQUEST-LANGUAGE`]** for the current language.
-3. 38.6: a demo API key **[kernel: `G-API-RATE-LIMITS-FIXED`]** for per-role limits.
+3. 38.6: a demo API key **[kernel: `G-API-TOKENS-NEVER-AUTHENTICATE`,
+   `G-API-RATE-LIMITS-FIXED`]**. Tokens are issued and never accepted.
 4. 38.2, D21 **[kernel: `G-LOCALE-STRINGS-NEVER-LOADED`]**; own the prefixless
    aliases in the moved config.
 5. 38.1, 38.4, 38.3, P13, P15 **[kernel: `G-TRANSLATION-NO-WRITE-PATH`,

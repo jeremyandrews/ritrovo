@@ -32,6 +32,13 @@ around each. Eight new entries were found by doing the work:
 and `G-RENDER-BLOCKS-PASSES-STRINGS-UNSANITIZED`, the last a stored XSS through the
 submission form that is closed in Ritrovo's templates and open in the kernel.
 
+**A8 part 3, the API, same revision.** Five more entries, found by building
+`docs/API.md` against the demo: `G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS` (High: any
+anonymous visitor can read the fields `tap_field_access` hides),
+`G-API-TOKENS-NEVER-AUTHENTICATE` (High: no token from `/api/tokens` is ever accepted),
+`G-OPENAPI-IS-A-STATIC-LIST`, `G-GATHER-EXPLICIT-COLUMNS-ARE-TEXT` and
+`G-UNKNOWN-GATHER-IS-A-500`.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -1274,6 +1281,19 @@ the account deletion text.
 **Recommendation.** Configurable limits keyed by role, and a token section on the
 profile page.
 
+**A8 re-check at 0.103.0: NARROWED, and no longer "fixed".** Each bucket's count can now
+be overridden for the whole site, by `TROVATO_RATE_LIMIT_<BUCKET>` in the environment or
+`rate_limit.<bucket>` in site configuration, environment first
+(`crates/kernel/src/middleware/rate_limit.rs:248-292`, applied at
+`crates/kernel/src/state.rs:324`). The window is not configurable, and nothing is keyed by
+role or by token: the `api` bucket is one number, 100 a minute by default
+(`rate_limit.rs:179`), counted per client IP (`check_rate_limit`) and again per signed-in
+user (`check_authenticated_rate_limit`, `:655`). A refusal is 429 with `retry-after`
+and `{"error":"Rate limit exceeded","retry_after":N}` (`:603-613`). The brief's 60 for
+anonymous and 300 for authenticated still cannot be expressed. Every `/api/` path but
+`/api/search` falls in the `api` bucket, `/api/v1/search` included (`:491-494`).
+`docs/API.md` documents the default and the override.
+
 ### G-S3-STORAGE-REMOVED: **[Low, NEW]** there is no S3 storage backend
 
 "An S3-compatible backend was dropped for the 1.0 release"
@@ -1749,6 +1769,101 @@ not in it. `verify-demo.sh` records what the listing shows as a note.
 
 **Recommendation.** Swap the operands, `"item"."fields" || "_tr"."fields"`, and test the
 rows a translated gather returns rather than the SQL string.
+
+### G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS: **[High, NEW]** an anonymous POST to `/api/gather/query` returns fields `tap_field_access` hides
+
+`POST /api/gather/query` (`crates/kernel/src/routes/gather.rs:46`, handler
+`execute_adhoc_query` at `:213`) runs any query definition the caller sends. It asks for
+no permission and no CSRF token; an anonymous request with no cookie is answered. The
+item access pass still runs, so the stage holds, but the field access pass does not
+cover a whole-column selection: for an explicit field list,
+`filter_row_fields` (`crates/kernel/src/gather/access.rs:195-207`) drops an output key
+only when the tap denied the item field it maps to, and a selection of `fields` maps to
+the item field `fields`, which no tap is ever asked about. The whole JSONB object comes
+back. `validate_definition` (`crates/kernel/src/gather/gather_service.rs:1954-1961`)
+checks the base table's characters and nothing else, so a definition can name any
+table: on the demo, `base_table: users` returned no rows (the access pass dropped them)
+and a `total` of 5, which is the row count of the users table.
+
+**Impact for Ritrovo.** `field_editor_notes`, which `ritrovo_access` hides from everyone
+but editors (`tap_field_access`), is readable by any anonymous visitor. Reproduced on the
+demo at 0.103.0: `{"definition":{"base_table":"item","item_type":"conference","fields":
+[{"field_name":"id"},{"field_name":"fields"}],…}}` returned Live conferences with their
+editors' notes. A configured gather that selects `fields` leaks the same way, which is
+why `/api/v1/conferences` is served by a gather that selects `item.*`, whose field
+filtering does work (`access.rs:189-194`). Ritrovo cannot close the ad-hoc route: a
+plugin cannot remove, wrap or gate a kernel route. Until the kernel does, nothing a
+`tap_field_access` hides is private on this kernel.
+
+**Recommendation.** Gate `/api/gather/query` on an administrative permission and CSRF,
+and treat a whole-`fields` selection as `item.*` in the field access pass. Restrict
+`base_table` to `item` and the registered record tables.
+
+### G-API-TOKENS-NEVER-AUTHENTICATE: **[High, NEW]** a token from `/api/tokens` is rejected before the middleware that would accept it runs
+
+`POST /api/tokens` issues a token, and `authenticate_api_token`
+(`crates/kernel/src/middleware/api_token.rs:39-60`) would accept it as
+`Authorization: Bearer <token>`. It never gets the chance. `authenticate_bearer_token`
+(`crates/kernel/src/middleware/bearer_auth.rs:25`) is layered outside it
+(`crates/kernel/src/main.rs:386-393`: the later `.layer` wraps the earlier, so the JWT
+check runs first) and answers every `Bearer` header itself. With OAuth off, which is the
+case whenever `JWT_SECRET` is unset, it refuses with 401 "OAuth service unavailable"
+(`bearer_auth.rs:43-51`). With OAuth on, an API token is not a JWT, and it refuses with
+401 "Invalid token" (`:55-66`). The token middleware's own comment
+(`api_token.rs:54-58`) expects the opposite order.
+
+**Impact for Ritrovo.** Observed on the demo, which sets no `JWT_SECRET`: `editor_alice`
+created a token (201) and the same token sent as a bearer was refused with 401 on
+`/api/v1/search`, the gather route and a plugin route alike. The API is therefore
+anonymous or cookie-authenticated in practice, and `docs/API.md` says so. A client that
+needs more than a visitor can see has no way in.
+
+**Recommendation.** Let `authenticate_bearer_token` pass a token it cannot parse as a
+JWT on to the token middleware, or swap the two layers.
+
+### G-OPENAPI-IS-A-STATIC-LIST: **[Low, NEW]** `/api/openapi.json` lists a fixed set of kernel routes, three of which do not exist, and no plugin route
+
+`/api/openapi.json` (`crates/kernel/src/routes/api_v1.rs:75`, `:96`) renders the
+registry `register_kernel_routes` fills by hand (`crates/kernel/src/routes/route_metadata.rs:66`).
+Plugin routes from `tap_menu` never enter it. Three of the paths it lists answer 404 on
+the demo, because no router serves them: `/api/v1/items`, `/api/v1/items/{id}` and
+`/api/v1/categories` (the routed ones are `/api/items`, `/api/item/{id}` and
+`/api/categories`). Neither the gather route nor `/api/tokens` is listed.
+
+**Impact for Ritrovo.** The spec cannot describe Ritrovo's API: `/api/v1/conferences/{id}`
+and `/api/v1/topics` are absent, and `/api/v1/conferences` is an alias, which no spec
+generator could see. `docs/API.md` is the reference instead.
+
+**Recommendation.** Build the spec from the routers, plugin routes included, or from
+route metadata that `tap_menu` can supply.
+
+### G-GATHER-EXPLICIT-COLUMNS-ARE-TEXT: **[Low, NEW]** an explicit-field gather returns every JSONB value as text, and its `url` label is overwritten
+
+A gather that names `fields.field_online` or `fields.field_topics` returns the text
+extraction of each: `"false"` for a boolean, and `"[\"324db1b0-…\"]"`, a JSON array
+inside a string, for a list. A column labelled `url` is replaced by the kernel's own
+computed item address. Observed on the demo with a candidate
+`ritrovo.api_conferences` gather.
+
+**Impact for Ritrovo.** The API's list endpoint cannot be a tidy explicit-column gather.
+It is the listing's own `item.*` gather instead, typed and correctly field-filtered, at
+the cost of the kernel's internal columns in every row (`search_vector`, `tenant_id`,
+`retention_days`), which `docs/API.md` tells a client to ignore.
+
+**Recommendation.** Extract with `->` and keep JSON types; namespace the computed `url`.
+
+### G-UNKNOWN-GATHER-IS-A-500: **[Low, NEW]** executing a gather that does not exist answers 500, and a newly imported gather does not exist until restart
+
+`/api/query/{query_id}/execute` for an unknown id fails inside the service and is served
+as 500 "An unexpected error occurred" (`crates/kernel/src/routes/gather.rs:192-200`,
+logged as `query not found`). The gather registry is loaded at startup, so a gather that
+`config import` has just written is unknown until the kernel restarts. Observed on the
+demo.
+
+**Impact for Ritrovo.** None for the demo, which imports before it serves. A client probing
+a misspelled query id gets a server error rather than a 404.
+
+**Recommendation.** 404 for an unknown query, and reload the registry after an import.
 
 ## No-friction findings (surfaces that just worked)
 
