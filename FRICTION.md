@@ -39,6 +39,14 @@ anonymous visitor can read the fields `tap_field_access` hides),
 `G-OPENAPI-IS-A-STATIC-LIST`, `G-GATHER-EXPLICIT-COLUMNS-ARE-TEXT` and
 `G-UNKNOWN-GATHER-IS-A-500`.
 
+**A9 part 1, search and the pages a visitor meets, same revision.** Six more
+entries, found by searching the demo in a browser and reading what Pagefind
+returned: `G-PAGEFIND-INDEX-OMITS-TITLES` (Medium: no conference or speaker was
+findable by its name), `G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE`,
+`G-PAGEFIND-IGNORES-FIELD-WEIGHTS`, `G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS`,
+`G-SEARCH-TRIGGER-INDEXES-BLOCKS-JSON` and `G-MARKDOWN-FILTER-HAS-NO-TABLES`.
+`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX` is re-verified and still open.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -624,7 +632,16 @@ checks that `pagefind.js` answers 200 and that the index contains a known
 conference, because the previous check grepped the server-rendered HTML and so
 passed for a page no visitor could use.
 
-**Blocks.** E4.5, 34.5, D14.
+**Re-verified at 0.103.0, 2026-11-14 (A9).** Still true. On the demo, with the
+index directory moved aside so `/static/pagefind/pagefind.js` answered 404,
+`/search?q=rust` in Chrome hid the server's results and sat on "Searching...":
+`search-init.js` hides `#search-fallback` whenever `Scolta` is defined, before
+anything is known about the index (`static/js/search-init.js:20-25`), and
+`templates/search.html:125-126` always loads both scripts. The demo now builds the
+index before `scripts/serve-demo.sh` reports ready and verifies it holds every
+Live item, so the demo is not exposed; the kernel still is.
+
+**Blocks.** Nothing in the demo now. Every site without a built index.
 
 **Recommendation.** Leave the server results in place unless the index loads. That is
 the progressive enhancement the search design promises.
@@ -656,6 +673,13 @@ split is one description away from cutting the page in the wrong place.
 
 **Blocks.** 34.1, D5; and it is why P5 and P14 no longer render on a conference
 detail page.
+
+**Partly worked around (A9).** The CFP badge is drawn again by the conference
+template itself, from the same rule as `ritrovo_cfp`'s `render_badge` (end of
+the closing day, whole days, the same three bands), with Tera's `now()`.
+`verify-demo.sh` asserts it on a Live conference with an open call for papers. The
+language switcher was already the template's (A8). The SEO plugin's JSON-LD is
+still lost.
 
 **Recommendation.** Insert the plugin outputs into the template context under their
 own name as well, for example `plugin_output`, leaving `children` exactly as it is
@@ -801,7 +825,12 @@ The set lives at `docs/tutorial/config/` and ships in the image (`Dockerfile:72`
    (`G-NO-ITEM-STAGE-TRANSITION`), and `locale/it.po` is loaded by nothing
    (`G-LOCALE-STRINGS-NEVER-LOADED`).
 
-**Blocks.** D18 (1), 38.2 (2), 29.1, E4.3 and every conference edit (3).
+**A9.** Item 1 is closed in Ritrovo: the link points at `/cfps`, and `/about`,
+`/contact`, `/api-docs`, `/data-sources` and `/privacy` are kernel `page` items
+seeded from `demo/config/seed-content` (the API page built from `docs/API.md` at
+bootstrap). `verify-demo.sh` follows every main and footer menu link as rendered.
+
+**Blocks.** 38.2 (2), 29.1, E4.3 and every conference edit (3).
 
 **Recommendation.** If Ritrovo takes ownership of this model (`STATUS.md`, "Where the
 content model lives"), the fixes land in Ritrovo and the kernel keeps a fixture.
@@ -941,6 +970,13 @@ uuids and nothing else: no label, no link, no breadcrumb. The gather side is fin
 breadcrumbs (`routes/gather.rs:432`).
 
 **Blocks.** D5 (topic pills), D2 (the topic breadcrumb on an item page).
+
+**Workaround in Ritrovo (A9).** The topic tree is Ritrovo's configuration, so its
+labels are compiled into a template: `docs/tutorial/templates/includes/topics.html`
+holds `pill`, `trail` and `label` macros with a branch per term, generated from
+`demo/config/tag.*.yml` by `demo/checks/tests/topic_labels.rs`, which fails the
+build when it is stale. The conference page renders topic pills through it. It
+is a copy of data the kernel already has, and goes away with this entry.
 
 **Recommendation.** Resolve an item's category references the way forward record
 references are resolved, into a `referenced_tags` map of label, slug and url.
@@ -1864,6 +1900,122 @@ demo.
 a misspelled query id gets a server error rather than a 404.
 
 **Recommendation.** 404 for an unknown query, and reload the registry after an import.
+
+### G-PAGEFIND-INDEX-OMITS-TITLES: **[Medium, NEW]** the client-side index never contains an item's title, so nothing is findable by its name
+
+`build_index_inner` writes each item as an HTML fragment whose title is an `<h1>`
+OUTSIDE the `<div data-pagefind-body>` element
+(`crates/kernel/src/cron/pagefind.rs:239-243`). Once a page has a
+`data-pagefind-body` element, Pagefind indexes only inside it, so the `<h1>` is
+captured as the result's title metadata and never as searchable text. The body
+is built from the fields `search_field_config` names (`:368-405`), read out of
+`item.fields`; the title is a column, so a `title` row in `search_field_config`,
+which the tutorial set ships for both types, finds nothing there. And an item
+none of whose configured fields has text gets an empty body and is left out of
+the index altogether.
+
+Observed on the demo in Chrome, 2026-11-14, before the workaround: `/search?q=codemotion`
+answered "No results found." for the seeded "Codemotion Roma 2026"; a search for
+the city, "roma", found it. A search for a speaker by name found nobody. The
+index held 50 pages for 61 Live items: the eleven with no description, city or
+bio were absent.
+
+**Workaround in Ritrovo.** `ritrovo_importer`'s `tap_cron` mirrors `item.title`
+into `fields.title` for conferences and speakers
+(`plugins/ritrovo_importer/src/search_text.rs`), which the export does read.
+`verify-demo.sh` now queries the index through `pagefind.js` itself
+(`scripts/pagefind-query.mjs`) for a conference title and a speaker name, and
+compares the index's page count with the Live item count.
+
+**Blocks.** Nothing now; it is why E4.5, 34.5 and D14 needed plugin code.
+
+**Recommendation.** Put the title inside the indexed body (or mark the `<h1>`
+`data-pagefind-weight`), and stop dropping items whose configured fields are
+empty.
+
+### G-PAGEFIND-RESULT-URL-IGNORES-ALIAS-LANGUAGE: **[Low, NEW]** a search result can link to another language's alias without its prefix, which is 404
+
+The export loads every `/item/%` alias into one map with no language
+(`crates/kernel/src/cron/pagefind.rs:166-176`) and uses whichever row the
+`collect` kept as the result's `url` (`:186-187`). An item with an English and
+an Italian alias gets either, and an Italian alias is stored without its `/it`
+prefix (the language middleware strips the prefix before lookup), so the link is
+`/conferenze/<slug>`, which an English request cannot resolve.
+
+Observed on the demo, 2026-11-14: a Pagefind search for "Codemotion Roma 2026"
+returns it with the URL `/conferenze/codemotion-roma-2026`, 404;
+`/it/conferenze/codemotion-roma-2026` is 200. Which alias wins is not under
+Ritrovo's control. `verify-demo.sh` reports the link it gets and does not fail on
+it.
+
+**Blocks.** A clean click-through for the 15 seeded conferences that have an
+Italian alias (D14, partly).
+
+**Recommendation.** Prefer the default language's alias, or prefix the alias with
+its language when it is not the default.
+
+### G-PAGEFIND-IGNORES-FIELD-WEIGHTS: **[Low, NEW]** the A to D weights shape the server's ranking and not the browser's
+
+The weights in `search_field_config` reach the tsvector trigger
+(`crates/kernel/migrations/20260226000001_fix_search_trigger_char_cast.sql:9-29`).
+The Pagefind export reads only the field names and joins the values into one
+undifferentiated body, ordered by a name heuristic (`description`, `body` and
+`bio` first) rather than by weight (`crates/kernel/src/cron/pagefind.rs:375-392`).
+So the page a visitor uses ranks a match in a city the same as a match in a
+title.
+
+**Blocks.** "Weighted fields" on the user-facing search (34.5, D14) holds for
+`/api/v1/search` and the no-JavaScript results only.
+
+**Recommendation.** Emit each configured field in its own element with
+`data-pagefind-weight` derived from its letter.
+
+### G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS: **[Low, NEW]** a taxonomy field cannot be searched by its terms' names
+
+The trigger indexes `fields->>name` as text
+(`crates/kernel/migrations/20260226000001_fix_search_trigger_char_cast.sql:20-23`),
+and the Pagefind export does the same. A field holding tag uuids, which is how
+`field_topics` is stored because no field kind is taxonomic
+(`G-NO-CATEGORY-REFERENCE-FIELD-KIND`), indexes as uuid fragments. The brief's
+"topics, weight C" cannot be configured.
+
+**Workaround in Ritrovo.** The brief itself calls the field "topics
+(denormalized)": `ritrovo_importer`'s `tap_cron` writes `field_topic_names`, the
+labels of a conference's tags and of their ancestors, and
+`demo/config/search_field_config.5b1e7c1a-….yml` weights it C. `verify-demo.sh`
+reads the weight back out of the tsvector.
+
+**Blocks.** Nothing now.
+
+**Recommendation.** Resolve category references to labels when indexing.
+
+### G-SEARCH-TRIGGER-INDEXES-BLOCKS-JSON: **[Low, NEW]** a `Blocks` field is indexed as its JSON, so every description matches "paragraph"
+
+The trigger takes `fields->>name`, which for a `Blocks` field is the serialized
+block list (`crates/kernel/migrations/20260226000001_fix_search_trigger_char_cast.sql:20-23`).
+The structure's own keys and values become words: on the demo the seeded
+"Droidcon Italy 2026" carries `'paragraph':B`, `'text':B`, `'data':B` and
+`'type':B`, so `/search?q=paragraph` matches every conference with a
+description.
+
+**Blocks.** Nothing in the brief; it is noise in every ranking.
+
+**Recommendation.** Index `Blocks` fields through the same text extraction the
+renderer uses.
+
+### G-MARKDOWN-FILTER-HAS-NO-TABLES: **[Low, NEW]** the `markdown` filter does not render tables
+
+`pulldown_cmark::Parser::new` with no options
+(`crates/kernel/src/theme/engine.rs:560`), so GitHub-style tables, which every
+document in this repository uses, render as paragraphs of pipes.
+
+Observed on the demo: `/api-docs`, built from `docs/API.md` at bootstrap, shows
+its endpoint table as `| Endpoint | Served by | Why |` text.
+
+**Blocks.** Nothing; the API page is readable and uglier than it should be.
+
+**Recommendation.** `Parser::new_ext` with `Options::ENABLE_TABLES` (and
+strikethrough), as GitHub renders them.
 
 ## No-friction findings (surfaces that just worked)
 

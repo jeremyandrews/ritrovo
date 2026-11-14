@@ -1,0 +1,44 @@
+# Static page: Privacy, served at /privacy (url_alias.9e3b0a61-4f0e-4a43-8d0c-2a6b5f1e7c04.yml).
+#
+# A kernel `page` item, so it is ordinary content: Live, searchable, editable at
+# /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e04/edit. The body is Markdown, rendered by Ritrovo's
+# elements/item--page.html through the kernel's own sanitizing `markdown` filter.
+id: 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e04
+type: page
+title: Privacy
+language: en
+status: 1
+created: 1794700000
+changed: 1794700000
+fields:
+  body:
+    format: markdown
+    value: |
+      Ritrovo is a demonstration site. This is what it keeps, and why.
+      
+      ## If you only browse
+      
+      Nothing is stored about you. There are no analytics, no advertising and no
+      third-party scripts. The server keeps ordinary request logs for operating the
+      site.
+      
+      ## If you create an account
+      
+      Ritrovo stores your username, email address, password (hashed, never in
+      readable form), time zone, and anything you choose to add: a bio, comments,
+      conference submissions and the conferences you follow. A session cookie keeps
+      you signed in; it is the only cookie the site sets.
+      
+      Your email address is not shown to other members and is not used to send you
+      anything: this site sends no mail.
+      
+      ## Your data
+      
+      You can export what the site holds about you, or delete your account, from your
+      profile. Deleting an account removes its personal data.
+      
+      ## Search
+      
+      Search runs in your browser against a static index of published conferences
+      and speakers. What you type is not sent to the server unless you submit the
+      search form without JavaScript.

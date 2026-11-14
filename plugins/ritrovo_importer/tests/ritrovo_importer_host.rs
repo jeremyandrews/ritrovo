@@ -623,6 +623,89 @@ fn the_api_serves_live_conferences_only_and_the_topic_tree() {
 }
 
 // ===========================================================================
+// What search reads
+// ===========================================================================
+
+/// `tap_cron` writes the two values the kernel's indexers cannot derive: the
+/// title, mirrored into `fields.title` because the Pagefind export reads fields
+/// and leaves the title column out of the indexed body
+/// (G-PAGEFIND-INDEX-OMITS-TITLES), and `field_topic_names`, the labels of the
+/// conference's topics and their ancestors, because the tag uuids in
+/// `field_topics` are not words (G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS).
+///
+/// Driven through the real dispatcher against the kernel's real search trigger
+/// and the demo's real `search_field_config`, so the weights asserted are the
+/// ones a search ranks by: title A, topics C. The second call is the guard that
+/// makes running it every minute cheap: nothing to rewrite.
+#[test]
+fn cron_writes_the_title_and_topic_labels_search_reads_at_the_brief_s_weights() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        clean_install(&pool).await;
+        let server = fixtures().await;
+        run_tap_install(&pool, &server).await;
+        drain(&pool).await;
+
+        let disp = host::dispatcher(PLUGIN);
+        let cron = |ts: i64| {
+            let pool = pool.clone();
+            let disp = disp.clone();
+            let client = server.client();
+            async move {
+                host::json(
+                    &host::dispatch(
+                        &pool,
+                        &disp,
+                        PLUGIN,
+                        "tap_cron",
+                        &format!("{{\"timestamp\": {ts}}}"),
+                        UserContext::background(),
+                        client,
+                    )
+                    .await,
+                )
+            }
+        };
+
+        let first = cron(host::now()).await;
+        let mirrored = first["search_text"]["titles_mirrored"].as_i64().unwrap();
+        assert!(
+            mirrored >= DISTINCT_VALID_CONFERENCES,
+            "the first cron call should mirror every imported title: {first}"
+        );
+
+        let (title, names, weighted): (Option<String>, Option<String>, bool) = sqlx::query_as(
+            "SELECT fields->>'title', fields->>'field_topic_names', \
+                    search_vector @@ to_tsquery('english', 'rustconf:A & languages:C & systems:C') \
+               FROM item WHERE type = 'conference' AND title = 'RustConf' \
+              ORDER BY fields->>'field_start_date' DESC LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(title.as_deref(), Some("RustConf"));
+        let names = names.expect("RustConf has topics, so it has topic names");
+        for want in ["Rust", "Systems", "Languages"] {
+            assert!(
+                names.split(' ').any(|n| n == want),
+                "{want} missing from {names:?}: the term and both its ancestors belong there"
+            );
+        }
+        assert!(
+            weighted,
+            "RustConf is not indexed with its title at A and its topic lineage at C"
+        );
+
+        let second = cron(host::now()).await;
+        assert_eq!(
+            second["search_text"],
+            serde_json::json!({"titles_mirrored": 0, "topic_names_written": 0}),
+            "a second call rewrote rows that were already right: {second}"
+        );
+    });
+}
+
+// ===========================================================================
 // Repairing what the source-id bug left behind
 // ===========================================================================
 

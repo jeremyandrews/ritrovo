@@ -1,0 +1,41 @@
+# Static page: About Ritrovo, served at /about (url_alias.9e3b0a61-4f0e-4a43-8d0c-2a6b5f1e7c01.yml).
+#
+# A kernel `page` item, so it is ordinary content: Live, searchable, editable at
+# /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e01/edit. The body is Markdown, rendered by Ritrovo's
+# elements/item--page.html through the kernel's own sanitizing `markdown` filter.
+id: 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e01
+type: page
+title: About Ritrovo
+language: en
+status: 1
+created: 1794700000
+changed: 1794700000
+fields:
+  body:
+    format: markdown
+    value: |
+      Ritrovo is a directory of developer conferences: what is on, where, when, and
+      whether its call for papers is still open. It is also a reference application.
+      Every page you are reading is served by [Trovato](https://github.com/jeremyandrews/trovato),
+      a content platform written in Rust, with Ritrovo's plugins, templates and
+      configuration laid over a stock release.
+      
+      ## What is here
+      
+      - **[Conferences](/conferences)**: upcoming events, filterable by topic, country and language.
+      - **[Calls for papers](/cfps)**: conferences still accepting talk proposals, closest deadline first.
+      - **[Topics](/topics)**: a three-level tree, from Languages down to Kotlin.
+      - **[Speakers](/speakers)**: people speaking at the conferences listed here.
+      - **[Search](/search)**: everything above, by keyword.
+      
+      ## Where the data comes from
+      
+      Most conferences are imported every day from the open
+      [confs.tech](https://confs.tech) dataset; the rest are submitted by members and
+      reviewed by editors before they appear. See [Data sources](/data-sources).
+      
+      ## How it is built
+      
+      The source, including the record of every place the platform could not yet do
+      what the design asked of it, is at
+      [github.com/jeremyandrews/ritrovo](https://github.com/jeremyandrews/ritrovo).

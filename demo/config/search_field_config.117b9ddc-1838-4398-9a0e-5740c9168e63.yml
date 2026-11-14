@@ -1,4 +1,10 @@
 # Search field config — speaker title (highest weight)
+#
+# The tsvector trigger weights the title COLUMN as A whatever this says. This row
+# is what the Pagefind export reads: it takes configured fields out of
+# item.fields, so it finds `title` only because ritrovo_importer mirrors the
+# column into fields.title (plugins/ritrovo_importer/src/search_text.rs;
+# FRICTION.md, G-PAGEFIND-INDEX-OMITS-TITLES).
 id: 117b9ddc-1838-4398-9a0e-5740c9168e63
 bundle: speaker
 field_name: title

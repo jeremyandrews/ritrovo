@@ -48,6 +48,24 @@ route and no alias answers: the gather it means is `ritrovo.open_cfps`, whose
 own navigation on a stock import. Corrected here while the row was still an
 override, and kept when the set moved. `G-TUTORIAL-CONFIG-SET-DEFECTS`.
 
+## The footer, and the pages behind it
+
+`menu_link.…05` to `…09` are the brief's footer: About, Contact, API
+documentation, Data sources and Privacy. Every one points at a kernel `page`
+item: four are in `seed-content/` with an alias each, and the API documentation
+page is written by `scripts/demo-bootstrap.sh` from `docs/API.md` on every start,
+so it cannot drift from the reference. `verify-demo.sh` follows every link the
+main and footer menus render.
+
+## `search_field_config.*.yml` — the brief's weights
+
+Title A, description B, city C, topics C (and country C, which the brief does
+not list). Two of those read values `ritrovo_importer` writes for search on
+every cron call, because the kernel cannot derive them: `title` (the Pagefind
+export reads only `fields`, `G-PAGEFIND-INDEX-OMITS-TITLES`) and
+`field_topic_names` (tag uuids are not words,
+`G-SEARCH-CANNOT-INDEX-CATEGORY-LABELS`).
+
 ## `url_alias.*.yml` — the Italian listing paths
 
 Three aliases (`/conferenze`, `/relatori`, `/argomenti`) declared in Italian,

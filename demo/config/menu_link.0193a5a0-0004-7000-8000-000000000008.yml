@@ -1,0 +1,12 @@
+# Footer menu — Data sources link, to the page at /data-sources (a kernel page item, see
+# demo/config/seed-content or, for the API reference, scripts/demo-bootstrap.sh).
+id: 0193a5a0-0004-7000-8000-000000000008
+menu_name: footer
+path: /data-sources
+title: Data sources
+weight: 15
+hidden: false
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1767225600

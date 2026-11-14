@@ -75,6 +75,17 @@ UPDATE=0
 #       defines: multi-value venue photos, a schedule PDF, speakers as a forward
 #       reference from the conference, and a headshot rather than a photo.
 #
+#   elements/item--page.html
+#       Not in the release at all. Ritrovo's static pages (About, Contact, API
+#       documentation, Data sources, Privacy) keep a Markdown body, and the
+#       kernel's own item--page.html prints `children`, the generic field dump.
+#
+#   includes/topics.html
+#       Not in the release at all, and not hand-written: generated from
+#       demo/config/tag.*.yml by demo/checks/tests/topic_labels.rs, which fails
+#       when it is stale. The kernel hands a template a topic's uuid and never
+#       its label (G-ITEM-ROUTE-DOES-NOT-RESOLVE-CATEGORY-TAGS).
+#
 #   gather/includes/conf-card.html
 #   gather/query--ritrovo.all_speakers.html
 #       Follow the same model change: the logo and language on a card, the
@@ -98,7 +109,9 @@ UPDATE=0
 #       unwrapped (FRICTION.md, G-THEMED-PLUGIN-PAGE-UNDER-ADMIN-RENDERS-UNWRAPPED).
 OWNED_TEMPLATES="
 elements/item--conference.html
+elements/item--page.html
 elements/item--speaker.html
+includes/topics.html
 gather/includes/conf-card.html
 gather/query--ritrovo.all_speakers.html
 gather/query--ritrovo.by_country.html

@@ -234,7 +234,8 @@ done
 # live server. seed-italian is Part 7's content-translation demonstration.
 # seed-content is Ritrovo's: descriptions, speakers, topics and editor notes on
 # the conferences the importer landed bare, so the demo shows a filled-in
-# conference without anyone typing one in.
+# conference without anyone typing one in, and the static pages the footer links
+# to (About, Contact, Data sources, Privacy).
 
 # Speakers first: the seeded conferences carry field_speakers referencing them,
 # and while nothing validates an item's field references, a conference imported
@@ -244,6 +245,44 @@ say "importing the seeded speakers"
 
 say "importing the Italian seed content"
 ./trovato config import "$RITROVO_CONFIG_DIR/seed-italian"
+
+# The API documentation page, built from docs/API.md on every start so the page
+# the footer links to is the reference in this checkout, never a copy of it that
+# drifts. A kernel `page` item like About and Privacy (demo/config/seed-content),
+# its body the Markdown verbatim under a YAML block scalar, which takes any text
+# as long as every line is indented: so every line is.
+API_DOC="${RITROVO_DOCS_DIR:-/ritrovo/docs}/API.md"
+if [ -f "$API_DOC" ]; then
+    say "importing the API documentation page from $API_DOC"
+    api_dir="$(mktemp -d)"
+    {
+        echo "id: 7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e05"
+        echo "type: page"
+        echo "title: API documentation"
+        echo "language: en"
+        echo "status: 1"
+        echo "created: 1794700000"
+        echo "changed: 1794700000"
+        echo "fields:"
+        echo "  body:"
+        echo "    format: markdown"
+        echo "    value: |"
+        # The first heading is the page title already.
+        sed '1{/^# /d;}' "$API_DOC" | sed 's/^/      /'
+    } >"$api_dir/item.7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e05.yml"
+    {
+        echo "id: '9e3b0a61-4f0e-4a43-8d0c-2a6b5f1e7c05'"
+        echo "source: /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e05"
+        echo "alias: /api-docs"
+        echo "language: en"
+        echo "stage_id: '0193a5a0-0000-7000-8000-000000000001'"
+        echo "created: 1794700000"
+    } >"$api_dir/url_alias.9e3b0a61-4f0e-4a43-8d0c-2a6b5f1e7c05.yml"
+    ./trovato config import "$api_dir"
+    rm -rf "$api_dir"
+else
+    echo "warning: $API_DOC not found; /api-docs will be 404" >&2
+fi
 
 # ── 6. Serve ─────────────────────────────────────────────────────────────────
 #
