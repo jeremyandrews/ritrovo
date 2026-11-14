@@ -748,6 +748,77 @@ else
     bad "nothing is on Incoming; the importer is landing conferences somewhere else"
 fi
 
+head_ "search and the cache, by stage"
+# Search is stage-aware: the Pagefind index is built from Live items only
+# (crates/kernel/src/cron/pagefind.rs:135-147) and server search reads the stage
+# from the session, which only an administrator can change. So an anonymous
+# visitor must never find an Incoming or a Curated conference by its own title,
+# in either index. The editor half, an editor finding the stages they may read,
+# does not exist in the kernel (G-STAGE-SWITCH-IS-ADMIN-ONLY); the host test
+# search_returns_live_to_everyone_and_another_stage_only_to_an_administrator_on_it
+# covers both halves against the kernel's route.
+for stage_pair in incoming:0193a5a0-0000-7000-8000-000000000002 curated:0193a5a0-0000-7000-8000-000000000003; do
+    stage_name="${stage_pair%%:*}"
+    stage_uuid="${stage_pair#*:}"
+    hidden_id="$(sql "select id from item where type='conference' and status=1 and stage_id='$stage_uuid' and title ~ '^[A-Za-z0-9 ]+\$' and not exists (select 1 from item l where l.stage_id='$LIVE_STAGE' and l.title = item.title) order by title limit 1")"
+    if [ -z "$hidden_id" ]; then
+        note "skipped the $stage_name search check: no plainly titled $stage_name conference"
+        continue
+    fi
+    hidden_title="$(sql_text "select title from item where id='$hidden_id'")"
+    server_hits="$(curl -s -G "$BASE/api/search" --data-urlencode "q=$hidden_title")"
+    if printf '%s' "$server_hits" | grep -q "$hidden_id"; then
+        bad "anonymous server search returns the $stage_name conference \"$hidden_title\""
+    else
+        ok "anonymous server search does not return the $stage_name conference \"$hidden_title\""
+    fi
+    if command -v node >/dev/null 2>&1; then
+        pf_hits="$(node "$ROOT/scripts/pagefind-query.mjs" "$BASE" "$hidden_title" 2>&1)"
+        if printf '%s' "$pf_hits" | grep -q "$hidden_id"; then
+            bad "the Pagefind index returns the $stage_name conference \"$hidden_title\""
+        else
+            ok "the Pagefind index does not return the $stage_name conference \"$hidden_title\""
+        fi
+    fi
+    # The editor may read it, and caching the editor's read changes nothing
+    # for the anonymous visitor straight after: the cache holds Items, the
+    # access check runs on every request, and no rendered page is cached.
+    editor_view="$(curl -s -o /dev/null -w '%{http_code}' -b "$editor_jar" "$BASE/item/$hidden_id")"
+    anon_after="$(curl -s "$BASE/item/$hidden_id")"
+    anon_code="$(code "/item/$hidden_id")"
+    if [ "$editor_view" = "200" ] && [ "$anon_code" != "200" ] && [[ "$anon_after" != *"$hidden_title"* ]]; then
+        ok "the editor reads the $stage_name conference (200); an anonymous request right after gets $anon_code"
+    else
+        bad "the $stage_name conference: editor $editor_view, anonymous right after $anon_code"
+    fi
+done
+
+# The cache after a write that bypasses ItemService, the importer's path. The
+# demo's item cache lives CACHE_TTL_ITEMS (10) seconds, and no plugin can
+# invalidate it (G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE), so a raw title
+# change is NOT on the item's page at once and IS once the entry has expired.
+# docs/CACHING.md walks through the same thing by hand.
+cache_id="$(sql "select id from item where type='conference' and status=1 and stage_id='$LIVE_STAGE' and title ~ '^[A-Za-z0-9 ]+\$' order by title limit 1")"
+if [ -n "$cache_id" ]; then
+    cache_title="$(sql_text "select title from item where id='$cache_id'")"
+    curl -s -o /dev/null "$BASE/item/$cache_id"
+    sql "update item set title = title || ' Rewritten' where id='$cache_id'" >/dev/null
+    stale="$(curl -s "$BASE/item/$cache_id")"
+    t0=$SECONDS
+    until [ $((SECONDS - t0)) -ge 12 ]; do sleep 1; done
+    fresh="$(curl -s "$BASE/item/$cache_id")"
+    sql "update item set title = '$cache_title' where id='$cache_id'" >/dev/null
+    if [[ "$stale" != *"$cache_title Rewritten"* ]] && [[ "$fresh" == *"$cache_title Rewritten"* ]]; then
+        ok "a raw SQL title change is served stale from the item cache, and fresh once the 10s entry expires"
+    elif [[ "$stale" == *"$cache_title Rewritten"* ]]; then
+        note "a raw SQL title change was on the page at once; re-check G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE and docs/CACHING.md"
+    else
+        bad "a raw SQL title change never reached /item/$cache_id"
+    fi
+else
+    note "skipped the cache check: no database access"
+fi
+
 head_ "submit a conference"
 
 # The three-step submission form, driven end to end as viewer_carol: a signed-in

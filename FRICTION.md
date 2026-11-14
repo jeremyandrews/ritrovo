@@ -55,6 +55,13 @@ the front page, the tiles and the four menus: `G-PLUGIN-MENU-ENTRIES-WITH-A-PARE
 `G-NO-ACCESSIBILITY-CHECK`. `G-TILE-GATHER-QUERY-RENDERS-NOTHING` stays open, with
 the workaround Ritrovo now uses recorded under it.
 
+**A9 part 3, search by stage and caching, same revision.** Two more:
+`G-STAGE-SWITCH-IS-ADMIN-ONLY` (Medium: an editor's search answers from Live only)
+and `G-CACHE-METRICS-NEVER-COUNT`. `G-NO-REQUEST-PROFILER` is narrowed, because
+`Server-Timing` is layered at 0.103.0, and stays open.
+`G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE` is re-verified with a host test and
+stays open.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -1373,6 +1380,16 @@ Gander appears in design documents only; there is no code by that name. The
 **Recommendation.** Layer `track_request_timing` behind a setting, and report cache
 hits and misses in it.
 
+**Re-verified at 0.103.0, 2026-11-14 (A9 part 3). Narrowed, still open.** The
+timing middleware is layered now, outermost (`crates/kernel/src/main.rs:410-415`),
+and every response carries `Server-Timing: total;dur=<ms>`. That is the whole of
+it: one number per request, with no query count, no cache hits and no breakdown,
+because per-query timing "would require wrapping the `PgPool` and is not done"
+(`crates/kernel/src/middleware/query_profiler.rs:47-50`). Gander still does not
+exist. `docs/CACHING.md` walks through the cache by behaviour instead, because
+there is no profiler to read it from, and the cache counters it would have read
+never move (`G-CACHE-METRICS-NEVER-COUNT`).
+
 ### G-REVISION-NO-COMPARE: **[Low, NEW]** revisions store a change summary, and nothing shows a comparison
 
 `item_revision.change_summary` holds added, removed and changed fields
@@ -1461,6 +1478,18 @@ promotion is invisible on the item's own page for up to five minutes.
 
 **Recommendation.** A host call to invalidate an item by id, gated on the same
 capability as the write that made it necessary, and called by `save-item` itself.
+
+**Re-verified at 0.103.0, 2026-11-14 (A9 part 3). Still open.** The cache is built
+at `crates/kernel/src/content/item_service.rs:323-331` and invalidated only by
+`update` (`:736`), `delete` (`:910`) and `invalidate` (`:1590-1592`), which no host
+call reaches. The host test
+`a_kernel_edit_shows_at_once_a_raw_write_waits_for_the_cache_and_no_view_leaks`
+(`plugins/ritrovo_access/tests/ritrovo_access_host.rs`) drives the kernel's item
+route: an edit through the form is on the page at once, and a raw SQL title change
+is not, until the entry is invalidated. `verify-demo.sh` shows the same on the
+demo, stale at once and fresh after the 10-second TTL. The same test shows that an
+editor's read of a Curated conference never reaches the next anonymous request:
+the cache holds Items, and the access check runs after it on every request.
 
 ### G-CONFIG-ITEM-CANNOT-NAME-A-STAGE: **[Medium, NEW]** configuration can ship an item, and cannot say which stage it belongs on
 
@@ -2071,7 +2100,9 @@ children of `/user` and `/admin/*` in the kernel's user and admin menus.
 
 `inject_site_context` gives every page `user_authenticated`, `csrf_token` and
 `user_can_access_admin`, and nothing that identifies the viewer: no id, no name
-(`crates/kernel/src/routes/helpers.rs:183-345`). A tile body is one string for
+(`crates/kernel/src/routes/helpers.rs:183-345`). This is the page-layout half of
+`G-ITEM-TEMPLATE-HAS-NO-VIEWER`, which is the same gap in the item template's
+context; together they leave no template on a page that can name its reader. A tile body is one string for
 every viewer (`crates/kernel/src/services/tile.rs:44-56`).
 
 Observed: `ritrovo_notify` serves a member's subscriptions at
@@ -2170,6 +2201,45 @@ asserts the landmarks and labels on the front page.
 
 **Recommendation.** Ship an axe or pa11y run over the default theme in CI, usable
 against a site's own.
+
+### G-STAGE-SWITCH-IS-ADMIN-ONLY: **[Medium, NEW]** search answers from Live for everyone but an administrator, so an editor cannot search the stages they edit
+
+Server search takes its stage set from the session: Live, or the session's active
+stage plus Live (`crates/kernel/src/routes/search.rs:26-46`). Only
+`/admin/stage/switch` sets the active stage, and it requires an administrator
+(`crates/kernel/src/routes/admin.rs:44-56`, `require_admin_json`), whatever the
+role may read. The browser's search is the Pagefind index, built from Live,
+published items only (`crates/kernel/src/cron/pagefind.rs:135-147`), and has no
+per-viewer view at all.
+
+Observed, in the host test
+`search_returns_live_to_everyone_and_another_stage_only_to_an_administrator_on_it`:
+- an editor holding the demo's `editor` role, who may open Incoming and Curated
+  conferences through `ritrovo_access`, gets the Live conference only;
+- their stage switch is refused with 403, and not for its CSRF token;
+- an administrator switched to Incoming gets Incoming and Live, and never Curated.
+
+**What holds.** An anonymous visitor never finds an Incoming or Curated conference,
+in either index; `verify-demo.sh` checks both, by title, on the demo.
+
+**Ritrovo's side.** An editor finds Incoming and Curated conferences on
+`/admin/content/editorial`, not through search.
+
+**Blocks.** The editor half of D14's stage-aware search.
+
+**Recommendation.** Let a permission rather than the administrator flag choose the
+search stage, and give the Pagefind export a per-stage index, or document it as
+the public index.
+
+### G-CACHE-METRICS-NEVER-COUNT: **[Low, NEW]** `/metrics` exports cache hit and miss counters that nothing increments
+
+`cache_hits_total` and `cache_misses_total` are registered
+(`crates/kernel/src/metrics/mod.rs:127-135`) and incremented nowhere in
+`crates/kernel/src`. The item cache logs nothing either. On the demo both read 0
+after any amount of traffic.
+
+**Recommendation.** Count in `ItemService::load` and `CacheLayer::get`, or drop the
+two series so nobody reads a zero as a cold cache.
 
 ## No-friction findings (surfaces that just worked)
 
