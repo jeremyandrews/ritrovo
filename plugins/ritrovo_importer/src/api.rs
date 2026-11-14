@@ -44,19 +44,26 @@ pub const PUBLIC_FIELDS: &[&str] = &[
     "field_speakers",
 ];
 
-/// One Live, published conference, its English alias, and its translations.
+/// One Live, published conference and its English alias.
 pub const CONFERENCE_SQL: &str = "\
 SELECT i.id::text AS id, i.title, i.language, i.fields, i.created, i.changed, \
        (SELECT a.alias FROM url_alias a \
          WHERE a.source = '/item/' || i.id::text AND a.language = 'en' \
-         ORDER BY a.created, a.alias LIMIT 1) AS alias, \
-       COALESCE((SELECT json_agg(t.language ORDER BY t.language) FROM item_translation t \
-         WHERE t.item_id = i.id), '[]'::json) AS translations \
+         ORDER BY a.created, a.alias LIMIT 1) AS alias \
 FROM item i \
 WHERE i.id = $1::uuid \
   AND i.type = 'conference' \
   AND i.status = 1 \
   AND i.stage_id = '0193a5a0-0000-7000-8000-000000000001'";
+
+/// The languages a conference has a translation in.
+///
+/// Its own query, not a subquery of [`CONFERENCE_SQL`]: `item_translation`
+/// belongs to the kernel's `trovato_content_translation` plugin and exists only
+/// where that is enabled. A site without it has no translations, and the
+/// conference must still be served.
+pub const TRANSLATIONS_SQL: &str = "\
+SELECT language FROM item_translation WHERE item_id = $1::uuid ORDER BY language";
 
 /// Every topic tag with its parent, one row per parent edge.
 pub const TOPICS_SQL: &str = "\
@@ -80,10 +87,24 @@ pub fn conference(request: &ApiRequest) -> ApiResponse {
         Ok(json) => json,
         Err(code) => return failed("conference", code),
     };
-    match parse_rows(&rows).first().map(conference_json) {
-        Some(body) => json_response(&body),
-        None => not_found(),
-    }
+    let Some(mut body) = parse_rows(&rows).first().map(conference_json) else {
+        return not_found();
+    };
+    body["translations"] = serde_json::Value::Array(translations(&id.to_string()));
+    json_response(&body)
+}
+
+/// The conference's translation languages, or none where the site has no
+/// translation table (see [`TRANSLATIONS_SQL`]).
+fn translations(id: &str) -> Vec<serde_json::Value> {
+    host::query_raw(TRANSLATIONS_SQL, &[serde_json::json!(id)])
+        .map(|json| {
+            parse_rows(&json)
+                .iter()
+                .filter_map(|row| row.get("language").cloned())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// `GET /api/v1/topics`.
@@ -103,7 +124,8 @@ pub fn topics() -> ApiResponse {
 ///
 /// Close to a row of the list endpoint, which is the kernel's: `id`, `title`,
 /// `type`, `language`, `fields`, `url`, `created`, `changed`. Two keys the list
-/// does not carry, `stage` (always `live` here) and `translations`.
+/// does not carry, `stage` (always `live` here) and `translations`, which
+/// [`conference`] fills from [`TRANSLATIONS_SQL`].
 pub fn conference_json(row: &serde_json::Value) -> serde_json::Value {
     let id = text(row, "id");
     let stored = json_value(row.get("fields"));
@@ -126,7 +148,9 @@ pub fn conference_json(row: &serde_json::Value) -> serde_json::Value {
         "stage": "live",
         "fields": fields,
         "url": url,
-        "translations": json_value(row.get("translations")),
+        "translations": row
+            .get("translations")
+            .map_or_else(|| serde_json::json!([]), |t| json_value(Some(t))),
         "created": row.get("created").cloned().unwrap_or(serde_json::Value::Null),
         "changed": row.get("changed").cloned().unwrap_or(serde_json::Value::Null),
     })
