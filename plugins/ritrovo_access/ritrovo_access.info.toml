@@ -42,5 +42,6 @@ raw_sql = true
 # Tables this plugin touches. Inert while `raw_sql` is declared, because raw SQL
 # is not parsed against the allowlist, and written down anyway so the declaration
 # states what is true: the editorial screen reads `item` and `stage_config`, and
-# writes exactly one column of `item`.
-db_tables = ["item", "stage_config", "users", "user_roles", "roles"]
+# writes exactly one column of `item`; the demo seed reads `ritrovo_state` (the
+# importer's) and `plugin_queue` to learn whether the import has finished.
+db_tables = ["item", "stage_config", "users", "user_roles", "roles", "ritrovo_state", "plugin_queue"]

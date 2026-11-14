@@ -68,6 +68,15 @@ const IMPORT_INTERVAL_SECS: i64 = 86_400;
 /// State key tracking last import timestamp.
 const STATE_LAST_IMPORT: &str = "last_import";
 
+/// State key recording that `tap_install` has finished pushing the historical
+/// import onto the queue, written once, as its last act, with the timestamp.
+///
+/// Read by `ritrovo_access`'s demo seed, which cannot otherwise tell "the import
+/// is still arriving" from "the feed simply has few upcoming conferences": an
+/// empty queue means either, until this key exists. Once it does, an empty
+/// queue means the import has landed.
+const STATE_HISTORICAL_QUEUED: &str = "historical_import_queued";
+
 /// State key tracking the topic offset for round-robin scheduling.
 const STATE_TOPIC_OFFSET: &str = "topic_offset";
 
@@ -226,6 +235,10 @@ pub fn tap_install() -> serde_json::Value {
             errors += e;
         }
     }
+
+    // Last, after every push: anything reading this key may assume the queue
+    // already holds every batch the historical import will ever push.
+    save_state(STATE_HISTORICAL_QUEUED, &now.to_string());
 
     host::log(
         "info",
