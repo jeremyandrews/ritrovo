@@ -1,0 +1,14 @@
+# The JSON API's conference list: /api/v1/conferences is the kernel's own JSON
+# route for the listing's gather, under the address docs/API.md publishes.
+#
+# An alias and not a route of Ritrovo's: the kernel serves the gather, pages it,
+# applies its exposed filters (topic, country, online, language), the stage and
+# every item and field access tap, and the query string passes through the alias
+# untouched. It is the same gather /conferences renders, so the page and the API
+# cannot disagree about what an upcoming conference is.
+id: '47c640fe-8914-47fd-a1ae-e68c029f8553'
+source: /api/query/ritrovo.upcoming_conferences/execute
+alias: /api/v1/conferences
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000
