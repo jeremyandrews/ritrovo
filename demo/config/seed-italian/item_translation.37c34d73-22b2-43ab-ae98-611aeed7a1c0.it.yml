@@ -1,0 +1,9 @@
+# The Italian of National Testing Day 2026: what /it/item/37c34d73-22b2-43ab-ae98-611aeed7a1c0 renders.
+item_id: 37c34d73-22b2-43ab-ae98-611aeed7a1c0
+language: it
+title: "Giornata Nazionale del Testing 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "La Giornata Nazionale del Testing è dedicata al quality assurance e al testing del software. Sessioni su test automation, TDD, testing in produzione, test di performance e accessibilità."

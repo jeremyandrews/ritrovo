@@ -1,0 +1,8 @@
+# Italian address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: '27efdbe5-720d-4325-83cb-bd022d3c8f80'
+source: /item/37c34d73-22b2-43ab-ae98-611aeed7a1c0
+alias: /conferenze/giornata-nazionale-del-testing-2026
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

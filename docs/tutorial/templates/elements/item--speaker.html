@@ -21,12 +21,25 @@
     </div>
     {% endif %}
 
+    {# A string bio is printed escaped; only a block list goes through
+       render_blocks, whose string branch is not sanitized
+       (G-RENDER-BLOCKS-PASSES-STRINGS-UNSANITIZED; item--conference.html says
+       how that reached a page). #}
     {% if item.fields.field_bio is defined and item.fields.field_bio %}
-    {% set bio_html = item.fields.field_bio | render_blocks | trim %}
-    {% if bio_html and bio_html != "[]" %}
+    {% if item.fields.field_bio is string %}
+    {% set bio_text = item.fields.field_bio | trim %}
+    {% if bio_text and bio_text != "[]" %}
     <div class="speaker-detail__bio">
-        {{ bio_html | safe }} {# SAFE: render_blocks output is sanitized by ammonia #}
+        <p>{{ bio_text }}</p>
     </div>
+    {% endif %}
+    {% else %}
+    {% set bio_html = item.fields.field_bio | render_blocks | trim %}
+    {% if bio_html %}
+    <div class="speaker-detail__bio">
+        {{ bio_html | safe }} {# SAFE: only a block list reaches render_blocks, and that branch is sanitized by ammonia #}
+    </div>
+    {% endif %}
     {% endif %}
     {% endif %}
 

@@ -50,27 +50,25 @@ override, and kept when the set moved. `G-TUTORIAL-CONFIG-SET-DEFECTS`.
 
 ## `url_alias.*.yml` — the Italian listing paths
 
-Three aliases (`/conferenze`, `/relatori`, `/argomenti`) declared in Italian.
-
-This set ALSO declares them the other way, as `/it/conferenze`, `/it/relatori`
-and `/it/argomenti` with `language: it`, because those rows came with the set when
-it moved and correcting them is A8's row, not this one. Those rows cannot ever
-match a request, and the reason is a mismatch inside the kernel between its own
-config set and its own middleware:
+Three aliases (`/conferenze`, `/relatori`, `/argomenti`) declared in Italian,
+stored **without** the `/it` prefix. That is the only form a request can match:
 
 1. `negotiate_language` runs first. It recognises `/it/` as a language prefix,
    resolves the language to `it`, and **strips the prefix from the URI**.
-2. `resolve_path_alias` then looks the remaining path up. For a request to
-   `/it/conferenze` that path is `/conferenze`, and the language is `it`.
-3. No row has `alias = /conferenze, language = it`, so there is no alias, and
-   `/conferenze` is not a route either. The request 404s.
+2. `resolve_path_alias` then looks the remaining path up, `/conferenze`, in `it`
+   and then in `en` (`G-ALIAS-FALLBACK-HARDCODES-EN` in `FRICTION.md`).
 
-Observed on the released kernel, 0.101.0: `/it/conferenze` answers 404 while
-`/it/conferences` answers 200 with `lang="it"`, which is the same alias lookup
-succeeding on the English row.
+The set used to carry the same three a second time as `/it/conferenze`,
+`/it/relatori` and `/it/argomenti`, which no request could ever reach, since the
+middleware strips that prefix before the lookup. A8 deleted them (story 38.2).
+What each address renders, re-checked on 0.103.0:
 
-So three more aliases are stored the way the middleware asks for them: the
-prefix-less path, in Italian. They are additive, and they are why the Italian URLs
-work in this demo at all. Both sets of rows are now Ritrovo's, so the doubled ones
-could simply be deleted; that is a change to what the Italian URLs do, which is
-story 38.2 and belongs to A8.
+| Address | `html lang` | |
+|---|---|---|
+| `/it/conferenze` | `it` | the upcoming gather, Italian page |
+| `/it/relatori` | `it` | the speakers gather, Italian page |
+| `/it/argomenti` | `en` | the topics page ignores the request language (`G-TOPICS-PAGE-IGNORES-LANGUAGE`) |
+| `/it/item/{id}` of a translated conference | `it` | the kernel's translation overlay |
+
+The seed's own conferences carry two aliases each, `/conferences/<slug>` in
+English and `/conferenze/<slug>` in Italian; see `seed-italian/README.md`.

@@ -1,0 +1,8 @@
+# English address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: 'a0ef1d6d-98e0-471d-b84c-d2c93985976a'
+source: /item/66997692-1471-4aeb-8e8b-c5b91273951c
+alias: /conferences/italian-agile-days-2026
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

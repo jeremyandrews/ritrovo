@@ -348,8 +348,9 @@ pub async fn enable_comments(state: &trovato_kernel::AppState, pool: &PgPool) {
 /// a plugin declared: the kernel dispatches `tap_perm` at boot, writes what it
 /// collects to `plugin_permission`, and config-import validation reads that
 /// table (`validate_role_permissions`). `demo/config` uses that, and grants
-/// `post comments` and `edit own comments` to the authenticated role and
-/// `administer comments` to the editorial ones.
+/// `post comments` and `edit own comments` to the authenticated role,
+/// `administer comments` to the editorial ones, and `translate content` (declared
+/// by the kernel's `trovato_content_translation`) to the editor.
 ///
 /// Import is all-or-nothing, so on a database where nothing has declared those
 /// three names every one of the set's files fails and nothing is written. On a
@@ -359,8 +360,9 @@ pub async fn enable_comments(state: &trovato_kernel::AppState, pool: &PgPool) {
 ///
 /// These suites cannot do that. Each test binary's [`dispatcher`] loads exactly
 /// one compiled plugin, so the suite for `ritrovo_notify` has no way to ask
-/// `ritrovo_access` what it declares — and `trovato_comments` is a kernel plugin
-/// that is not in the Ritrovo overlay at all, so no suite can load it.
+/// `ritrovo_access` what it declares — and `trovato_comments` and
+/// `trovato_content_translation` are kernel plugins that are not in the Ritrovo
+/// overlay at all, so no suite can load them.
 ///
 /// So the declarations are handed to the kernel's own parser and its own
 /// writer, in the shape `tap_perm` returns. Nothing here writes
@@ -390,6 +392,13 @@ pub async fn register_declared_permissions(pool: &PgPool) {
             "trovato_comments".to_string(),
             serde_json::json!([
                 {"name": "administer comments", "description": "Administer comments"},
+            ])
+            .to_string(),
+        ),
+        (
+            "trovato_content_translation".to_string(),
+            serde_json::json!([
+                {"name": "translate content", "description": "Translate content"},
             ])
             .to_string(),
         ),

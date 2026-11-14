@@ -1,0 +1,9 @@
+# The Italian of PyCon Italia 2026: what /it/item/d1c204fe-fb59-4f6e-885a-922f2c39f687 renders.
+item_id: d1c204fe-fb59-4f6e-885a-922f2c39f687
+language: it
+title: "PyCon Italia 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "PyCon Italia è la conferenza nazionale della comunità Python italiana. Tre giorni di conferenze, tutorial e sprint nella splendida cornice di Bologna."

@@ -1,0 +1,9 @@
+# The Italian of DevSecOps Day Milano 2026: what /it/item/4080cf55-0af4-47a7-a5c5-5ace536149c4 renders.
+item_id: 4080cf55-0af4-47a7-a5c5-5ace536149c4
+language: it
+title: "DevSecOps Day Milano 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "DevSecOps Day è la conferenza italiana dedicata alla sicurezza nel ciclo di vita del software. Talk su supply chain security, SAST/DAST, container hardening e compliance nel cloud."

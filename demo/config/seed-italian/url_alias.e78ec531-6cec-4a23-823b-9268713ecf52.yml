@@ -1,0 +1,8 @@
+# English address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: 'e78ec531-6cec-4a23-823b-9268713ecf52'
+source: /item/37c34d73-22b2-43ab-ae98-611aeed7a1c0
+alias: /conferences/national-testing-day-2026
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

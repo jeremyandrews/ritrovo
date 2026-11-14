@@ -19,6 +19,19 @@ re-confirmed as written. Three new entries were found by doing the work:
 `G-ITEM-TEMPLATE-HAS-NO-VIEWER`, `G-PLUGIN-PERMISSION-GRID-READS-BOOT-MEMORY`
 and `G-QUEUE-WITHOUT-A-WORKER-IS-SILENT`.
 
+**A8, 2026-11-14, same revision.** The translation work re-checked every entry it leans
+on against the running demo. `G-TRANSLATION-NO-WRITE-PATH` is **narrowed**, not fixed:
+the screen and the config entity work, and no host call does.
+`G-ITEM-INSERT-OUTPUT-DISCARDED`, `G-NO-REQUEST-LANGUAGE` and
+`G-LOCALE-STRINGS-NEVER-LOADED` are re-confirmed as open, with what Ritrovo now does
+around each. Eight new entries were found by doing the work:
+`G-TRANSLATION-OVERLAY-SKIPS-THE-DEFAULT-LANGUAGE`, `G-ITEM-TEMPLATE-RENDERED-BEFORE-ITS-TRANSLATIONS`,
+`G-TOPICS-PAGE-IGNORES-LANGUAGE`,
+`G-TRANSLATE-SCREEN-TEXT-FIELDS-ONLY`, `G-ALIAS-FALLBACK-HARDCODES-EN`,
+`G-THEMED-PLUGIN-PAGE-UNDER-ADMIN-RENDERS-UNWRAPPED`, `G-GATHER-TRANSLATION-MERGE-IS-BACKWARDS`
+and `G-RENDER-BLOCKS-PASSES-STRINGS-UNSANITIZED`, the last a stored XSS through the
+submission form that is closed in Ritrovo's templates and open in the kernel.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -83,6 +96,14 @@ output shape the kernel merges (as `tap_item_presave` already does for `fields`)
 and apply it in the same transaction as the insert. Either way, move "pre-insert
 validation" to `tap_item_presave`, the only tap that runs early enough to do it,
 and give that tap a way to refuse the save.
+
+
+**Re-checked at 0.103.0 (A8): still open, and Ritrovo no longer depends on it.**
+`ritrovo_translate` 2.0.0 dropped its `tap_item_insert`, whose finding went nowhere, and
+detects language in `tap_item_presave` instead, whose `fields` output the kernel merges
+into the item before it is written (`crates/kernel/src/content/item_service.rs:353-387`).
+The host suite asserts the stored `field_language`, which is the thing the old test could
+only show was missing.
 
 ### G-PLUGIN-INSTALL-WARNS-ON-AN-OVERLAY: **[Low, NEW]** `trovato plugin install` warns that a module is missing when it is already in place
 
@@ -346,36 +367,41 @@ Incoming as default would not do it.
 **Recommendation.** Resolve the default stage when a create names none, or remove
 the claim and the flag.
 
-### G-TRANSLATION-NO-WRITE-PATH: **[High, NEW]** content translations can be read, and nothing can write one
+### G-TRANSLATION-NO-WRITE-PATH: **[NARROWED at 0.103.0; Medium]** a person and a config set can write a translation, and a plugin still cannot
 
-Translations live in `item_translation (item_id, language, title, fields)`, created
-by the `trovato_content_translation` plugin's migration
-(`plugins/trovato_content_translation/migrations/001_create_item_translation.sql:4-12`),
-and `ItemService` overlays them on read (`crates/kernel/src/content/item_service.rs:467-536`).
-Nothing writes them:
+**What 0.103.0 fixed, verified in the A8 demo (2026-11-14).** Three of the four
+missing writers now exist and work:
 
-- the translation admin routes are GET only (`crates/kernel/src/routes/admin_translation.rs:20-27`),
-  and their templates `admin/content-translate-list.html` and
-  `admin/content-translate-edit.html` do not exist in the release;
-- config import has no translation entity (`crates/kernel/src/config_storage/yaml.rs:51-65`);
-- no host call, and no API route;
-- the only `INSERT INTO item_translation` in the tree is in kernel tests.
+- the translate screen is a real form: `GET`/`POST /admin/content/{id}/translate/{lang}`
+  and a delete sibling (`crates/kernel/src/routes/admin_translation.rs:26-37`), gated on
+  `translate content` and CSRF, rendering `templates/admin/content-translate-edit.html`,
+  which ships in the image. In the demo editor_alice opened it from Ritrovo's queue,
+  posted a title the way a browser does (every input, blanks included), got a `303`,
+  and `/it/item/{id}` rendered the new title with `lang="it"`. Blank inputs are dropped
+  rather than stored as empty overrides. `scripts/verify-demo.sh` does this on every run,
+  then deletes the row through the delete route.
+- a config entity, `item_translation.<item uuid>.<lang>.yml`, imported after `item`
+  (`crates/kernel/src/config_storage/yaml.rs:65`, `direct.rs:833-878`). Ritrovo's Italian
+  seed now ships fifteen of them, and the demo's `item_translation` holds 15 rows on a
+  fresh start.
+- `ItemService::save_translation` (`crates/kernel/src/content/item_service.rs:507-532`),
+  which the screen calls.
 
-The tutorial's Italian seed therefore stores both languages inside one field as
-`{it: {...}, en: {...}}` (`docs/tutorial/config/seed-italian/`), a shape the render
-path does not read. In the demo, `/it/item/031e0e55-59d2-4f4c-a2e2-81c50bce5b62`
-(Codemotion Roma 2026, `translation_status: translated`) renders with no
-description in either language, and `item_translation` holds 0 rows.
+**What is left.** No host call reaches `save_translation`: `crates/plugin-sdk/src/host.rs`
+has no translation function and `crates/kernel/src/host/` registers none. So a plugin
+can read translations (through its own SQL) and cannot write one. `ritrovo_translate`'s
+model-assisted path therefore stores a model's draft in its own
+`ritrovo_translation_draft` table, shows it on the queue page, and the editor saves it
+through the kernel screen by hand. Writing `item_translation` through `raw_sql` would
+work and was not done: it skips the screen's checks, and a plugin-owned write to the
+kernel's table is exactly what this entry exists to avoid.
 
-**Impact for Ritrovo.** The brief's i18n proof is translated content, and there is
-none to show. A plugin could write the table by declaring it in `db_tables`, which
-skips cache invalidation, search and revisions.
+**Blocks.** P15's last step (a reviewed draft saved without an editor retyping it).
+38.1, 38.3 and 38.4 are no longer blocked by this entry.
 
-**Blocks.** 38.1, 38.3, 38.4, D21, P15.
-
-**Recommendation.** A write path with the same guarantees as an item save: a POST
-route with the two templates, a config entity so a seed can ship translations, and
-a host call so a translation plugin can write one.
+**Recommendation.** A `save-translation(item_id, language, title, fields)` host call
+over `ItemService::save_translation`, with the language checked against the site's
+languages as the route checks it.
 
 ### G-ITEM-API-BYPASSES-ITEM-SERVICE: **[High, RESIDUAL]** a plugin's item write fires no taps, checks no access and invalidates no cache
 
@@ -518,6 +544,16 @@ knowing the current language is the kernel gap.
 **Recommendation.** Expose the resolved language to plugins, in `ApiRequest` and to
 view taps, and run view taps after the overlay.
 
+
+**Re-checked at 0.103.0 (A8): still open.** The Ritrovo half is fixed: the view tap badges
+from `field_language` (then the item's `language`), and links `/item/{id}` and
+`/it/item/{id}`, both of which answer 200. It emits **both** links, each marked with its
+`hreflang`, because it still cannot know which one the page is. That output does not
+reach the conference page anyway (`G-RENDER-CHILDREN-MIXES-FIELD-DUMP-AND-PLUGIN-OUTPUT`),
+so the page's switcher is drawn by `item--conference.html`, which is given
+`active_language` (`crates/kernel/src/routes/item.rs:682`) and shows whichever of the two
+addresses is not the page's own. `verify-demo.sh` follows it both ways.
+
 ### G-LOCALE-STRINGS-NEVER-LOADED: **[Medium, NEW]** UI string translations for any language but the default are never loaded, and nothing imports a `.po` file
 
 `trovato_locale` preloads the default language only
@@ -533,6 +569,15 @@ it in English ("Upcoming Conferences", "Apply", "Clear").
 
 **Recommendation.** Load every enabled language's strings, and import `.po` files by
 CLI and by config import.
+
+
+**Re-checked at 0.103.0 (A8): still open.** `crates/kernel/src/state.rs:738-746` calls
+`load_language` for the default language only, inside `if enabled_set.contains("trovato_locale")`;
+`LocaleService::import_translations` (`crates/kernel/src/services/locale.rs:74`) still has
+no caller. The `trans` filter is registered only when the locale service exists
+(`crates/kernel/src/theme/engine.rs`), and no Ritrovo template calls it, so A8's switcher
+prints language codes and no words. `demo/config/locale/it.po` carries the strings A8 adds
+for the day this closes.
 
 ### G-TILE-GATHER-QUERY-RENDERS-NOTHING: **[Medium, NEW]** `gather_query` and `menu` tiles render an empty placeholder that nothing fills
 
@@ -736,6 +781,11 @@ The set lives at `docs/tutorial/config/` and ships in the image (`Dockerfile:72`
    `language: it`. The language middleware strips `/it/` before the alias lookup,
    so these rows match only a doubled prefix: in the demo `/it/it/conferenze` is 200.
    `demo/config/url_alias.*.yml` adds prefixless rows so `/it/conferenze` works.
+   A8 deleted the three doubled rows from Ritrovo's set, which now stores each Italian
+   alias once, prefixless. They were worse than dead: `available_translations` builds
+   `/{language}{canonical_path}` (`crates/kernel/src/routes/helpers.rs:1055`), so a
+   prefixed alias picked as a canonical path would have produced `/it/it/...`. The
+   kernel image's own copy still has them.
 3. `item_type.conference.yml` declares no `field_topics`, which the importer writes,
    the gathers filter on and the seed uses. Saving a conference through the edit form
    drops it: in the demo, after one form save, the item's `field_topics` key was
@@ -1535,6 +1585,170 @@ that timestamps come from the host or the database. If a clock is meant to be
 available, add it to the baseline and to `KNOWN_HOST_INTERFACES`.
 
 ---
+
+### G-TRANSLATION-OVERLAY-SKIPS-THE-DEFAULT-LANGUAGE: **[Medium, NEW]** an item written in another language can never be read in the site's default one
+
+The item route applies a translation only when the page language is not the site
+default: `if active_language != state.default_language() { apply_translation_overlay(...) }`
+(`crates/kernel/src/routes/item.rs:349`). The overlay is keyed on the page, not on the
+item's own `language`. So an item whose record is Italian (`language: it`) with an
+English translation renders its Italian at `/item/{id}`, and the English row the
+translate screen accepted and saved is never shown anywhere. `available_translations`
+skips the default language for the same reason (`crates/kernel/src/routes/helpers.rs:1051`).
+
+**Impact for Ritrovo.** The brief's Italian seed is Italian conferences with English
+translations. Shipped that way, `/` would show Italian. So the seed is shipped the other
+way round: each record is written in English with `field_language: it` (the conference
+is held in Italian), and its Italian is the `item_translation` row, which the kernel does
+overlay under `/it/`. The translation queue still offers Italian conferences an English
+translation, as the brief asks, and the kernel saves it; it will render once this is
+fixed. Imported Italian conferences (the importer records their `language` as `it`) are
+in that state today.
+
+**Blocks.** 38.4's literal shape (Italian originals, English translations), and the
+English half of 38.3 for Italian conferences.
+
+**Recommendation.** Overlay when the page language differs from the item's own
+`language`, not from the site default, and list the item's own language in
+`available_translations` at the unprefixed path only when it is the default.
+
+### G-ITEM-TEMPLATE-RENDERED-BEFORE-ITS-TRANSLATIONS: **[Low, NEW]** an item template cannot see which languages its item exists in, because the list is built after the template has rendered
+
+The item route renders `elements/item--{type}.html` at `crates/kernel/src/routes/item.rs:688-691`
+and only afterwards computes `available_translations` and inserts it into the context
+(`:754-761`), for the page template. The comment at `:750-752` says "a theme builds a
+language switcher out of `available_translations`"; a theme can, in `page.html`, which
+has no per-type suggestion (`page_suggestions` yields `page--item--<uuid>` and `page`,
+`crates/kernel/src/theme/engine.rs:918-936`), and the item template, where a switcher
+belongs, cannot.
+
+Found in A8: a switcher written against `available_translations` in
+`item--conference.html` rendered nothing on every page while the `hreflang` tags built
+from the same list appeared in `<head>`.
+
+**Impact for Ritrovo.** The switcher is built from `item.id` and `active_language` and
+offers the other language whether or not a translation exists; an untranslated
+conference's Italian link shows its English original under `lang="it"`.
+
+**Blocks.** Nothing outright; a switcher that hides itself for untranslated items.
+
+**Recommendation.** Compute `available_translations` before rendering the item template.
+
+### G-TOPICS-PAGE-IGNORES-LANGUAGE: **[Low, NEW]** `/topics` renders `lang="en"` under `/it/`, because its handler never reads the request language
+
+`/topics` is `browse_topics` (`crates/kernel/src/routes/category.rs:57`, `:676`), which
+takes no `ResolvedLanguage` and calls `inject_site_context(..., "/topics")` (`:706`), so
+`active_language` falls back to the default. Gather routes set it
+(`crates/kernel/src/routes/gather.rs:418-423`).
+
+Observed in the A8 demo: `/it/argomenti` (alias of `/topics`) and `/it/topics` both
+render `<html lang="en">`, while `/it/conferenze` and `/it/relatori` (gathers) render
+`lang="it"`. `verify-demo.sh` reports the value and does not assert it.
+
+**Blocks.** 38.2's "every `/it/` page is in Italian" for the topics index.
+
+**Recommendation.** Take `ResolvedLanguage` in `browse_topics` and put it in the context,
+as the gather handlers do.
+
+### G-TRANSLATE-SCREEN-TEXT-FIELDS-ONLY: **[Low, NEW]** the translate screen offers `Text` and `TextLong` fields only, so a `Blocks` description cannot be translated there
+
+`templates/admin/content-translate-edit.html:60` renders an input only for
+`field.field_type.Text or field.field_type == "TextLong"`. The comment above it explains
+why booleans and references are left out, and a `Blocks` field is neither: it is the
+longest text on most items. Ritrovo's `field_description` is `Blocks`, so the screen
+offers the title, URL, city, country and editor notes and not the description.
+
+**Impact for Ritrovo.** A translated conference's description comes only from
+configuration (the seed's `item_translation` files carry it) or not at all. The queue's
+model drafts include a description an editor can read and has nowhere to paste.
+
+**Blocks.** The description half of 38.3.
+
+**Recommendation.** Offer `Blocks` fields with the block editor, or at least as JSON in a
+textarea, as the edit form does for administrators.
+
+### G-ALIAS-FALLBACK-HARDCODES-EN: **[Low, NEW]** alias lookup falls back to `en`, not to the site's default language
+
+`UrlAlias::find_by_alias_with_context` matches `language IN ($3, 'en')` and prefers the
+requested language (`crates/kernel/src/models/url_alias.rs:103-116`). The fallback is a
+literal, not the configured default. Ritrovo's default is English, so the fallback is
+what makes `/it/conferences/<slug>` (the address the kernel's own switcher builds from
+an English alias) resolve to the item in Italian, and it would stop doing so on a site
+whose default is anything else.
+
+**Blocks.** Nothing in Ritrovo today.
+
+**Recommendation.** Fall back to `state.default_language()`.
+
+### G-RENDER-BLOCKS-PASSES-STRINGS-UNSANITIZED: **[High, NEW]** `render_blocks` sanitizes a block list and returns a plain string untouched
+
+The filter renders an array through the block renderer, which sanitizes, and returns a
+string value as it is ("Plain string fallback — return as-is",
+`crates/kernel/src/theme/engine.rs:526`). Templates mark its output `| safe` on the
+strength of the first branch. A `Blocks` field holding a string is therefore printed raw.
+
+**Impact for Ritrovo: a stored XSS, confirmed and closed in the templates.** The
+submission form at `/conferences/submit` (`ritrovo_forms`) stores the member's
+description as a string, as any raw writer must, and `item--conference.html` printed
+`field_description | render_blocks | safe`. Any signed-in member could therefore put
+markup on the page an editor opens to review the submission. Reproduced on the demo at
+0.103.0: a description of `<b id="xss-probe">probe</b>` rendered as a live element on
+`/item/{id}` for `editor_alice`. The conference template and `item--speaker.html`
+(the same pattern on `field_bio`) now print a string as escaped text and send only a block
+list to `render_blocks`; `verify-demo.sh` submits markup through the form and asserts it
+comes back escaped. Any other template that pipes a field through `render_blocks | safe`
+is exposed the same way the moment that field can hold a string, and
+`G-FRONTEND-ITEM-FORM-STORES-EVERY-FIELD-AS-A-STRING` says the non-admin form stores
+every value as one.
+
+**Recommendation.** Sanitize the string branch as the array branch is sanitized (or
+escape it). A filter whose output templates are told to mark safe must be safe for every
+input it accepts.
+
+### G-THEMED-PLUGIN-PAGE-UNDER-ADMIN-RENDERS-UNWRAPPED: **[Medium, NEW]** a themed plugin page at an `/admin` path cannot render into the admin template
+
+`ApiResponse::themed` asks the kernel to wrap a plugin's body in the site theme
+(`crates/kernel/src/routes/plugin_api.rs:443`, `themed_response`). For any path under
+`/admin` the theme engine picks `page--admin.html`
+(`crates/kernel/src/theme/engine.rs:929-931`), and that template tests
+`"comments" in enabled_plugins` and `"categories" in enabled_plugins`
+(`templates/page--admin.html:184,190`). Only `render_admin_template` inserts
+`enabled_plugins` (`crates/kernel/src/routes/helpers.rs:358`); `themed_response` calls
+`inject_site_context`, which does not. Tera fails on the undefined variable, and the
+kernel logs `failed to render a plugin page into the site theme; serving it unwrapped`
+and serves the bare body with no stylesheet, header or admin navigation.
+
+**Impact for Ritrovo.** The translation queue at `/admin/content/translations` rendered as
+an unstyled table. Ritrovo ships `page--admin--content--translations.html`, which extends
+the kernel's template and sets `enabled_plugins` to an empty list, so the page renders in
+the admin layout without the sidebar's Comments and Categories links (a template cannot
+ask which plugins are enabled). `ritrovo_access`'s editorial queue avoided the problem
+by building its own full HTML page. Every new plugin admin page needs one of the two.
+
+**Recommendation.** Insert `enabled_plugins` in `inject_site_context`, or in
+`themed_response` when the path is an admin path, so a plugin's themed admin page gets
+the context the kernel's own admin pages get.
+
+### G-GATHER-TRANSLATION-MERGE-IS-BACKWARDS: **[Medium, NEW]** a gather listing under `/it/` shows the translated title and the original fields
+
+`GatherQueryBuilder::apply_translation_coalesce`
+(`crates/kernel/src/gather/query_builder.rs:384-402`) overlays a translation as
+`COALESCE("_tr"."fields" || "item"."fields", "item"."fields")` (`:396`). PostgreSQL's
+jsonb `||` keeps the **right** operand's value for a key both sides carry
+(`select '{"a":"tr"}'::jsonb || '{"a":"base"}'::jsonb` is `{"a": "base"}`, run on the
+demo database), so every translated field is overwritten by the original. The doc
+comment at `:381-383` says the opposite ("translated keys override originals"), and
+the kernel's own test (`:2124`) asserts the SQL text, not what it returns. The title
+is a plain `COALESCE` and is translated correctly.
+
+**Impact for Ritrovo.** On `/it/conferenze` a translated seed conference shows its
+Italian title (where the title differs) above its English description. The detail page,
+`/it/item/{id}`, is right, because the item route overlays fields in Rust. Ritrovo cannot
+work around it: the card template is given the merged row and the translated value is
+not in it. `verify-demo.sh` records what the listing shows as a note.
+
+**Recommendation.** Swap the operands, `"item"."fields" || "_tr"."fields"`, and test the
+rows a translated gather returns rather than the SQL string.
 
 ## No-friction findings (surfaces that just worked)
 

@@ -1,0 +1,8 @@
+# Italian address of a seeded conference. Stored WITHOUT the /it
+# prefix: the kernel strips the language prefix before it looks an alias up.
+id: '33d34d74-879f-4773-95f2-59537340b581'
+source: /item/8540f069-59ac-46b2-91f3-2beb222091e7
+alias: /conferenze/phpday-verona-2026
+language: it
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1794700000

@@ -168,7 +168,19 @@ impl Answers {
             "field_online".to_string(),
             serde_json::Value::String(if self.online { "1" } else { "0" }.to_string()),
         );
+        // Always set, as the importer and ritrovo_translate's presave set it: the
+        // listing's language filter hides a conference that has none.
+        fields.insert(
+            "field_language".to_string(),
+            serde_json::Value::String(self.language().to_string()),
+        );
         serde_json::Value::Object(fields)
+    }
+
+    /// The language the conference is in, read from its name and description,
+    /// or English, the site default, when they do not say.
+    fn language(&self) -> &'static str {
+        crate::detect::detect(&format!("{} {}", self.name, self.description)).unwrap_or("en")
     }
 }
 
@@ -578,6 +590,11 @@ fn discard(user_id: &str, draft: &str) {
 /// carries the same cost: it fires no taps.
 /// `G-NO-ITEM-STAGE-TRANSITION`, `G-ITEM-API-BYPASSES-ITEM-SERVICE`.
 ///
+/// The item's own `language` is the detected one when the site offers it and the
+/// site default otherwise, as `ritrovo_importer` writes it: the column is a
+/// foreign key onto the kernel's `language` table, and the translation queue
+/// reads it to pick a target.
+///
 /// `status = 0`: unpublished as well as unreviewed. The stage is what keeps it
 /// off the public site, and the status is a second answer to the same question
 /// from the kernel's own model, so a site that has not configured stages still
@@ -585,10 +602,14 @@ fn discard(user_id: &str, draft: &str) {
 fn create_incoming(user_id: &str, answers: &Answers) -> Option<String> {
     let id = new_uuid()?;
     let inserted = host::execute_raw(
-        "INSERT INTO item (id, type, title, status, author_id, stage_id, created, changed, fields) \
+        "INSERT INTO item (id, type, title, status, author_id, stage_id, created, changed, fields, language) \
          VALUES ($1::uuid, 'conference', $2, 0, $3::uuid, $4::uuid, \
                  EXTRACT(EPOCH FROM NOW())::bigint, EXTRACT(EPOCH FROM NOW())::bigint, \
-                 $5::jsonb)",
+                 $5::jsonb, \
+                 COALESCE( \
+                   (SELECT id FROM language WHERE id = $5::jsonb->>'field_language'), \
+                   (SELECT id FROM language WHERE is_default ORDER BY weight LIMIT 1), \
+                   'en'))",
         &[
             serde_json::json!(id),
             serde_json::json!(answers.name),
@@ -1025,6 +1046,28 @@ mod tests {
         let mut answers = valid();
         answers.online = true;
         assert_eq!(answers.to_fields()["field_online"], serde_json::json!("1"));
+    }
+
+    #[test]
+    fn the_language_is_detected_and_english_when_undetected() {
+        let mut answers = valid();
+        answers.name = "Giornata Nazionale del Testing".to_string();
+        assert_eq!(
+            answers.to_fields()["field_language"],
+            serde_json::json!("it")
+        );
+        answers.name = "RustConf".to_string();
+        answers.description = "Two days of talks.".to_string();
+        assert_eq!(
+            answers.to_fields()["field_language"],
+            serde_json::json!("en")
+        );
+        answers.description =
+            "Due giornate della comunità, con il meglio degli sviluppatori".to_string();
+        assert_eq!(
+            answers.to_fields()["field_language"],
+            serde_json::json!("it")
+        );
     }
 
     // ─── The pages ────────────────────────────────────────────────

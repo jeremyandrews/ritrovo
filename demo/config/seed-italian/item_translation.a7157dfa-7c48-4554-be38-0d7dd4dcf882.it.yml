@@ -1,0 +1,9 @@
+# The Italian of Milan DevOps Meetup 2026: what /it/item/a7157dfa-7c48-4554-be38-0d7dd4dcf882 renders.
+item_id: a7157dfa-7c48-4554-be38-0d7dd4dcf882
+language: it
+title: "Incontro DevOps Milano 2026"
+fields:
+  field_description:
+  - type: paragraph
+    data:
+      text: "L'Incontro DevOps di Milano è un evento semestrale che riunisce la comunità DevOps del nord Italia. Sessioni pratiche su GitOps, observability, platform engineering e automazione dell'infrastruttura."

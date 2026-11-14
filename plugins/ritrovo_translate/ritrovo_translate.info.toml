@@ -1,20 +1,48 @@
 name = "ritrovo_translate"
 description = "Language detection and translation workflow for conferences"
-version = "1.0.0"
+version = "2.0.0"
 api_version = "0.103"
 default_enabled = false
 dependencies = ["trovato_content_translation"]
 
+# tap_item_insert is gone: the kernel discards its output
+# (FRICTION.md, G-ITEM-INSERT-OUTPUT-DISCARDED). Detection runs in presave,
+# whose `fields` output the kernel merges into the item it writes.
 [taps]
 implements = [
+    "tap_item_presave",
     "tap_item_view",
-    "tap_item_insert",
+    "tap_menu",
+    "tap_api",
+    "tap_cron",
 ]
 weight = 0
 
+[migrations]
+files = [
+    "migrations/001_create_ritrovo_translation_draft.sql",
+]
+
 # Declared plugin capabilities (WASM-1, deny-unless-declared). The Trovato
 # kernel builds this plugin's WASM linker from host_interfaces — it receives
-# exactly the host interfaces named here (plus baseline WASI). Derived from
-# the compiled .wasm import section.
+# exactly the host interfaces named here (plus baseline WASI).
+#
+#   db         the queue's read and the drafts table
+#   variables  assist_enabled, the switch for model drafts
+#   ai-api     ai_request, for those drafts; never called while the switch is off
+#   logging    what went wrong, where an operator looks
 [capabilities]
-host_interfaces = ["logging"]
+host_interfaces = ["ai-api", "db", "logging", "variables"]
+
+# The queue reads `item` and the kernel's `item_translation` and joins them in
+# one statement, which the structured db calls cannot express; every statement
+# is a constant with bound parameters.
+raw_sql = true
+
+db_tables = ["item", "item_translation", "ritrovo_translation_draft"]
+
+# ai_request from tap_cron runs as the kernel's background principal, which is
+# authorized by this capability alone and never by a human's `use ai`
+# (crates/kernel/src/host/ai.rs, authorize_ai_request). Inert while the
+# assist_enabled variable is off, which is the default.
+ai_background = true
