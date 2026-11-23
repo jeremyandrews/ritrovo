@@ -99,14 +99,16 @@ kernel, all four from "kernel has it".
 A9b, third part: 31.7, 31.8 and 31.10 move to part done, all three from "kernel
 has it".
 
+A9b, fourth part: 31.6 moves from blocked on the kernel to part done.
+
 | Status | Stories (63) | What It Demonstrates (25) | Plugin taps (19) | All (107) |
 | :- | -: | -: | -: | -: |
 | done | 35 | 8 | 13 | 56 |
-| part done | 13 | 6 | 1 | 20 |
+| part done | 14 | 6 | 1 | 21 |
 | kernel has it, Ritrovo does not use it | 2 | 2 | 0 | 4 |
 | buildable, not built | 6 | 5 | 4 | 15 |
 | Ritrovo must build it | 0 | 0 | 0 | 0 |
-| blocked on the kernel | 7 | 4 | 1 | 12 |
+| blocked on the kernel | 6 | 4 | 1 | 11 |
 
 ---
 
@@ -140,7 +142,7 @@ a kernel commit alone moves a row only as far as buildable, not built.
 | D8 | blocked | P9. |
 | D10 | blocked | 37.4. |
 | D24 | blocked | Gander does not exist; the cache counters count now (`verify-demo.sh`). |
-| 31.6 | blocked, not rechecked | A9b, out of scope. |
+| 31.6 | part done | A9b, fourth part: `G-FORM-TAPS-UNREACHABLE` fixed; `verify-demo.sh` checks the AI Assist buttons on the conference edit form, and a live Shorten was accepted and rejected. |
 
 The four rows that were part done with a blocked half: 36.1's save no longer
 loses fields (tested) and its form taps are buildable; 38.5's writes are
@@ -151,7 +153,7 @@ Fixed in `FRICTION.md` with evidence: `G-REVISION-HISTORY-500`,
 `G-REVISION-NO-COMPARE`, `G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER`,
 `G-CARDINALITY-IS-INERT`, `G-ITEM-EDIT-FORM-LOADS-NO-ASSETS`,
 `G-API-TOKENS-NEVER-AUTHENTICATE`, `G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS`,
-`G-OPENAPI-IS-A-STATIC-LIST`, `G-CACHE-METRICS-NEVER-COUNT`.
+`G-OPENAPI-IS-A-STATIC-LIST`, `G-CACHE-METRICS-NEVER-COUNT`; and, in A9b, `G-FORM-TAPS-UNREACHABLE`.
 
 ---
 
@@ -332,7 +334,7 @@ impact and a recommendation, and names the rows it blocks.
 | `G-TRANSLATION-NO-WRITE-PATH` | Medium (narrowed at 0.103.0) | P15's last step |
 | `G-ITEM-API-BYPASSES-ITEM-SERVICE` | High | 38.5, 37.4, P6, P9, P13 |
 | `G-ITEM-INSERT-OUTPUT-DISCARDED` | Medium | 36.5 |
-| `G-FORM-TAPS-UNREACHABLE` | Medium | 36.1, 36.4, 36.7, D6, D22, P16 |
+| `G-FORM-TAPS-UNREACHABLE` | Medium (fixed at main 81290cc, A9b) | 36.1, 36.4, 36.7, D6, D22, P16 |
 | `G-MAIL-CANNOT-REACH-A-USER` | Medium | 37.4, 37.6, D10, P11, P12 |
 | `G-MAIL-UNAVAILABLE-IN-BACKGROUND` | Medium | 37.4, D10, P11, P12 |
 | `G-QUEUE-NO-CROSS-PLUGIN` | Medium | 37.5, 36.5, D9, P6 |
@@ -456,7 +458,7 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 | 31.3 | Token budgets | config | **done (A9b)** | `variable.ai_token_budgets.yml`: daily, deny; 20,000 tokens a member and 100,000 an editor or publisher per provider, 20,000 a day for `ritrovo_translate`. `variable.ai_pricing.yml` prices both models, so every `ai_usage_log` row carries a cost. Host test `the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it`. Live: the dashboard shows Anthropic 429 tokens, 3 requests. Search AI is not metered (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`), so it is off. | A9b |
 | 31.4 | AI permissions | config | **part done (A9b)** | `use ai` and `use ai chat` for every signed-in member, `view ai usage` for editors and publishers, nothing for anonymous visitors (`role.*.yml`). Host tests `the_roles_grant_ai_to_members_usage_to_editors_and_nothing_to_visitors`, `chat_and_search_ai_refuse_a_visitor_without_use_ai_and_ask_no_provider`; `verify-demo.sh` checks the dashboard is 200 to an editor and 403 to a viewer, and anonymous chat 401. Not done: per-role rate limits (`G-AI-RATE-LIMITS-ARE-NOT-PER-ROLE`) and a permission on search AI (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`; the stages are switched off instead). | A9b |
 | 31.5 | Content enrichment field rules on presave | config | **blocked on the kernel (A9b)** | `field_summary` on the conference type, rendered when present; the rule in `variable.trovato_ai.field_rules.yml` (description to summary, `fill_if_empty`). `trovato_ai` never loads a rule: it queries `site_config` by a column that does not exist (`G-AI-FIELD-RULES-NEVER-LOAD`, pinned by `trovato_ai_reads_its_field_rules_from_a_column_site_config_does_not_have`). Live: a save as `editor_alice` with both keys set left the summary empty and made no provider call. Imported conferences would get none anyway (D1). | A9b |
-| 31.6 | AI Assist buttons in forms | kernel | **blocked on the kernel** | `POST /api/v1/ai/assist` exists (`routes/api_ai_assist.rs:54`); the buttons are injected by `tap_form_alter`, which never fires (`G-FORM-TAPS-UNREACHABLE`). **A11:** Not rechecked: the AI rows are A9b and out of A11's scope. The kernel's changelog says the form taps now fire (`044c5dc`). | A9b |
+| 31.6 | AI Assist buttons in forms | kernel | **part done (A9b); one press per page and no budget, blocked on the kernel** | `trovato_ai`'s `tap_form_alter` now runs on the item forms (`G-FORM-TAPS-UNREACHABLE` fixed at main 81290cc) and puts an AI Assist button on every plain-text field of the conference edit form, with its script, for a user holding `use ai chat`. Every member holds it, so who sees the buttons is who can open the form: `verify-demo.sh` finds them on the title and summary for editor_alice, none on the `Blocks` description, and none for viewer_carol (403), a visitor (401) or on the conference page. Host tests `ai_assist_shortens_an_editor_s_text_with_ritrovo_s_model_and_refuses_a_visitor`, `ai_assist_answers_an_empty_result_when_the_model_thinks_first` and `ai_assist_spends_past_an_exhausted_budget_and_logs_every_token_as_output` drive `POST /api/v1/ai/assist` against the scripted provider. Live: as editor_alice on Italian Free Software Conference 2026, Shorten on the description's text in the summary, Reject kept the field and Accept replaced it (not saved); 2 calls, 361 tokens. The second press on a page is refused for its CSRF token (`G-AI-ASSIST-WORKS-ONCE-PER-PAGE`); the route checks no budget (`G-AI-ASSIST-CHECKS-NO-BUDGET`), reads the first content block only (`G-AI-ASSIST-READS-ONLY-THE-FIRST-CONTENT-BLOCK`) and the description gets no button (`G-AI-ASSIST-SKIPS-BLOCK-FIELDS`). | A9b |
 | 31.7 | Chatbot tile with SSE and RAG | config | **part done (A9b)** | The kernel's chat widget as the Ask Ritrovo tile (`demo/config/tile.0193a5a0-0003-7000-8000-000000000009.yml`), in the sidebar for signed-in members and absent for anonymous visitors; prompt and retrieval in `variable.ai_chat_config.yml`, Live only. Host tests `the_chat_tile_is_in_the_sidebar_for_a_member_and_absent_for_a_visitor` and `the_chat_context_carries_live_conferences_and_never_an_incoming_or_curated_one` (the request the kernel sends carries the Live conference and never the Incoming or Curated one); `verify-demo.sh` checks the tile for a member, none for a visitor, and the config. Live (2026-11-23, as viewer_carol): "Rust" streamed an answer citing RustLab Firenze 2026 and betterCode() Rust with their websites. Not done: "What Rust conferences are in Europe?" retrieves nothing, because retrieval needs every word in one conference (`G-CHAT-RAG-REQUIRES-EVERY-WORD`, pinned by `a_question_with_one_word_no_conference_contains_retrieves_no_context`), and the context has no Ritrovo links (`G-CHAT-CONTEXT-HAS-NO-ITEM-LINKS`). | A9b |
 | 31.8 | Chatbot actions through tool calling | plugin | **part done (A9b); visitor half blocked on the kernel** | The tool half is `ritrovo_cfp`'s assistant scope `ritrovo_conference` (item scope on `conference`, `edit any content`): reads `find_conferences` (topic, city) and `cfps_closing_soon`, and the write `propose_cfp_end_date`, which only proposes. Host tests `an_editor_s_read_tool_runs_and_the_cfp_date_write_only_proposes_until_applied`, `a_cfp_date_after_the_conference_ends_is_refused_at_apply_and_never_saved`, `a_member_without_the_scope_s_permission_is_refused_and_no_model_is_asked`; `verify-demo.sh` checks the launcher and the page (editor 200, viewer 403, visitor 303). Live: as editor_alice on Big Data Europe the read ran and the card "Change the CFP end date of Big Data Europe from 2026-11-23 to 2026-11-25" was proposed, unapplied. The visitor chatbot calls no tool (`G-VISITOR-CHAT-HAS-NO-TOOLS`); a refused proposal still gets a card (`G-ASSISTANT-WRITE-CANNOT-REFUSE-A-PROPOSAL`). | A9b |
 | 31.9 | AI admin UI and usage dashboard | config | **part done (A9b)** | `trovato_ai` enabled by `demo-bootstrap.sh`; `/admin/system/ai-providers`, `ai-budgets`, `ai-chat` and `ai-assistant` are 303 to a visitor and 200 to the administrator in `verify-demo.sh`; the usage dashboard showed live usage (screenshots in the A9b run). Not done: the kernel removed its AI features screen (`6e58a9b`) and has no screen for field rules or rate limits (`G-AI-ADMIN-HAS-NO-FEATURES-RULES-OR-RATE-LIMIT-SCREENS`). `docs/AI.md` documents each screen. | A9b |
@@ -745,6 +747,15 @@ unchanged and their milestone column reads A9b.
 AI permissions are configuration in `demo/config`, documented in `docs/AI.md`;
 31.1 to 31.3 done, 31.4 and 31.9 part done. Search AI stays off
 (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`).
+
+**A9b closed (2026-11-23).** Of its twelve rows, 31.1, 31.2, 31.3 and 31.11 are
+done; 31.4, 31.6, 31.7, 31.8, 31.9 and 31.10 are part done, each with the
+`FRICTION.md` entry for its missing half; 30.4, 30.5 and 31.5 are blocked on the
+kernel (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`,
+`G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK`, `G-AI-FIELD-RULES-NEVER-LOAD`).
+Every one has a host test or a `verify-demo.sh` check behind it, and a live
+check where it needs a model; `docs/AI.md` documents them. 30.3, 30.6 and 30.7
+were not part of A9b.
 
 ### Proposed changes to the series
 

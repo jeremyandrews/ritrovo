@@ -1743,6 +1743,33 @@ else
     bad "/admin/system/ai-assistant does not list the ritrovo_conference scope"
 fi
 
+# AI Assist (STATUS 31.6): trovato_ai's tap_form_alter puts a button on every
+# plain-text field of an item form for a user holding `use ai chat`, and links
+# its script. Every member holds that permission, so who sees the buttons is
+# decided by who can open the form: editor_alice can, viewer_carol is refused
+# (403), and so is a visitor (401). The description is a Blocks field and
+# gets no button (FRICTION.md, G-AI-ASSIST-SKIPS-BLOCK-FIELDS). Rendering the
+# form asks no model anything.
+assist_form="$(curl -s -b "$editor_jar" "$BASE/item/$similar_from/edit")"
+if grep -q 'class="ai-assist-btn" data-field="field_summary"' <<<"$assist_form" \
+    && grep -q 'data-field="title"' <<<"$assist_form" \
+    && grep -q 'ai-assist.js' <<<"$assist_form" \
+    && grep -q 'name="field_description"' <<<"$assist_form" \
+    && ! grep -q 'data-field="field_description"' <<<"$assist_form"; then
+    ok "editor_alice's conference edit form has AI Assist on the title and summary, its script, and none on the Blocks description"
+else
+    bad "editor_alice's conference edit form: AI Assist buttons or script missing, or a button on the description"
+fi
+assist_viewer="$(curl -s -b "$viewer_jar" -w ' %{http_code}' "$BASE/item/$similar_from/edit")"
+assist_anon="$(curl -s -w ' %{http_code}' "$BASE/item/$similar_from/edit")"
+assist_page="$(curl -s -b "$editor_jar" "$BASE/item/$similar_from")"
+if [[ "$assist_viewer" == *" 403" ]] && [[ "$assist_anon" != *" 200" ]] \
+    && ! grep -q 'ai-assist-btn' <<<"$assist_viewer$assist_anon$assist_page"; then
+    ok "no AI Assist button for viewer_carol (${assist_viewer##* }), a visitor (${assist_anon##* }) or on the conference page itself"
+else
+    bad "AI Assist reached a page it should not: viewer ${assist_viewer##* }, visitor ${assist_anon##* }"
+fi
+
 
 head_ "cleanup"
 

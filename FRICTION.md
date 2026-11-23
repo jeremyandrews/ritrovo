@@ -105,6 +105,13 @@ any of the tutorial's gathers), `G-CHAT-RAG-REQUIRES-EVERY-WORD` (Medium: a
 natural question retrieves nothing), `G-VISITOR-CHAT-HAS-NO-TOOLS`,
 `G-CHAT-CONTEXT-HAS-NO-ITEM-LINKS` and `G-ASSISTANT-WRITE-CANNOT-REFUSE-A-PROPOSAL`.
 
+**A9b, fourth part (AI Assist on the item forms).** `G-FORM-TAPS-UNREACHABLE` is
+**FIXED at main 81290cc**: `trovato_ai`'s `tap_form_alter` runs on the conference
+edit form, checked by `verify-demo.sh` and live. Four more:
+`G-AI-ASSIST-WORKS-ONCE-PER-PAGE` (Medium: the second press on a page is refused
+for its CSRF token), `G-AI-ASSIST-READS-ONLY-THE-FIRST-CONTENT-BLOCK`,
+`G-AI-ASSIST-CHECKS-NO-BUDGET` and `G-AI-ASSIST-SKIPS-BLOCK-FIELDS`.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -542,7 +549,9 @@ worker. Even with `G-MAIL-CANNOT-REACH-A-USER` resolved, none would go.
 
 **Recommendation.** Attach the email service to background services.
 
-### G-FORM-TAPS-UNREACHABLE: **[Medium, NEW]** `tap_form_alter`, `tap_form_validate` and `tap_form_submit` are declared, dispatched by `FormService`, and `FormService` is never called
+### G-FORM-TAPS-UNREACHABLE: **[FIXED at main 81290cc]** `tap_form_alter`, `tap_form_validate` and `tap_form_submit` are declared, dispatched by `FormService`, and `FormService` is never called
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A9b).** Kernel `044c5dc` (B71.3) builds the item forms through `FormService`: `build` runs `tap_form_alter` (`crates/kernel/src/routes/item_form.rs:67-70`), and a submission goes through `process`, which dispatches `tap_form_validate`, and `submitted`, which dispatches `tap_form_submit` (`item_form.rs:187-189`, `crates/kernel/src/routes/item.rs:1284`, `:1616`). Ritrovo exercises the first: `trovato_ai`'s `tap_form_alter` puts an AI Assist button on every plain-text field of the conference edit form for editor_alice, and links its script. `verify-demo.sh` checks the buttons, the script and who does not get them on every demo run, and a live Shorten on the demo went through the button, its popover, Accept and Reject (STATUS 31.6). No Ritrovo plugin implements the validate or submit tap yet (36.1, 36.5, P16 are buildable, not built). What follows is the entry as written at 0.103.0.
 
 `FormService::build` dispatches `tap_form_alter` and `process` dispatches validate
 and submit (`crates/kernel/src/form/service.rs:41-161`), and no route calls either;
@@ -2815,6 +2824,87 @@ change the plugin has already refused.
 **Recommendation.** When Describe answers `ok: false`, return its content to the
 model as a failed tool result and record no proposal. Keep the raw-call
 description for a Describe that succeeded with no summary.
+
+### G-AI-ASSIST-WORKS-ONCE-PER-PAGE: **[Medium, NEW]** the second AI Assist on an open form is refused for its CSRF token, until the page is reloaded
+
+Found at `81290cc` (A9b). The button script sends the page's `csrf-token` meta
+value on every press (`static/js/ai-assist.js:23-30`, `:149-155`). The route
+checks it with `require_csrf_header` (`crates/kernel/src/routes/api_ai_assist.rs:68-71`),
+and the check spends the token (`crates/kernel/src/form/csrf.rs:118-135`). The
+route sends no fresh one back and the script reads none, so the second press on
+the same page answers 403 "Invalid or missing CSRF token", whatever the field or
+operation. The editor's way out is a reload, which loses whatever they have typed
+and not saved. The form's own save token is a different one, so a save after a
+press still works. Live on the demo (2026-11-23): Shorten on a conference's
+summary, accepted, then Shorten again on the same page: 403, and the popover
+reads "Invalid or missing CSRF token". Pinned in
+`ai_assist_shortens_an_editor_s_text_with_ritrovo_s_model_and_refuses_a_visitor`.
+
+**Blocks.** Nothing in STATUS on its own; it makes 31.6 one press per page.
+
+**Recommendation.** Answer with the next token in an `X-CSRF-Token` header and
+have the script keep it, as `trovato.js` does for AJAX (`static/js/trovato.js:158-190`).
+
+### G-AI-ASSIST-READS-ONLY-THE-FIRST-CONTENT-BLOCK: **[Medium, NEW]** AI Assist reads the first content block only, so a model that thinks first hands back an empty field
+
+Found at `81290cc` (A9b). The assist route parses an Anthropic answer with
+`content[0].text` and nothing else (`crates/kernel/src/routes/api_ai_assist.rs:327-345`;
+the OpenAI parser reads `choices[0]`, `:309-324`). When Claude Haiku 5.5 thinks
+first, the first block is a thinking block with no `text`: the route answers 200
+`{"result":""}` after spending the tokens, and the button's preview offers an
+empty field to accept (`static/js/ai-assist.js:183`). This is the parser
+`G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK` describes, in a second copy.
+Pinned by `ai_assist_answers_an_empty_result_when_the_model_thinks_first`,
+against the kernel's scripted provider. Both live presses on the demo came back
+with text.
+
+**Blocks.** Nothing in STATUS on its own: an editor who gets an empty preview can
+reject it.
+
+**Recommendation.** One Anthropic parser for the kernel, joining every `text`
+block as `host/ai.rs` does, and an empty answer treated as a failure.
+
+### G-AI-ASSIST-CHECKS-NO-BUDGET: **[Medium, NEW]** AI Assist spends past a member's exhausted token budget, and logs every token as output
+
+Found at `81290cc` (A9b). The assist route checks the session, CSRF and the two
+permissions, then calls the provider
+(`crates/kernel/src/routes/api_ai_assist.rs:62-160`). It never calls
+`check_budget`, which chat does before it calls a model
+(`crates/kernel/src/routes/api_chat.rs:169-190`), so `action_on_limit: deny`
+does not stop it, and it applies no AI rate limit. It writes the usage row
+afterwards with `prompt_tokens` 0 and the input-plus-output total as
+`completion_tokens` (`api_ai_assist.rs:201-219`), so the cost estimate prices the
+prompt at the output rate and the dashboard cannot tell a long field from a long
+answer. Pinned by
+`ai_assist_spends_past_an_exhausted_budget_and_logs_every_token_as_output`: chat
+answers 429 to a member over budget, and AI Assist serves the same member.
+
+**Impact for Ritrovo.** Every member holds `use ai chat`, which is all the route
+asks for. A member sees no button, because no item form is open to them (403 on
+`/item/add/*`), but any member can POST to the route, and the 20,000 tokens a
+day Ritrovo gives a member bound chat and drafting, not this. What is left is
+the 10,000-character cap on each request.
+
+**Blocks.** Nothing in STATUS; it weakens 31.3 for this one surface.
+
+**Recommendation.** Check the budget and the rate limit before the call, as chat
+does, and record input and output tokens separately.
+
+### G-AI-ASSIST-SKIPS-BLOCK-FIELDS: **[Low, NEW]** a `Blocks` field gets no AI Assist button, so the field that holds an item's main text cannot be assisted
+
+Found at `81290cc` (A9b). `trovato_ai`'s `tap_form_alter` adds a button to
+`textfield` and `textarea` elements only (`plugins/trovato_ai/src/lib.rs:331-341`).
+A `Blocks` field is a `widget` element (`crates/kernel/src/content/form.rs:409`),
+and the block editor has no assist control of its own. A conference's
+description is a `Blocks` field, so on Ritrovo's edit form the buttons sit on the
+title, the summary, the notes and the short text fields, and not on the
+description. `verify-demo.sh` checks both halves.
+
+**Blocks.** Nothing in STATUS: 31.6 asks for the buttons, and they are there.
+The live shorten was run on a description's text in the summary field.
+
+**Recommendation.** Give the block editor's paragraph blocks the same five
+operations, or document AI Assist as plain-text fields only.
 
 ## No-friction findings (surfaces that just worked)
 
