@@ -894,6 +894,20 @@ impl App {
 /// The password every user these suites create is given.
 const TEST_PASSWORD: &str = "correct horse battery staple";
 
+/// Wait until the cache generations this test's kernel writes bumped have been
+/// seen and cleared.
+///
+/// Since Trovato `1dc0467` a kernel write bumps its cache kind in Redis from a
+/// background task, and every server's watcher, this one included, clears that
+/// whole kind on its next 250 ms poll. A test that warms a cache after a kernel
+/// write and then measures the next request has to let that clear land first,
+/// or it can arrive in between and empty the entry the test just warmed. The
+/// kernel's own tests wait the same 750 ms (`settle_cache_generations`,
+/// `crates/kernel/tests/common/mod.rs`).
+pub async fn settle_cache_generations() {
+    tokio::time::sleep(std::time::Duration::from_millis(750)).await;
+}
+
 /// Forget every rate-limit counter in Redis.
 ///
 /// **Not a workaround for the limiter; test isolation from it.** The kernel
