@@ -972,10 +972,12 @@ pub fn tap_queue_worker(input: serde_json::Value) -> Result<serde_json::Value, S
             } else {
                 skipped += 1;
             }
-        } else if insert_conference(conf, &source_id, topic_uuid.as_deref(), now) {
-            imported += 1;
         } else {
-            invalid += 1;
+            match insert_conference(conf, &source_id, topic_uuid.as_deref(), now) {
+                Inserted::New => imported += 1,
+                Inserted::AlreadyThere => updated += 1,
+                Inserted::Failed => invalid += 1,
+            }
         }
     }
 
@@ -1389,12 +1391,16 @@ fn detect_language(locales: Option<&str>) -> (String, bool) {
 /// and deliberately so: the kernel has no category-reference field kind, and
 /// declaring it as anything else would put a widget on the edit form that
 /// destroys the array on save. The gathers read it straight from the JSONB.
+///
+/// The result says which happened, so the batch's counts do: a conference that
+/// another worker inserted first, and that this call therefore updated, is
+/// counted as updated and not as imported.
 fn insert_conference(
     conf: &ConfsTechEntry,
     source_id: &str,
     topic_uuid: Option<&str>,
     now: i64,
-) -> bool {
+) -> Inserted {
     let topics: Vec<String> = topic_uuid.map(|u| vec![u.to_string()]).unwrap_or_default();
     let fields = build_source_fields(conf, source_id, &topics);
 
@@ -1424,24 +1430,44 @@ fn insert_conference(
     );
 
     match result {
-        Ok(1) => true,
-        Ok(_) => false,
+        Ok(1) => Inserted::New,
+        Ok(_) => Inserted::Failed,
         Err(code) => {
             // Another worker may have landed the same conference since this
             // batch read the existing ones; the unique index refused this copy.
             if let Some(existing) = find_conference(source_id) {
                 let merged = merge_topics(&existing.topics, topic_uuid);
-                return update_conference(&existing.item_id, conf, source_id, &merged, now);
+                return if update_conference(&existing.item_id, conf, source_id, &merged, now) {
+                    Inserted::AlreadyThere
+                } else {
+                    Inserted::Failed
+                };
             }
             host::log(
                 "error",
                 PLUGIN_NAME,
                 &format!("could not insert '{}': host error {code}", conf.name),
             );
-            false
+            Inserted::Failed
         }
     }
 }
+
+/// What [`insert_conference`] did with one conference.
+#[derive(Debug, PartialEq, Eq)]
+enum Inserted {
+    /// A new item.
+    New,
+    /// The conference was already there, put there by another worker after
+    /// this batch read the existing ones, and was updated in place.
+    AlreadyThere,
+    /// Neither; the reason is in the log.
+    Failed,
+}
+
+/// The statement [`update_conference`] runs. The host-in-the-loop suite runs
+/// the same file against Postgres and through the kernel's raw-SQL guard.
+const UPDATE_CONFERENCE_SQL: &str = include_str!("update_conference.sql");
 
 /// One conference by its dedup key, as [`load_existing_conferences`] reads them.
 fn find_conference(source_id: &str) -> Option<ExistingConference> {
@@ -1483,6 +1509,14 @@ fn find_conference(source_id: &str) -> Option<ExistingConference> {
 /// unique index could not stop because it excludes empty ids.
 /// `migrations/004_restore_blanked_source_ids.sql` repairs the rows that bug
 /// left behind.
+///
+/// `field_topics` is merged in the statement, not only here. `merged_topics`
+/// was computed from the topics this batch read before it started, and two
+/// batches for different topics of the same conference run concurrently. If
+/// the statement wrote that list as it stands, the second batch to commit
+/// would drop the topic the first one added. It writes the union of the
+/// topics the row holds when the update runs and the incoming ones, sorted, so
+/// the update cannot lose a topic whichever batch commits last.
 fn update_conference(
     item_id: &str,
     conf: &ConfsTechEntry,
@@ -1493,15 +1527,7 @@ fn update_conference(
     let updates = build_source_fields(conf, source_id, merged_topics);
 
     let result = host::execute_raw(
-        "UPDATE item SET \
-           title = $1, \
-           changed = $2, \
-           fields = fields || $3::jsonb, \
-           language = COALESCE(\
-             (SELECT id FROM language WHERE id = $3::jsonb->>'field_language'), \
-             (SELECT id FROM language WHERE is_default ORDER BY weight LIMIT 1), \
-             'en') \
-         WHERE id = $4::uuid",
+        UPDATE_CONFERENCE_SQL,
         &[
             serde_json::json!(conf.name),
             serde_json::json!(now),

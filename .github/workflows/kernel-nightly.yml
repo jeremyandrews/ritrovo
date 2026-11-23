@@ -234,6 +234,8 @@ jobs:
       IMAGE: ${{ needs.resolve.outputs.image }}
       RESULTS: ${{ join(needs.*.result, ' ') }}
     steps:
+      - uses: actions/checkout@v5
+
       - name: Report
         run: |
           set -euo pipefail
@@ -243,8 +245,9 @@ jobs:
             *" cancelled "*) echo "the run was cancelled; nothing to report"; exit 0 ;;
           esac
 
-          issue="$(gh issue list --state open --limit 200 --json number,title \
-            --jq '.[] | select(.title == env.ISSUE_TITLE) | .number' | head -n 1)"
+          # Every open issue, page by page, so the one issue is found however
+          # many others are open.
+          issue="$(scripts/open-issue-number.sh "$ISSUE_TITLE")"
 
           case " $RESULTS " in
             *" failure "*)
