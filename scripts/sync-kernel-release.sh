@@ -22,10 +22,25 @@
 #   scripts/sync-kernel-release.sh --set-version X.Y.Z resolve tag vX.Y.Z against the
 #                                                      Trovato repository, write both
 #                                                      fields, then rewrite
+#   scripts/sync-kernel-release.sh --set-nightly REF   pin a kernel `main` commit by
+#                                                      its published nightly image;
+#                                                      REF is `main` (the newest
+#                                                      nightly) or a commit id
 #
 # The version is never taken from the command line on trust: --set-version asks
 # github for the commit the tag points at and refuses if there is no such tag.
+# --set-nightly reads the commit out of the image's own build provenance, on
+# every platform it carries, and refuses unless they all name the same commit.
 # Nothing outside the locations listed above is ever touched.
+#
+# RELEASE AND NIGHTLY PINS
+# A release pin has two fields, `version` and `rev`, and the image is
+# `trovato:{version}`. A nightly pin adds a third, `image`, the tag of the
+# multi-arch image the kernel's Docker Publish workflow pushes for every `main`
+# commit (`nightly-<7-char sha>`); `version` is then the kernel's workspace
+# version at that commit, which is what `KERNEL_API_VERSION` is read from, and
+# there is no release tag, so the tutorial templates are diffed against the
+# commit itself. `--set-version` removes the `image` field again.
 
 set -euo pipefail
 
@@ -42,6 +57,10 @@ Write the pinned Trovato release into every place this repository repeats it.
   scripts/sync-kernel-release.sh --set-version X.Y.Z resolve tag vX.Y.Z against the
                                                      Trovato repository, write both
                                                      fields, then rewrite
+  scripts/sync-kernel-release.sh --set-nightly REF   pin the kernel `main` commit REF
+                                                     (or `main` for the newest) by
+                                                     its nightly image; needs
+                                                     `docker buildx`
 
 kernel-release.toml holds the two authored fields. The header of this script
 lists every location the rewrite owns, and demo/checks/tests/demo_wiring.rs
@@ -69,6 +88,30 @@ contract_get() {
     value="$(sed -n "s/^${key} *= *\"\\([^\"]*\\)\" *\$/\\1/p" "$CONTRACT" | head -n 1)"
     [ -n "$value" ] || die "kernel-release.toml has no $key = \"...\" line"
     printf '%s' "$value"
+}
+
+# The same, for a key that may be absent: prints nothing when it is.
+contract_get_optional() {
+    sed -n "s/^${1} *= *\"\([^\"]*\)\" *\$/\1/p" "$CONTRACT" | head -n 1
+}
+
+# The commit a published image was built from, read from its build provenance.
+#
+# Docker Publish builds with buildx, which records `vcs:revision` in the SLSA
+# provenance it attaches to each platform's manifest. The image carries no OCI
+# revision label, so this is the only statement the image itself makes about
+# its source. Every platform must be present and must name the same commit.
+image_revision() {
+    local ref="$1" revisions count
+    command -v docker > /dev/null || die "--set-nightly needs docker (buildx) to read $ref"
+    revisions="$(docker buildx imagetools inspect "$ref" --format '{{json .Provenance}}')" \
+        || die "cannot inspect $ref"
+    revisions="$(printf '%s' "$revisions" \
+        | grep -o '"vcs:revision": *"[0-9a-f]\{40\}"' \
+        | grep -o '[0-9a-f]\{40\}' | sort -u)"
+    count="$(printf '%s' "$revisions" | grep -c . || true)"
+    [ "$count" -eq 1 ] || die "$ref names $count source commits in its provenance, expected one"
+    printf '%s' "$revisions"
 }
 
 # Replace a file's contents only if they changed, and say so.
@@ -131,6 +174,10 @@ case "${1:-}" in
         [ -n "${2:-}" ] || die "--set-version needs a version, for example 0.103.0"
         set_version="$2"
         ;;
+    --set-nightly)
+        [ -n "${2:-}" ] || die "--set-nightly needs \`main\` or a commit id"
+        set_nightly="$2"
+        ;;
     "") ;;
     *)
         die "unknown argument: $1 (try --help)"
@@ -157,10 +204,52 @@ if [ -n "${set_version:-}" ]; then
     echo "    $tag is $resolved"
     sub "$CONTRACT" '^version = ' "s|^version = \".*\"\$|version = \"$set_version\"|"
     sub "$CONTRACT" '^rev = ' "s|^rev = \".*\"\$|rev = \"$resolved\"|"
+    if grep -q '^image = ' "$CONTRACT"; then
+        grep -v '^image = ' "$CONTRACT" > "$work/contract"
+        install_if_changed "$work/contract" "$CONTRACT"
+    fi
+fi
+
+if [ -n "${set_nightly:-}" ]; then
+    if [ "$set_nightly" = main ]; then
+        echo "==> resolving the newest nightly, $IMAGE_REPO:nightly"
+        resolved="$(image_revision "$IMAGE_REPO:nightly")"
+    else
+        case "$set_nightly" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+            *) die "--set-nightly takes \`main\` or a commit id of at least 7 hex digits" ;;
+        esac
+        resolved="$(image_revision "$IMAGE_REPO:nightly-${set_nightly:0:7}")"
+        case "$resolved" in
+            "$set_nightly"*) ;;
+            *) die "$IMAGE_REPO:nightly-${set_nightly:0:7} was built from $resolved, not $set_nightly" ;;
+        esac
+    fi
+    image_tag="nightly-${resolved:0:7}"
+    # Read back through the immutable-by-name sha tag, so the pin names an image
+    # that is about this commit and not whatever `nightly` points at tomorrow.
+    [ "$(image_revision "$IMAGE_REPO:$image_tag")" = "$resolved" ] \
+        || die "$IMAGE_REPO:$image_tag was not built from $resolved"
+    echo "    $IMAGE_REPO:$image_tag was built from $resolved"
+    kernel_manifest="$(curl -fsSL "https://raw.githubusercontent.com/jeremyandrews/trovato/$resolved/Cargo.toml")" \
+        || die "cannot read Trovato's Cargo.toml at $resolved"
+    nightly_version="$(printf '%s\n' "$kernel_manifest" \
+        | sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' | head -n 1)"
+    [ -n "$nightly_version" ] || die "no [workspace.package] version in Trovato's Cargo.toml at $resolved"
+    echo "    workspace version at $resolved is $nightly_version"
+    sub "$CONTRACT" '^version = ' "s|^version = \".*\"\$|version = \"$nightly_version\"|"
+    sub "$CONTRACT" '^rev = ' "s|^rev = \".*\"\$|rev = \"$resolved\"|"
+    if grep -q '^image = ' "$CONTRACT"; then
+        sub "$CONTRACT" '^image = ' "s|^image = \".*\"\$|image = \"$image_tag\"|"
+    else
+        { cat "$CONTRACT"; echo "image = \"$image_tag\""; } > "$work/contract"
+        install_if_changed "$work/contract" "$CONTRACT"
+    fi
 fi
 
 version="$(contract_get version)"
 rev="$(contract_get rev)"
+image_tag="$(contract_get_optional image)"
 
 case "$version" in
     [0-9]*.[0-9]*.[0-9]*) ;;
@@ -171,16 +260,29 @@ case "$rev" in
     *) die "rev \"$rev\" is not a hex commit id" ;;
 esac
 
-tag="v$version"
 major="${version%%.*}"
 minor="${version#*.}"
 minor="${minor%%.*}"
 api="$major.$minor"
 api_pair="($major, $minor)"
-image="$IMAGE_REPO:$version"
+# `source` is the git ref the tutorial templates are diffed against and the one
+# the docs name: the release tag, or for a nightly pin the commit itself.
+if [ -n "$image_tag" ]; then
+    case "$image_tag" in
+        nightly-[0-9a-f]*) ;;
+        *) die "image \"$image_tag\" is not a nightly-<sha> tag" ;;
+    esac
+    [ "${image_tag#nightly-}" = "${rev:0:${#image_tag}-8}" ] \
+        || die "image \"$image_tag\" is not the nightly of rev $rev"
+    source="$rev"
+    image="$IMAGE_REPO:$image_tag"
+else
+    source="v$version"
+    image="$IMAGE_REPO:$version"
+fi
 
 echo "==> Trovato $version"
-echo "    tag                 $tag"
+echo "    source              $source"
 echo "    rev                 $rev"
 echo "    api_version         $api"
 echo "    KERNEL_API_VERSION  $api_pair"
@@ -196,16 +298,30 @@ sub "$ROOT/Cargo.toml" '^trovato-sdk = ' \
 sub "$ROOT/Cargo.toml" '^trovato-kernel = ' \
     "s|^\\(trovato-kernel = .*rev = \"\\)[0-9a-f]*\\(\".*\\)\$|\\1$rev\\2|"
 
-cat > "$work/cargo-pin" <<EOF
-#   tag                 $tag
+if [ -n "$image_tag" ]; then
+    cat > "$work/cargo-pin" <<EOF
+#   source              $source (kernel main, no release tag)
+#   rev                 $rev
+#   Trovato version     $version (the workspace version at that commit)
+#   KERNEL_API_VERSION  $api_pair
+#
+# A nightly pin: the rev is a commit on Trovato's main branch, and the
+# $image image the demo runs is the multi-arch nightly
+# whose build provenance names that commit.
+# The plugin manifests declare \`api_version = "$api"\` to match.
+EOF
+else
+    cat > "$work/cargo-pin" <<EOF
+#   tag                 $source
 #   rev                 $rev
 #   Trovato version     $version
 #   KERNEL_API_VERSION  $api_pair
 #
-# The rev is the commit the $tag tag points at: the tree the
+# The rev is the commit the $source tag points at: the tree the
 # $image image the demo runs was published from.
 # The plugin manifests declare \`api_version = "$api"\` to match.
 EOF
+fi
 sub_block "$ROOT/Cargo.toml" pin "$work/cargo-pin"
 
 for manifest in "$ROOT"/plugins/*/*.info.toml; do
@@ -216,21 +332,39 @@ sub "$ROOT/docker-compose.demo.yml" "image: $IMAGE_REPO:" \
     "s|image: $IMAGE_REPO:.*\$|image: $image|"
 
 sub "$ROOT/scripts/check-tutorial-templates.sh" '^RELEASE=' \
-    "s|^RELEASE=\".*\"\$|RELEASE=\"$tag\"|"
+    "s|^RELEASE=\".*\"\$|RELEASE=\"$source\"|"
 
-cat > "$work/readme-pin" <<EOF
+if [ -n "$image_tag" ]; then
+    cat > "$work/readme-pin" <<EOF
 | | |
 |---|---|
-| tag | \`$tag\` |
+| source | Trovato \`main\`, no release tag |
+| \`rev\` | \`$rev\` |
+| image | \`$image\` |
+| Trovato version | $version (the workspace version at that commit) |
+| \`KERNEL_API_VERSION\` | ($major, $minor) |
+
+A nightly pin. The \`rev\` is a commit on Trovato's \`main\`, and the
+\`$image\` image is the multi-arch nightly whose build
+provenance names that commit, so the SDK the plugins compile against and the
+kernel the demo runs are the same code. The plugin manifests declare
+\`api_version = "$api"\` to match.
+EOF
+else
+    cat > "$work/readme-pin" <<EOF
+| | |
+|---|---|
+| tag | \`$source\` |
 | \`rev\` | \`$rev\` |
 | Trovato version | $version |
 | \`KERNEL_API_VERSION\` | ($major, $minor) |
 
-The \`rev\` is the commit the \`$tag\` tag points at, which is the tree the
+The \`rev\` is the commit the \`$source\` tag points at, which is the tree the
 \`$image\` image was published from, so the SDK the
 plugins compile against and the kernel the demo runs are the same code. The
 plugin manifests declare \`api_version = "$api"\` to match.
 EOF
+fi
 sub_block "$ROOT/README.md" pin "$work/readme-pin"
 
 cat > "$work/install-image" <<EOF
@@ -240,8 +374,8 @@ sub_block "$ROOT/docs/INSTALL.md" image "$work/install-image"
 
 cat > "$work/install-api" <<EOF
 Each plugin declares \`api_version = "$api"\` in its \`.info.toml\`, matching the
-\`KERNEL_API_VERSION\` of $api_pair at the commit the SDK is pinned to, the
-\`$tag\` tag of Trovato $version.
+\`KERNEL_API_VERSION\` of $api_pair at the commit the SDK is pinned to,
+\`$source\` (Trovato $version).
 EOF
 sub_block "$ROOT/docs/INSTALL.md" api "$work/install-api"
 

@@ -89,6 +89,9 @@ const CONTRACT: &str = "kernel-release.toml";
 struct KernelRelease {
     version: String,
     rev: String,
+    /// The nightly image tag, `nightly-<sha>`, when the pin is a kernel `main`
+    /// commit rather than a release. `None` for a release pin.
+    nightly_image: Option<String>,
     major: String,
     minor: String,
 }
@@ -98,6 +101,7 @@ impl KernelRelease {
         let body = read(CONTRACT);
         let version = contract_field(&body, "version");
         let rev = contract_field(&body, "rev");
+        let nightly_image = contract_field_optional(&body, "image");
 
         let mut parts = version.split('.');
         let major = parts.next().unwrap_or_default().to_string();
@@ -111,17 +115,33 @@ impl KernelRelease {
             "{CONTRACT} rev {rev:?} is not a 40-character commit id"
         );
 
+        if let Some(image) = &nightly_image {
+            let short = image.strip_prefix("nightly-").unwrap_or_else(|| {
+                panic!("{CONTRACT} image {image:?} is not a nightly-<sha> tag")
+            });
+            assert!(
+                short.len() >= 7 && rev.starts_with(short),
+                "{CONTRACT} image {image:?} is not the nightly of rev {rev}"
+            );
+        }
+
         Self {
             version,
             rev,
+            nightly_image,
             major,
             minor,
         }
     }
 
-    /// The git tag of the release: `v` and the version.
-    fn tag(&self) -> String {
-        format!("v{}", self.version)
+    /// The git ref the pin names: the release tag, `v` and the version, or for
+    /// a nightly pin the commit itself, which has no tag.
+    fn source(&self) -> String {
+        if self.nightly_image.is_some() {
+            self.rev.clone()
+        } else {
+            format!("v{}", self.version)
+        }
     }
 
     /// What a plugin manifest declares: the version's major and minor.
@@ -136,8 +156,20 @@ impl KernelRelease {
 
     /// The published kernel image the demo runs.
     fn image(&self) -> String {
-        format!("{IMAGE_REPO}:{}", self.version)
+        match &self.nightly_image {
+            Some(tag) => format!("{IMAGE_REPO}:{tag}"),
+            None => format!("{IMAGE_REPO}:{}", self.version),
+        }
     }
+}
+
+/// An optional `key = "value"` line of the contract file.
+fn contract_field_optional(body: &str, key: &str) -> Option<String> {
+    let prefix = format!("{key} = \"");
+    body.lines()
+        .find_map(|line| line.strip_prefix(&prefix))
+        .and_then(|rest| rest.strip_suffix('"'))
+        .map(str::to_string)
 }
 
 /// One `key = "value"` line of the contract file.
@@ -703,7 +735,7 @@ fn kernel_release_is_named_consistently() {
     // Cargo.toml actually sees.
     let recorded = marker_block(&manifest, "pin", "Cargo.toml");
     for value in [
-        release.tag(),
+        release.source(),
         release.rev.clone(),
         release.version.clone(),
         release.api_pair(),
@@ -726,7 +758,7 @@ fn kernel_release_is_named_consistently() {
         );
     }
 
-    let declaration = format!("RELEASE=\"{}\"", release.tag());
+    let declaration = format!("RELEASE=\"{}\"", release.source());
     assert!(
         read("scripts/check-tutorial-templates.sh")
             .lines()
@@ -753,7 +785,7 @@ fn kernel_release_is_named_consistently() {
         );
     }
     let pin = marker_block(&read("README.md"), "pin", "README.md");
-    for value in [release.tag(), release.rev.clone(), release.image()] {
+    for value in [release.source(), release.rev.clone(), release.image()] {
         assert!(
             pin.contains(&value),
             "the kernel-release:pin block in README.md does not name {value}; {fix}"

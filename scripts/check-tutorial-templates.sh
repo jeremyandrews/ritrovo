@@ -47,8 +47,9 @@ set -euo pipefail
 # The release the demo runs against. GENERATED: this line is written from
 # kernel-release.toml by scripts/sync-kernel-release.sh, and the demo_wiring tests
 # fail if it disagrees. Move the pin there, not here.
-RELEASE="v0.103.0"
-REPO="https://codeload.github.com/jeremyandrews/trovato/tar.gz/refs/tags"
+RELEASE="81290cc862b2c8302bc0a99d270f2571405c51ef"
+# A tag or a commit id: codeload serves a tarball for either.
+REPO="https://codeload.github.com/jeremyandrews/trovato/tar.gz"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDORED="$ROOT/docs/tutorial/templates"

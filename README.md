@@ -148,15 +148,17 @@ from there into every file that repeats it:
 <!-- kernel-release:begin pin -->
 | | |
 |---|---|
-| tag | `v0.103.0` |
-| `rev` | `496b8f113be66102830723c1e2a968cad2ec1e0d` |
-| Trovato version | 0.103.0 |
-| `KERNEL_API_VERSION` | (0, 103) |
+| source | Trovato `main`, no release tag |
+| `rev` | `81290cc862b2c8302bc0a99d270f2571405c51ef` |
+| image | `ghcr.io/jeremyandrews/trovato:nightly-81290cc` |
+| Trovato version | 0.107.0 (the workspace version at that commit) |
+| `KERNEL_API_VERSION` | (0, 107) |
 
-The `rev` is the commit the `v0.103.0` tag points at, which is the tree the
-`ghcr.io/jeremyandrews/trovato:0.103.0` image was published from, so the SDK the
-plugins compile against and the kernel the demo runs are the same code. The
-plugin manifests declare `api_version = "0.103"` to match.
+A nightly pin. The `rev` is a commit on Trovato's `main`, and the
+`ghcr.io/jeremyandrews/trovato:nightly-81290cc` image is the multi-arch nightly whose build
+provenance names that commit, so the SDK the plugins compile against and the
+kernel the demo runs are the same code. The plugin manifests declare
+`api_version = "0.107"` to match.
 <!-- kernel-release:end pin -->
 
 (Before 0.99 the two did not agree: that SDK crate labelled itself `1.0.0` ahead
