@@ -65,6 +65,10 @@ scripts/serve-demo.sh --down    # stop it and delete its volumes
 The full walkthrough, including installing Ritrovo onto a Trovato you built
 yourself, is [docs/INSTALL.md](docs/INSTALL.md).
 
+The demo runs without any AI provider key, and every AI feature degrades cleanly.
+To turn AI on, set two environment variables; [docs/AI.md](docs/AI.md) says
+which, what each feature costs and what is switched on.
+
 ## Repository layout
 
 ```
@@ -96,6 +100,8 @@ demo/
   checks/                 Tests pinning the demo's wiring to the repository
 docs/
   INSTALL.md              The demo, then the manual walkthrough
+  AI.md                   Turning the kernel's AI features on: two keys, the
+                          budgets, the cost, what happens with no key
   ritrovo/                Architecture, epics, design docs
   tutorial/templates/     Trovato's tutorial templates, vendored for the demo
   tutorial/static/        ritrovo.css

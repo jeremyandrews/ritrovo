@@ -70,7 +70,12 @@ RITROVO_PLUGINS="ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_forms ritro
 #                   whole fix: the index is built on the first cron poke after this
 #                   script hands over, and rebuilt after every import cycle that
 #                   changes anything, with no further wiring.
-KERNEL_PLUGINS="trovato_search"
+#
+#   trovato_ai      the AI content plugin: its AI Assist buttons on the item
+#                   forms and its presave field rules (docs/AI.md). The AI
+#                   permissions the role files grant are the kernel's own, so
+#                   the import does not need it enabled first.
+KERNEL_PLUGINS="trovato_search trovato_ai"
 
 say() { printf '\n==> %s\n' "$*"; }
 

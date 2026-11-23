@@ -75,7 +75,6 @@ impl Translator for HostTranslator {
             input: None,
             options: AiRequestOptions {
                 max_tokens: Some(1024),
-                temperature: Some(0.2),
                 ..AiRequestOptions::default()
             },
         };

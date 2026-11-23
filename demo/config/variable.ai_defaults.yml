@@ -1,0 +1,8 @@
+# Which provider serves each AI operation when a caller names none (STATUS 31.1):
+# chat to Anthropic, embeddings to OpenAI, by the ids in
+# variable.ai_providers.yml. The kernel resolves every call through this map
+# (`AiProviderService::resolve_provider`).
+key: ai_defaults
+value:
+  chat: 0193a5a0-0005-7000-8000-000000000001
+  embedding: 0193a5a0-0005-7000-8000-000000000002

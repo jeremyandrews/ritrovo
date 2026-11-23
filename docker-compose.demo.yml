@@ -60,6 +60,19 @@ x-kernel-env: &kernel-env
   # This is a demo setting covering a kernel gap, not a recommendation: see
   # FRICTION.md, G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE.
   CACHE_TTL_ITEMS: ${CACHE_TTL_ITEMS:-10}
+  # The two AI provider keys, by the names demo/config/variable.ai_providers.yml
+  # gives them, passed through from the shell that starts the demo and ABSENT
+  # when that shell has none, which is how CI and a first demo run: every AI
+  # feature then degrades without an error page (docs/AI.md). The kernel reads
+  # them when it makes a call and stores neither. Never put one in a file in this
+  # repository.
+  #
+  # No value here, not `${VAR:-}`: that sets the variable to the empty string,
+  # and the kernel counts any set variable as a key, so the provider screen
+  # would say "(set)" and every call would go out with an empty key
+  # (FRICTION.md, G-AI-REQUESTS-SENT-WITHOUT-A-KEY).
+  RITROVO_ANTHROPIC_API_KEY:
+  RITROVO_OPENAI_API_KEY:
 
 services:
   postgres:

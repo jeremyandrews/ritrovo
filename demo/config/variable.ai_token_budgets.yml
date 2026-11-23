@@ -1,0 +1,31 @@
+# Token budgets (STATUS 31.3), enforced by the kernel before every AI call.
+#
+# Daily, and in deny mode: a call that would go past the budget is refused,
+# not logged and allowed. Per provider, then per role name; the kernel takes the
+# highest limit among a member's roles, and `authenticated` is the kernel's
+# name for every signed-in member (`AiTokenBudgetService::resolve_role_budget`).
+# So a member may spend 20,000 tokens a day on each provider, an editor or a
+# publisher 100,000. A role with no line here falls back to `authenticated`.
+#
+# `plugin_defaults` caps a plugin's background calls, which no person makes:
+# ritrovo_translate's drafting job, 20,000 a day, when a site switches it on.
+#
+# The administrator is a flag, not a role, so an administrator's own calls are
+# held to the `authenticated` line. Anonymous visitors hold no AI permission at
+# all (role.00000000-0000-0000-0000-000000000001.yml).
+key: ai_token_budgets
+value:
+  period: daily
+  action_on_limit: deny
+  defaults:
+    0193a5a0-0005-7000-8000-000000000001:
+      authenticated: 20000
+      editor: 100000
+      publisher: 100000
+    0193a5a0-0005-7000-8000-000000000002:
+      authenticated: 20000
+      editor: 100000
+      publisher: 100000
+  plugin_defaults:
+    0193a5a0-0005-7000-8000-000000000001:
+      ritrovo_translate: 20000

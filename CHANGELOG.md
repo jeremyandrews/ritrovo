@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Ritrovo uses the kernel's AI foundation (A9b, first part).** Configuration only, in `demo/config`, with `docs/AI.md` describing it:
+  - Two providers in the kernel's registry, Anthropic for chat (`claude-haiku-5-5`) and OpenAI for embeddings (`text-embedding-3-small`), keyed by the environment variables `RITROVO_ANTHROPIC_API_KEY` and `RITROVO_OPENAI_API_KEY`. No key is stored anywhere; with none set every AI surface degrades without a 500 or a word of provider text.
+  - Daily token budgets in deny mode (20,000 a member, 100,000 an editor or publisher, 20,000 for `ritrovo_translate`'s drafts) and prices, so the usage log carries a cost.
+  - `use ai` and `use ai chat` for signed-in members, `view ai usage` for editors and publishers, nothing for anonymous visitors.
+  - The kernel's `trovato_ai` plugin is enabled; its provider, budget, chat and assistant screens are checked by `verify-demo.sh`.
+  - The search page's AI stages are switched off: the kernel checks no permission or budget on them (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`).
+  - `ritrovo_translate` no longer sets a temperature.
+  - `docker-compose.demo.yml` passes the two key variables only when the starting shell has them, because the kernel counts an empty variable as a key.
+  - Seven host tests, all against the kernel's scripted provider: refusals before any provider call, the draft's model, the absent temperature and its priced usage row, the daily budget, the roles, no-key degradation, and the key value in no page, export, stored row or log line.
+  - `FRICTION.md` gains five kernel entries.
+
 - **Nine fixes to the A11 work, each with a test that fails without it.**
   - **Publishing on the editorial screen needs `publish content`.** `ritrovo_access` used to accept `delete any content` or its own `publish conferences` as the right to publish. The screen moves stages with a raw `UPDATE` the kernel's check never sees, so a role the kernel would refuse could publish there. It now asks for the kernel's `publish content` and nothing else, as the kernel does. Test: `publishing_on_the_editorial_screen_needs_publish_content`.
   - **The importer's update cannot drop a topic.** Two batches for different topics of one conference run at once, each carrying the topics it read at its start. The update wrote that list over the row's, so the batch that committed second removed the other's topic. The statement, now `plugins/ritrovo_importer/src/update_conference.sql`, writes the sorted union of the row's topics at update time and the incoming ones. Test: `a_conference_update_keeps_topics_another_batch_added_since_it_read_them`, which runs that file against Postgres and through the kernel's raw-SQL guard.

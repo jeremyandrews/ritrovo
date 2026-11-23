@@ -168,6 +168,13 @@ jobs:
             the_three_steps_in_order_create_one_incoming_conference_with_every_field \
             skipping_a_step_is_refused_and_creates_nothing \
             another_members_draft_id_reads_nothing_and_submits_nothing \
+            the_roles_grant_ai_to_members_usage_to_editors_and_nothing_to_visitors \
+            chat_and_search_ai_refuse_a_visitor_without_use_ai_and_ask_no_provider \
+            with_no_key_every_ai_surface_answers_without_a_500_or_provider_text \
+            the_key_value_appears_in_no_page_answer_export_stored_row_or_log_line \
+            ai_request_refuses_a_caller_without_use_ai_before_asking_any_provider \
+            a_draft_goes_through_ai_request_with_ritrovo_s_model_no_temperature_and_a_priced_usage_row \
+            the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it \
             the_sdk_and_the_test_kernel_pin_the_same_trovato; do
             grep -q "^test .*${test} \.\.\. ok$" test.log \
               || { echo "::error::$test did not pass"; status=1; }
