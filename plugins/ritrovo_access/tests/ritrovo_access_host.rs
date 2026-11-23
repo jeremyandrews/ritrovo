@@ -485,9 +485,12 @@ fn the_conference_edit_form_is_generated_from_the_type_and_has_no_editor() {
             "field_cfp_end_date",
             "field_description",
             "field_logo",
-            "field_venue_photos",
+            // Multi-value fields render one widget per value since the
+            // kernel's 0.107 line (G-CARDINALITY-IS-INERT, fixed).
+            "field_venue_photos[0]",
+            "field_venue_photos[1]",
             "field_schedule_pdf",
-            "field_speakers",
+            "field_speakers[0]",
             "field_language",
             "field_source_id",
             "field_editor_notes",
@@ -504,41 +507,35 @@ fn the_conference_edit_form_is_generated_from_the_type_and_has_no_editor() {
             "field_topics has a widget now; G-NO-CATEGORY-REFERENCE-FIELD-KIND may have been fixed"
         );
 
-        // The block editor's container is rendered and nothing loads the editor.
+        // The block editor's container is rendered and, since the kernel's
+        // one form pipeline, the editor itself is loaded with it: the Blocks
+        // field is a WYSIWYG on this form now, not a container nothing fills.
         assert!(
             form.body.contains("data-block-editor"),
             "the Blocks field rendered no editor container: {}",
             form.body
         );
         assert!(
-            !form.body.contains("<script"),
-            "the edit page now carries script; the WYSIWYG may be reachable: {}",
+            form.body.contains("block-editor.js"),
+            "the edit page no longer loads the block editor: {}",
             form.body
         );
     });
 }
 
-/// Saving through that form keeps what it rendered and destroys what it did not.
+/// Saving through that form keeps every field, including the ones it did not
+/// render.
 ///
-/// This is the test the A6 prompt asks for, and it is a **pin on a loss**, not a
-/// feature: `ItemSubmission::from_form` builds a fresh field map out of the POST
-/// body and `Item::update` writes it whole, so a field the form could not render
-/// was not posted, is not in the map, and is gone from the item. See FRICTION.md,
-/// `G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER`.
-///
-/// Three of the brief's fields are lost and each for its own reason:
-///
-/// - `field_topics` — no widget exists to render it, so it is never posted.
-/// - `field_speakers` and `field_venue_photos` — declared `cardinality: -1`,
-///   which nothing in the kernel reads (`G-CARDINALITY-IS-INERT`), so the form
-///   renders one widget over an array and the array does not survive the round
-///   trip.
-///
-/// **If this test starts failing because the values survived, the kernel has
-/// been fixed and the STATUS rows it blocks should be reopened, not the test
-/// relaxed.**
+/// This was a **pin on a loss** through Trovato 0.103: the form built a fresh
+/// field map out of the POST body and `Item::update` wrote it whole, so
+/// `field_topics` (no widget) and the two multi-value fields (one widget over an
+/// array) were gone after any editor's save (`G-FORM-SAVE-DROPS-EVERY-FIELD-THE-
+/// FORM-DID-NOT-RENDER`, `G-CARDINALITY-IS-INERT`). Since the kernel's 0.107
+/// line a form save starts from the stored fields and overwrites only what the
+/// form rendered, a multi-value field posts `name[0]`, `name[1]` and is stored
+/// as an array, and a Boolean is stored as a JSON boolean. This now pins that.
 #[test]
-fn saving_the_edit_form_keeps_rendered_fields_and_drops_the_rest() {
+fn saving_the_edit_form_keeps_every_field_including_the_ones_it_did_not_render() {
     serial(async {
         let pool = host::fresh_pool().await;
         host::prepare_app_database(&pool, &[PLUGIN]).await;
@@ -572,7 +569,7 @@ fn saving_the_edit_form_keeps_rendered_fields_and_drops_the_rest() {
         // those. A file input posts nothing in a urlencoded body, which is also
         // what a browser sends when the visitor picks no new file.
         let body = [
-            format!("_csrf={}", csrf(&form.body)),
+            form_tokens(&form.body),
             "title=Round+Trip+Conf".to_string(),
             "status=1".to_string(),
             "field_url=https%3A%2F%2Fexample.test".to_string(),
@@ -585,6 +582,9 @@ fn saving_the_edit_form_keeps_rendered_fields_and_drops_the_rest() {
             "field_language=en".to_string(),
             "field_source_id=round-trip".to_string(),
             "field_editor_notes=Checked+the+dates.".to_string(),
+            "field_speakers%5B0%5D=0193a5a0-0005-7000-8000-000000000001".to_string(),
+            "field_venue_photos%5B0%5D=public%3A%2F%2Fvenue-a.jpg".to_string(),
+            "field_venue_photos%5B1%5D=public%3A%2F%2Fvenue-b.jpg".to_string(),
         ]
         .join("&");
         let saved = app.post_form(&path, &body, &cookies).await;
@@ -606,28 +606,27 @@ fn saving_the_edit_form_keeps_rendered_fields_and_drops_the_rest() {
             serde_json::json!("Checked the dates.")
         );
 
-        // Lost: the three the form could not round-trip.
-        assert!(
-            after.get("field_topics").is_none(),
-            "field_topics survived a save; G-NO-CATEGORY-REFERENCE-FIELD-KIND \
-             and G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER may be \
-             fixed, so reopen STATUS 36.1 rather than relaxing this: {after}"
+        // Kept: the one the form could not render, untouched.
+        assert_eq!(
+            after["field_topics"], before["field_topics"],
+            "field_topics was lost on a save: {after}"
         );
-        assert!(
-            after.get("field_speakers").is_none(),
-            "field_speakers survived a save; G-CARDINALITY-IS-INERT may be fixed: {after}"
+        // Kept: the two multi-value fields, as arrays.
+        assert_eq!(
+            after["field_speakers"], before["field_speakers"],
+            "field_speakers did not round-trip: {after}"
         );
-        assert!(
-            after.get("field_venue_photos").is_none(),
-            "field_venue_photos survived a save; G-CARDINALITY-IS-INERT may be fixed: {after}"
+        assert_eq!(
+            after["field_venue_photos"], before["field_venue_photos"],
+            "field_venue_photos did not round-trip: {after}"
         );
 
-        // And every value the form did store is a string, whatever the field's
-        // declared type: the boolean and the date went in typed and came back as
-        // text. FRICTION.md, G-FRONTEND-ITEM-FORM-STORES-EVERY-FIELD-AS-A-STRING.
-        assert!(
-            after["field_start_date"].is_string(),
-            "a Date field came back typed: {after}"
+        // A Boolean the form showed and the browser left unchecked is stored as
+        // JSON `false`, not a string.
+        assert_eq!(
+            after["field_online"],
+            serde_json::json!(false),
+            "an unchecked Boolean was not stored as false: {after}"
         );
     });
 }
@@ -652,16 +651,33 @@ async fn conference_fields(pool: &sqlx::PgPool) -> serde_json::Value {
     })
 }
 
-/// The CSRF token out of a kernel-rendered form, which names it `_csrf`.
-fn csrf(html: &str) -> String {
-    let marker = r#"name="_csrf" value=""#;
+/// One hidden input's value out of a kernel-rendered form.
+fn hidden(html: &str, name: &str) -> String {
+    let marker = format!(r#"name="{name}" value=""#);
     let start = html
-        .find(marker)
-        .unwrap_or_else(|| panic!("no _csrf input in: {html}"))
+        .find(&marker)
+        .unwrap_or_else(|| panic!("no {name} input in: {html}"))
         + marker.len();
     let rest = &html[start..];
     let end = rest.find('"').unwrap();
     rest[..end].to_string()
+}
+
+/// The CSRF token out of a kernel-rendered form, which names it `_token` since
+/// the kernel's one form renderer (it was `_csrf`).
+fn csrf(html: &str) -> String {
+    hidden(html, "_token")
+}
+
+/// What a urlencoded save of a kernel item form must carry: the CSRF token and
+/// the build id of the form it was rendered for, without which the kernel
+/// answers "This form has expired" and saves nothing.
+fn form_tokens(html: &str) -> String {
+    format!(
+        "_token={}&_form_build_id={}",
+        hidden(html, "_token"),
+        hidden(html, "_form_build_id")
+    )
 }
 
 /// The demo seed runs once the import has finished, however small the feed.
@@ -782,9 +798,9 @@ fn the_demo_seed_waits_for_the_import_and_then_seeds_a_small_feed() {
 /// The titles `/api/search` answered, in order.
 fn search_titles(body: &str) -> Vec<String> {
     let value = host::json(body);
-    value["results"]
+    value["data"]
         .as_array()
-        .unwrap_or_else(|| panic!("no results array in {body}"))
+        .unwrap_or_else(|| panic!("no data array in {body}"))
         .iter()
         .filter_map(|r| r["title"].as_str().map(str::to_string))
         .collect()
@@ -864,12 +880,12 @@ fn search_returns_live_to_everyone_and_another_stage_only_to_an_administrator_on
             "the three fixtures are not indexed on three stages"
         );
 
-        let anonymous = app.get("/api/search?q=quokkafest", "").await;
+        let anonymous = app.get("/api/v1/search?q=quokkafest", "").await;
         assert_eq!(anonymous.status, 200, "{}", anonymous.body);
         assert_eq!(search_titles(&anonymous.body), vec!["Quokkafest Live"]);
 
         let (editor, _) = app.login_as_new_member(&["editor"]).await;
-        let as_editor = app.get("/api/search?q=quokkafest", &editor).await;
+        let as_editor = app.get("/api/v1/search?q=quokkafest", &editor).await;
         assert_eq!(search_titles(&as_editor.body), vec!["Quokkafest Live"]);
 
         // The editor asks for Incoming and is refused.
@@ -898,7 +914,7 @@ fn search_returns_live_to_everyone_and_another_stage_only_to_an_administrator_on
             "the editor's switch failed on its token, which proves nothing: {}",
             switch.body
         );
-        let still = app.get("/api/search?q=quokkafest", &editor).await;
+        let still = app.get("/api/v1/search?q=quokkafest", &editor).await;
         assert_eq!(search_titles(&still.body), vec!["Quokkafest Live"]);
 
         // An administrator on Incoming sees Incoming and Live, never Curated.
@@ -918,13 +934,13 @@ fn search_returns_live_to_everyone_and_another_stage_only_to_an_administrator_on
             .await;
         assert_eq!(switch.status, 200, "{}", switch.body);
         let mut on_incoming =
-            search_titles(&app.get("/api/search?q=quokkafest", &admin).await.body);
+            search_titles(&app.get("/api/v1/search?q=quokkafest", &admin).await.body);
         on_incoming.sort();
         assert_eq!(on_incoming, vec!["Quokkafest Incoming", "Quokkafest Live"]);
 
         // And the anonymous answer did not change while an administrator was
         // looking at Incoming: the stage is per session, never shared.
-        let anonymous = app.get("/api/search?q=quokkafest", "").await;
+        let anonymous = app.get("/api/v1/search?q=quokkafest", "").await;
         assert_eq!(search_titles(&anonymous.body), vec!["Quokkafest Live"]);
     });
 }
@@ -989,10 +1005,13 @@ fn a_kernel_edit_shows_at_once_a_raw_write_waits_for_the_cache_and_no_view_leaks
         let form = app.get(&edit, &editor).await;
         assert_eq!(form.status, 200, "{}", form.body);
         let body = [
-            format!("_csrf={}", csrf(&form.body)),
+            form_tokens(&form.body),
             "title=Wombatcon+Edited".to_string(),
             "status=1".to_string(),
             "field_start_date=2027-05-01".to_string(),
+            // Required on the type, and the kernel's form pipeline validates it
+            // now (it used to save whatever arrived).
+            "field_end_date=2027-05-03".to_string(),
             "field_source_id=cache-live".to_string(),
         ]
         .join("&");

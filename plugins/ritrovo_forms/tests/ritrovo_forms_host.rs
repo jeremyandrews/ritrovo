@@ -115,7 +115,7 @@ fn a_member_writes_a_bio_and_finds_it_again() {
             form.body
         );
         assert!(
-            !form.body.contains("<script"),
+            !form_element(form.body.as_str()).contains("<script"),
             "the form carries JavaScript: {}",
             form.body
         );
@@ -387,7 +387,7 @@ fn the_three_steps_in_order_create_one_incoming_conference_with_every_field() {
         assert_eq!(start.status, 200, "{}", start.body);
         assert!(start.body.contains("Step 1 of 3"), "{}", start.body);
         assert!(
-            !start.body.contains("<script"),
+            !form_element(start.body.as_str()).contains("<script"),
             "the form carries JavaScript: {}",
             start.body
         );
@@ -899,4 +899,17 @@ fn encode(value: &str) -> String {
         }
     }
     out
+}
+
+/// The `<form>` element of a page, which is what has to work with JavaScript
+/// switched off. The page around it is the site theme's, which loads its own
+/// navigation scripts on every page since the templates are on the search path.
+fn form_element(html: &str) -> &str {
+    let start = html
+        .find("<form")
+        .unwrap_or_else(|| panic!("no form in: {html}"));
+    let end = html[start..]
+        .find("</form>")
+        .map_or(html.len(), |end| start + end);
+    &html[start..end]
 }
