@@ -2392,3 +2392,179 @@ fn a_question_with_one_word_no_conference_contains_retrieves_no_context() {
         assert!(!system.contains("Wombat Rust Days"), "{system}");
     });
 }
+
+// ===========================================================================
+// AI Assist on the item forms (A9b, 31.6)
+// ===========================================================================
+//
+// The buttons come from `trovato_ai`'s `tap_form_alter`, and `trovato_ai` is in
+// the kernel image, not in the overlay these suites load. Whether they are on
+// the conference edit form, and for whom, is checked on the demo
+// (`scripts/verify-demo.sh`, "AI Assist"). What a button calls is the kernel's
+// route, `POST /api/v1/ai/assist`, and that is served here.
+
+/// A conference description, as an editor would shorten it.
+const ASSIST_TEXT: &str = "Wombat Rust Days is a two-day community conference about Rust \
+     in production: talks on async runtimes, embedded targets and WebAssembly, a workshop \
+     day for newcomers, and an evening meetup for everyone who writes Rust or wants to.";
+
+/// What the Shorten button posts for the field holding [`ASSIST_TEXT`].
+fn shorten() -> serde_json::Value {
+    serde_json::json!({"text": ASSIST_TEXT, "operation": "shorten"})
+}
+
+/// An Anthropic answer with a text block and no thinking block before it.
+fn text_first_reply(text: &str, input_tokens: u64, output_tokens: u64) -> serde_json::Value {
+    let mut reply = ai::anthropic_reply(text, input_tokens, output_tokens);
+    reply["content"] = serde_json::json!([{"type": "text", "text": text}]);
+    reply
+}
+
+/// A session with the given roles, its user id and its token.
+async fn session_with(app: &host::App, roles: &[&str]) -> (String, uuid::Uuid, String) {
+    let (cookies, id) = app.login_as_new_member(roles).await;
+    let page = app.get("/user/profile", &cookies).await;
+    assert_eq!(page.status, 200, "{}", page.body);
+    let token = session_token(&page.body);
+    (cookies, id, token)
+}
+
+/// Shorten as the button posts it: an editor gets the model's text back, and the
+/// request carries the field's text under the kernel's shorten instruction, with
+/// Ritrovo's chat model and no temperature. An anonymous visitor is refused and
+/// no provider is asked.
+#[test]
+fn ai_assist_shortens_an_editor_s_text_with_ritrovo_s_model_and_refuses_a_visitor() {
+    serial(async {
+        let (app, _pool, recorder) = ai_app().await;
+        let (anon, anon_token) = anonymous_session(app).await;
+        let refused = post_json(app, "/api/v1/ai/assist", shorten(), &anon, &anon_token).await;
+        assert_eq!(refused.status, 401, "{}", refused.body);
+        assert_eq!(recorder.request_count(), 0, "a visitor reached a provider");
+
+        let short = "Wombat Rust Days: two days on Rust in production, a newcomers' workshop \
+                     and an evening meetup.";
+        recorder.push(Scripted::ok(text_first_reply(short, 120, 30)));
+        ai::set_fake_keys();
+        let (editor, _, token) = session_with(app, &["editor"]).await;
+        let answer = post_json(app, "/api/v1/ai/assist", shorten(), &editor, &token).await;
+        ai::unset_keys();
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        let body: serde_json::Value = serde_json::from_str(&answer.body).unwrap();
+        assert_eq!(body["result"], short, "{body}");
+
+        let requests = recorder.requests();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        let sent = &requests[0];
+        assert_eq!(sent["model"], ai::CHAT_MODEL, "{sent}");
+        assert!(sent.get("temperature").is_none(), "{sent}");
+        let prompt = sent["messages"][0]["content"].as_str().unwrap_or_default();
+        assert!(prompt.starts_with("Shorten the following text"), "{prompt}");
+        assert!(prompt.contains(ASSIST_TEXT), "{prompt}");
+
+        // The button sends the page's token every time, and the route spends
+        // it and sends no new one, so the next press on the same page is
+        // refused (`G-AI-ASSIST-WORKS-ONCE-PER-PAGE`). When the button can use a
+        // fresh token, this fails: assert the second answer instead.
+        ai::set_fake_keys();
+        let again = post_json(app, "/api/v1/ai/assist", shorten(), &editor, &token).await;
+        ai::unset_keys();
+        assert_eq!(again.status, 403, "{}", again.body);
+        assert_eq!(
+            recorder.request_count(),
+            1,
+            "the refused press reached a provider"
+        );
+    });
+}
+
+/// The route reads the first content block only
+/// (`G-AI-ASSIST-READS-ONLY-THE-FIRST-CONTENT-BLOCK`). Claude Haiku 5.5 may
+/// think first, and then the editor is offered an empty field, after the tokens
+/// are spent. When the kernel joins the text blocks, this test fails: assert the
+/// shortened text instead and close the entry.
+#[test]
+fn ai_assist_answers_an_empty_result_when_the_model_thinks_first() {
+    serial(async {
+        let (app, _pool, recorder) = ai_app().await;
+        recorder.push(Scripted::ok(ai::anthropic_reply(
+            "A shorter description.",
+            120,
+            30,
+        )));
+        ai::set_fake_keys();
+        let (editor, _, token) = session_with(app, &["editor"]).await;
+        let answer = post_json(app, "/api/v1/ai/assist", shorten(), &editor, &token).await;
+        ai::unset_keys();
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        let body: serde_json::Value = serde_json::from_str(&answer.body).unwrap();
+        assert_eq!(body["result"], "", "{body}");
+        assert_eq!(body["tokens_used"], 150, "{body}");
+        assert_eq!(recorder.request_count(), 1);
+    });
+}
+
+/// The route checks no token budget (`G-AI-ASSIST-CHECKS-NO-BUDGET`). A member
+/// who has spent the authenticated role's 20,000 tokens today is refused by
+/// chat and still served by AI Assist, which then logs the whole call as output
+/// tokens. When the kernel checks the budget here, this test fails: assert the
+/// refusal instead and close the entry.
+#[test]
+fn ai_assist_spends_past_an_exhausted_budget_and_logs_every_token_as_output() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        let (member, id, token) = session_with(app, &[]).await;
+        trovato_kernel::services::ai_token_budget::AiTokenBudgetService::new(pool.clone())
+            .record_usage(
+                &pool,
+                trovato_kernel::services::ai_token_budget::UsageLogEntry {
+                    user_id: Some(id),
+                    plugin_name: "ritrovo-test-spend".to_string(),
+                    provider_id: ai::ANTHROPIC_PROVIDER.to_string(),
+                    operation: "Chat".to_string(),
+                    model: ai::CHAT_MODEL.to_string(),
+                    prompt_tokens: 20_000,
+                    completion_tokens: 0,
+                    total_tokens: 20_000,
+                    latency_ms: 0,
+                    cost_estimate: None,
+                },
+            )
+            .await
+            .unwrap();
+        recorder.push(Scripted::ok(text_first_reply("Shorter.", 120, 30)));
+
+        ai::set_fake_keys();
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "Rust"}),
+            &member,
+            &token,
+        )
+        .await;
+        assert_eq!(chat.status, 429, "{}", chat.body);
+        assert_eq!(recorder.request_count(), 0, "chat passed the budget");
+
+        let page = app.get("/user/profile", &member).await;
+        let token = session_token(&page.body);
+        let answer = post_json(app, "/api/v1/ai/assist", shorten(), &member, &token).await;
+        ai::unset_keys();
+        assert_eq!(answer.status, 200, "{}", answer.body);
+        assert_eq!(
+            recorder.request_count(),
+            1,
+            "AI Assist did not reach the provider"
+        );
+
+        let logged: (String, i32, i32, i32) = sqlx::query_as(
+            "SELECT plugin_name, prompt_tokens, completion_tokens, total_tokens \
+             FROM ai_usage_log WHERE user_id = $1 AND plugin_name <> 'ritrovo-test-spend'",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(logged, ("trovato_ai".to_string(), 0, 150, 150));
+    });
+}

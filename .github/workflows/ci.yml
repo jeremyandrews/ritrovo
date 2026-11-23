@@ -191,6 +191,9 @@ jobs:
             a_member_without_the_scope_s_permission_is_refused_and_no_model_is_asked \
             trovato_mcp_serves_an_editor_s_token_hides_curated_from_a_member_and_refuses_a_bad_token \
             trovato_mcp_cannot_run_ritrovo_upcoming_conferences_because_its_id_has_a_dot \
+            ai_assist_shortens_an_editor_s_text_with_ritrovo_s_model_and_refuses_a_visitor \
+            ai_assist_answers_an_empty_result_when_the_model_thinks_first \
+            ai_assist_spends_past_an_exhausted_budget_and_logs_every_token_as_output \
             ai_request_refuses_a_caller_without_use_ai_before_asking_any_provider \
             a_draft_goes_through_ai_request_with_ritrovo_s_model_no_temperature_and_a_priced_usage_row \
             the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it \

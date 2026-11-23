@@ -6,10 +6,11 @@ permissions, the administration screens and the usage log. Nothing in this
 repository talks to a model provider directly, and no key is stored anywhere in
 it.
 
-Rows 31.1 to 31.5 and 31.7 to 31.11, and the search AI rows 30.4 and 30.5, of
+Rows 31.1 to 31.11, and the search AI rows 30.4 and 30.5, of
 [`STATUS.md`](ritrovo/STATUS.md) are what this page describes: the providers,
-budgets and permissions, the chat tile, the editors' conference assistant, the
-MCP server, similar conferences, and what is switched off and why.
+budgets and permissions, the chat tile, the editors' conference assistant, AI
+Assist on the edit form, the MCP server, similar conferences, and what is
+switched off and why.
 
 ## Turning it on
 
@@ -86,7 +87,7 @@ output), a call of 1,000 tokens in and 300 out costs about 0.00025 USD.
 | Chat (the Ask Ritrovo tile, `POST /api/v1/chat`) | one per message, at most 20 an hour per member | the member's daily budget | yes, for signed-in members |
 | The conference assistant | one per model turn, up to six tool calls a message; at most 20,000 tokens a conversation and 30 messages an hour | the editor's daily budget | yes, for editors and publishers |
 | The MCP server (`trovato-mcp`) | none: it reads and writes content and calls no model | nothing | run by hand, below |
-| AI Assist on the edit form | one per button press | the editor's daily budget | buttons render for members with `use ai chat`; not yet checked (31.6) |
+| AI Assist on the edit form | one per button press | nobody: the kernel checks no budget on it (`G-AI-ASSIST-CHECKS-NO-BUDGET`); logged as `trovato_ai` | yes, for whoever can open an item form: editors and publishers |
 | Search expansion and summary | one each per search | nobody: the kernel meters neither | **no**, see below |
 | Similar conferences (`/conferences/similar?q=`) | one embedding call per page view with a `q` | nobody: the kernel meters no embedding call | yes, for everyone |
 | Embedding backfill | one embedding call per item | nobody, as above | by hand, below |
@@ -287,6 +288,50 @@ real tokens: an editor's token lists conference content, a member's cannot read
 a Curated conference, a bad token opens no session, and `run_gather` refuses
 `ritrovo.upcoming_conferences`.
 
+## AI Assist on the edit form
+
+The kernel's `trovato_ai` plugin adds an **AI Assist** button under every
+plain-text field of an item form (`tap_form_alter`), for a user holding `use ai
+chat`, and links its script. Nothing in this repository configures it: every
+member holds the permission, so the buttons appear for whoever can open the
+form, which in Ritrovo is an editor or a publisher. A member is refused the form
+(403), and so is a visitor (401).
+
+A press opens a popover with five operations: Rewrite, Expand, Shorten,
+Translate and Adjust Tone. The field's text goes to `POST /api/v1/ai/assist` with
+Ritrovo's chat model; the answer is shown with **Accept**, which replaces the
+field's text, and **Reject**, which leaves it. Nothing is saved until the editor
+saves the form.
+
+Live, as editor_alice on Italian Free Software Conference 2026 (2026-11-23):
+Shorten on the description's text, in the summary field, answered "The Italian
+Free Software Conference celebrates open source and free software, with talks on
+licensing, contributing to OSS projects, and open code culture in the Italian
+public administration." Reject kept the field; a second run, accepted, replaced
+it. Two calls, 361 tokens. The form was not saved.
+
+What to know before relying on it:
+
+- **One press per page.** The second press on the same page answers "Invalid or
+  missing CSRF token": the script reuses the page's token and the route spends
+  it. Save, or reload, before the next one; a reload loses unsaved edits
+  (`G-AI-ASSIST-WORKS-ONCE-PER-PAGE`).
+- **No button on the description.** It is a `Blocks` field, and the buttons go
+  on plain-text fields only (`G-AI-ASSIST-SKIPS-BLOCK-FIELDS`).
+- **No budget.** The route checks no token budget and applies no AI rate limit,
+  and logs every token as output (`G-AI-ASSIST-CHECKS-NO-BUDGET`).
+- **An empty answer is possible.** The route reads the model's first content
+  block only; when the model thinks first, the preview is empty. Reject it
+  (`G-AI-ASSIST-READS-ONLY-THE-FIRST-CONTENT-BLOCK`).
+
+`verify-demo.sh` checks the buttons and their script on editor_alice's
+conference edit form, that the description has none, and that viewer_carol, a
+visitor and the conference page get none. The route is covered by
+`ai_assist_shortens_an_editor_s_text_with_ritrovo_s_model_and_refuses_a_visitor`,
+`ai_assist_answers_an_empty_result_when_the_model_thinks_first` and
+`ai_assist_spends_past_an_exhausted_budget_and_logs_every_token_as_output`,
+against the kernel's scripted provider.
+
 ## Similar conferences
 
 `/conferences/similar?q=rust+conferences+in+europe` lists Live conferences
@@ -348,6 +393,7 @@ degrades without an error page and without a word of the provider's answer:
 | The chat tile | shown to members; a question answers "Error: AI is temporarily unavailable" |
 | A member's chat request | 503, "AI is temporarily unavailable" |
 | The conference assistant | the page opens for an editor; a message ends "The model provider refused the request." and changes nothing |
+| AI Assist | the buttons render; a press answers 503 and the popover reads "AI is temporarily unavailable" |
 | Search AI | 404, switched off (with or without a key); the Pagefind results are unchanged |
 | Similar conferences | 200 with no rows and "No similar conferences found." |
 | Translation drafts | none stored; the cron result counts the failure |
@@ -357,7 +403,8 @@ The kernel still sends a request with no key, and the provider refuses it
 (`FRICTION.md`, `G-AI-REQUESTS-SENT-WITHOUT-A-KEY`). That costs no money, but
 the request goes out whole: a member's chat message reaches the provider
 even though the site has no account with it. In this demo, with translation
-drafts and the search stages off, chat is the only surface that sends anything.
+drafts and the search stages off, chat, the assistant and AI Assist are the
+surfaces that send anything.
 An install that will run without keys should set `enabled: false` on both
 providers in `variable.ai_providers.yml`. A disabled provider is never
 resolved, so every AI surface gives its "not available" answer without sending
