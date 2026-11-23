@@ -647,6 +647,10 @@ pub async fn app() -> &'static App {
         // The gather pages, `/gather/{query_id}`. A9b asserts what the
         // similar-conferences gather answers with no embedding provider.
         .merge(trovato_kernel::routes::gather::router())
+        // The AI assistant's page and API, `/ai/assistant/{scope}/{id}` and
+        // `/api/v1/assistant/...`. A9b drives `ritrovo_cfp`'s conference scope
+        // through them, as an editor's browser does.
+        .merge(trovato_kernel::routes::assistant::router())
         .merge(trovato_kernel::routes::admin::router())
         .merge(trovato_kernel::routes::plugin_api::build_plugin_api_router(
             &state.menu_registry().all().cloned().collect::<Vec<_>>(),

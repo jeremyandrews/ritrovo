@@ -183,6 +183,13 @@ jobs:
             trovato_ai_reads_its_field_rules_from_a_column_site_config_does_not_have \
             the_search_ai_stages_answer_empty_when_the_model_thinks_first \
             similar_conferences_ranks_live_conferences_by_q_and_is_empty_without_embeddings \
+            the_chat_tile_is_in_the_sidebar_for_a_member_and_absent_for_a_visitor \
+            the_chat_context_carries_live_conferences_and_never_an_incoming_or_curated_one \
+            an_editor_s_read_tool_runs_and_the_cfp_date_write_only_proposes_until_applied \
+            a_cfp_date_after_the_conference_ends_is_refused_at_apply_and_never_saved \
+            a_member_without_the_scope_s_permission_is_refused_and_no_model_is_asked \
+            trovato_mcp_serves_an_editor_s_token_hides_curated_from_a_member_and_refuses_a_bad_token \
+            trovato_mcp_cannot_run_ritrovo_upcoming_conferences_because_its_id_has_a_dot \
             ai_request_refuses_a_caller_without_use_ai_before_asking_any_provider \
             a_draft_goes_through_ai_request_with_ritrovo_s_model_no_temperature_and_a_priced_usage_row \
             the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it \
