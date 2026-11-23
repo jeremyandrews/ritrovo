@@ -106,8 +106,14 @@ degrades without an error page and without a word of the provider's answer:
 | The provider screen | each variable `(not set)` |
 
 The kernel still sends a request with no key, and the provider refuses it
-(`FRICTION.md`, `G-AI-REQUESTS-SENT-WITHOUT-A-KEY`), so a call made with no key
-costs a round trip and no money.
+(`FRICTION.md`, `G-AI-REQUESTS-SENT-WITHOUT-A-KEY`). That costs no money, but
+the request goes out whole: a member's chat message reaches the provider
+even though the site has no account with it. In this demo, with translation
+drafts and the search stages off, chat is the only surface that sends anything.
+An install that will run without keys should set `enabled: false` on both
+providers in `variable.ai_providers.yml`. A disabled provider is never
+resolved, so every AI surface gives its "not available" answer without sending
+anything.
 
 These are asserted by the host tests in `plugins/ritrovo_access/tests/` and
 `plugins/ritrovo_translate/tests/` and, against the running demo, by the "AI"

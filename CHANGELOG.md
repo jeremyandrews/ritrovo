@@ -10,8 +10,9 @@
   - The search page's AI stages are switched off: the kernel checks no permission or budget on them (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`).
   - `ritrovo_translate` no longer sets a temperature.
   - `docker-compose.demo.yml` passes the two key variables only when the starting shell has them, because the kernel counts an empty variable as a key.
-  - Seven host tests, all against the kernel's scripted provider: refusals before any provider call, the draft's model, the absent temperature and its priced usage row, the daily budget, the roles, no-key degradation, and the key value in no page, export, stored row or log line.
-  - `FRICTION.md` gains five kernel entries.
+  - Eight host tests, all against the kernel's scripted provider: refusals before any provider call, for a visitor and for a signed-in member without `use ai` or `use ai chat`; the draft's model, the absent temperature and its priced usage row; the daily budget; the roles; no-key degradation; and the key value in no page, export, stored row or log line. Two more pin kernel gaps: with no key the member's message is still sent to the provider, and a provider error that echoes the key reaches the log.
+  - `FRICTION.md` gains five kernel entries. `G-AI-REQUESTS-SENT-WITHOUT-A-KEY` is Medium: a keyless request still carries its content. `docs/AI.md` says to disable both providers on an install that runs without keys.
+  - `verify-demo.sh` reads `trovato_ai`'s state from the status column of `trovato plugin list`, through `scripts/plugin-state.sh`. "disabled" no longer passes as "enabled", and a list that leaves the plugin out fails instead of being skipped. Test: `demo/checks/tests/plugin_state.rs`.
 
 - **Nine fixes to the A11 work, each with a test that fails without it.**
   - **Publishing on the editorial screen needs `publish content`.** `ritrovo_access` used to accept `delete any content` or its own `publish conferences` as the right to publish. The screen moves stages with a raw `UPDATE` the kernel's check never sees, so a role the kernel would refuse could publish there. It now asks for the kernel's `publish content` and nothing else, as the kernel does. Test: `publishing_on_the_editorial_screen_needs_publish_content`.

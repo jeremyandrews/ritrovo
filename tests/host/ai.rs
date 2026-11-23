@@ -47,11 +47,21 @@ pub const FAKE_OPENAI_KEY: &str = "ritrovo-fake-openai-key-5d8e1a6c0b92";
 
 /// Set both key variables to the fake values.
 ///
-/// The suites run their tests one at a time ([`crate::host::serial`]), so nothing
-/// reads the environment while this writes it.
+/// What makes the write sound is not [`crate::host::serial`], which only keeps
+/// tests apart: the server, the scripted provider and the runtime have threads
+/// of their own. It is that every reader of the environment in these binaries
+/// is Rust code going through the standard library, which takes one lock for
+/// `env::var`, for its `getaddrinfo` calls and for `env::set_var`. The C code
+/// linked into these binaries does not take that lock: OpenSSL reads its
+/// configuration variables with `getenv` when it first builds a TLS context.
+/// Nothing in these suites does that between requests (the providers are on
+/// plain-HTTP loopback and the kernel builds its clients at start-up), so call
+/// this only between requests, never while one is in flight. Running each key
+/// configuration in a process of its own would close the remaining gap; it
+/// would also mean a second app, database and Redis per suite.
 pub fn set_fake_keys() {
-    // SAFETY: the test binary runs one test at a time under `serial`, and no
-    // other thread reads these two variables while it runs.
+    // SAFETY: the Rust readers go through std's lock, which serialises them
+    // against this write; no C reader runs between requests (see above).
     unsafe {
         std::env::set_var(ANTHROPIC_KEY_ENV, FAKE_ANTHROPIC_KEY);
         std::env::set_var(OPENAI_KEY_ENV, FAKE_OPENAI_KEY);

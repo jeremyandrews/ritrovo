@@ -2472,7 +2472,7 @@ chat limit at the kernel's 20 an hour; the per-role difference is in the budgets
 **Recommendation.** Key the chat limit, and the `ai_request` limit, by role as the
 budgets are.
 
-### G-AI-REQUESTS-SENT-WITHOUT-A-KEY: **[Low, NEW]** with the key variable unset, the kernel still sends every AI request, without credentials
+### G-AI-REQUESTS-SENT-WITHOUT-A-KEY: **[Medium, NEW]** with the key variable unset, the kernel still sends every AI request, content and all, without credentials
 
 Found at `81290cc` (A9b). A provider whose `api_key_env` names a variable that is
 not set resolves with `api_key: None` (`crates/kernel/src/services/ai_provider.rs:750-756`),
@@ -2482,9 +2482,12 @@ and every send path adds the credential header only `if let Some(key)`
 `crates/kernel/src/routes/api_search.rs:556`, `:571`;
 `crates/kernel/src/routes/api_ai_assist.rs:276`, `:291`). The request goes to the
 provider anyway, the provider answers 401, and the caller gets the kernel's
-generic failure. Nothing is spent and nothing leaks, but CI and every keyless
-install make outbound calls that cannot succeed, and the failure reads as a
-provider outage rather than as "not configured".
+generic failure. Nothing is spent, but the request is sent whole: a member's
+chat message, the conference text a translation draft carries, an editor's
+field for AI Assist. A site that has not configured a provider, and so has
+no account or terms with it, still sends that content to it. CI and every
+keyless install make outbound calls that cannot succeed, and the failure reads
+as a provider outage rather than as "not configured".
 
 An empty value counts as a key. `resolve_api_key` is `std::env::var(..).ok()`
 (`ai_provider.rs:754`), so a variable set to the empty string, which is what
@@ -2494,8 +2497,13 @@ Found when `verify-demo.sh` read "(set)" off a demo started with no key.
 
 **What Ritrovo does.** `docker-compose.demo.yml` passes each key variable through
 with no value, so it is absent from the container when the starting shell has
-none, and says why. Beyond that, `docs/AI.md` says what a keyless call costs; the
-visitor-facing answers are clean (`with_no_key_every_ai_surface_answers_without_a_500_or_provider_text`).
+none, and says why. Translation drafts are off by default and the search
+stages are off, so a keyless demo sends only what a signed-in member types into
+chat. `docs/AI.md` says so, and says to set each provider's `enabled` to false on
+an install that runs without keys. The visitor-facing answers are clean
+(`with_no_key_every_ai_surface_answers_without_a_500_or_provider_text`). Pinned by
+`with_no_key_the_kernel_still_sends_a_member_s_message_to_the_provider`, which
+fails once the kernel stops sending.
 
 **Blocks.** Nothing.
 
@@ -2511,9 +2519,13 @@ and then fails with the first 200 bytes of the same body in its error
 (`ai_chat.rs:487-497`). The chat route wraps that error in
 `AppError::service_unavailable` (`crates/kernel/src/routes/api_chat.rs:262`), whose `reason` is logged as is (`crates/kernel/src/error.rs:403-404`).
 The visitor sees only "AI is temporarily unavailable". A provider that echoed the
-credential in an error body would put it in the log through this one path. None
-of the two providers Ritrovo uses does, which is why the host test that searches
-every log line for a known key value passes.
+credential in an error body would put it in the log through this one path. Neither
+of the two providers Ritrovo uses echoes the key it was sent, which is why the
+host test that searches every log line for a known key value passes; that test
+covers what the kernel writes of its own accord, not this path. Pinned by
+`a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path`: a
+scripted provider echoes a fake key in its 401, the member sees only the
+generic answer, and the key is in the log.
 
 **Blocks.** Nothing.
 

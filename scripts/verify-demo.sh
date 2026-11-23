@@ -1578,15 +1578,15 @@ head_ "AI"
 # The kernel's AI features as Ritrovo configures them (docs/AI.md, STATUS 31.1
 # to 31.4 and 31.9). These checks hold with or without the two provider keys,
 # and spend nothing either way: no check here makes a model call.
-ai_plugin="$(cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T trovato \
-    ./trovato plugin list 2>/dev/null | grep '^trovato_ai ')"
-if [ -z "$ai_plugin" ]; then
-    note "skipped the trovato_ai check: needs the $COMPOSE_FILE stack"
-elif [[ "$ai_plugin" == *enabled* ]]; then
-    ok "trovato_ai is enabled"
-else
-    bad "trovato_ai is not enabled (got: $ai_plugin)"
-fi
+# The state is read whole from the status column (scripts/plugin-state.sh): a
+# list that leaves trovato_ai out fails, and only no list at all is a skip.
+ai_plugin="$( (cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T trovato \
+    ./trovato plugin list 2>/dev/null) | "$ROOT/scripts/plugin-state.sh" trovato_ai)"
+case "$ai_plugin" in
+    enabled) ok "trovato_ai is enabled" ;;
+    unknown) note "skipped the trovato_ai check: needs the $COMPOSE_FILE stack" ;;
+    *) bad "trovato_ai is not enabled: $ai_plugin" ;;
+esac
 
 for path in /admin/system/ai-providers /admin/system/ai-budgets /admin/system/ai-chat; do
     anon="$(code "$path")"
