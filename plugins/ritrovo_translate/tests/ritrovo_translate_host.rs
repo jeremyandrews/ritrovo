@@ -26,6 +26,9 @@
 #[path = "../../../tests/host/mod.rs"]
 mod host;
 
+#[path = "../../../tests/host/ai.rs"]
+mod ai;
+
 use sqlx::PgPool;
 use trovato_kernel::tap::UserContext;
 
@@ -409,5 +412,233 @@ fn drafting_is_off_by_default_and_drafts_nothing_without_a_provider() {
             .await
             .unwrap();
         assert_eq!(drafts, 0);
+    });
+}
+
+// ===========================================================================
+// ai_request, through Ritrovo's own AI configuration (A9b, 31.2 to 31.4)
+// ===========================================================================
+//
+// The drafting job is the one place Ritrovo's own code calls the kernel's
+// `ai_request`. These tests run it against `demo/config`'s providers, defaults,
+// budgets and prices, with the providers' `base_url` pointed at the kernel's
+// scripted provider (`tests/host/ai.rs`), so no model is called and every
+// request the kernel sent can be read back.
+//
+// `tap_cron` normally runs as the kernel's background principal. The refusal
+// and budget tests dispatch it as a person instead, because that is the only
+// way to put Ritrovo's one `ai_request` call in front of the per-person gate:
+// the kernel chooses the gate by the principal (`authorize_ai_request`,
+// `crates/kernel/src/host/ai.rs`), not by the tap.
+
+/// A drafting setup: the plugin, the demo config, one upcoming English
+/// conference with no draft, the switch on, and the scripted provider in place
+/// of Ritrovo's two.
+async fn drafting_with_scripted_provider(
+    pool: &PgPool,
+) -> trovato_kernel::services::ai_tools::scripted_provider::Recorder {
+    clean_install(pool).await;
+    kernel_translation_table(pool).await;
+    for sql in [
+        "DELETE FROM ritrovo_translation_draft",
+        "DELETE FROM ai_usage_log",
+        "INSERT INTO site_config (key, value) VALUES ('plugin.ritrovo_translate.assist_enabled', '\"1\"') \
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+    ] {
+        sqlx::query(sql).execute(pool).await.unwrap();
+    }
+    let disp = host::dispatcher(PLUGIN);
+    let f = fixture("english-conference");
+    host::create_conference(pool, &host::items(pool, &disp), &f.title, None, f.fields).await;
+
+    let (url, recorder) = trovato_kernel::services::ai_tools::scripted_provider::start().await;
+    ai::point_providers_at(pool, &url).await;
+    recorder
+}
+
+async fn switch_drafting_off(pool: &PgPool) {
+    sqlx::query("DELETE FROM site_config WHERE key = 'plugin.ritrovo_translate.assist_enabled'")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// `tap_cron`, as `user`, with the kernel's AI services bound as a server
+/// binds them.
+async fn cron_as(pool: &PgPool, user: UserContext) -> serde_json::Value {
+    let disp = host::dispatcher(PLUGIN);
+    let state = trovato_kernel::tap::RequestState::new(user, ai::services(pool, &disp));
+    let output = disp
+        .dispatch_to_plugin(
+            "tap_cron",
+            &serde_json::json!({"timestamp": host::now()}).to_string(),
+            PLUGIN,
+            state,
+        )
+        .await
+        .unwrap_or_else(|| panic!("{PLUGIN} did not answer tap_cron"))
+        .output;
+    host::json(&output)
+}
+
+async fn draft_count(pool: &PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM ritrovo_translation_draft")
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+/// Anonymous, and a signed-in person without `use ai`, are refused by the
+/// kernel before any provider is asked, and the job says so and stores nothing.
+#[test]
+fn ai_request_refuses_a_caller_without_use_ai_before_asking_any_provider() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        let recorder = drafting_with_scripted_provider(&pool).await;
+        recorder.push(
+            trovato_kernel::services::ai_tools::scripted_provider::Scripted::ok(
+                ai::anthropic_reply(r#"{"title": "never", "description": ""}"#, 1, 1),
+            ),
+        );
+
+        let without_use_ai = [
+            UserContext::anonymous(),
+            host::visitor(&pool, &["access content", "use ai chat"]).await,
+        ];
+        let mut answers = Vec::new();
+        for user in without_use_ai {
+            answers.push(cron_as(&pool, user).await);
+        }
+        switch_drafting_off(&pool).await;
+
+        for ran in answers {
+            assert_eq!(ran["status"], "ran", "{ran}");
+            assert_eq!(ran["drafted"], 0, "{ran}");
+            assert_eq!(ran["failed"], 1, "{ran}");
+        }
+        assert_eq!(recorder.request_count(), 0, "a provider was asked");
+        assert_eq!(draft_count(&pool).await, 0);
+    });
+}
+
+/// The draft goes out through `ai_request` to Ritrovo's default chat provider
+/// with Ritrovo's chat model and no `temperature` (the newest models refuse a
+/// request that carries one), comes back as a stored draft, and lands in the
+/// kernel's usage log with a price from `ai_pricing`. The fake key is set, and
+/// appears in no draft, no log line and no stored row.
+#[test]
+fn a_draft_goes_through_ai_request_with_ritrovo_s_model_no_temperature_and_a_priced_usage_row() {
+    serial(async {
+        let log_before = ai::captured_log().len();
+        let pool = host::fresh_pool().await;
+        let recorder = drafting_with_scripted_provider(&pool).await;
+        recorder.push(trovato_kernel::services::ai_tools::scripted_provider::Scripted::ok(
+            ai::anthropic_reply(
+                r#"{"title": "Giornata Open Source per la comunità italiana", "description": "Una giornata sul software libero."}"#,
+                1200,
+                80,
+            ),
+        ));
+        ai::set_fake_keys();
+        let ran = cron_as(&pool, UserContext::background()).await;
+        ai::unset_keys();
+        switch_drafting_off(&pool).await;
+
+        assert_eq!(ran["drafted"], 1, "{ran}");
+        let sent = recorder.requests();
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert_eq!(sent[0]["model"], ai::CHAT_MODEL, "{}", sent[0]);
+        assert!(
+            sent[0].get("temperature").is_none(),
+            "the request carried a temperature: {}",
+            sent[0]
+        );
+
+        let (title, model): (String, String) =
+            sqlx::query_as("SELECT title, model FROM ritrovo_translation_draft")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(title, "Giornata Open Source per la comunità italiana");
+        assert_eq!(model, ai::CHAT_MODEL);
+
+        let (plugin, provider, total, cost): (String, String, i32, Option<f64>) = sqlx::query_as(
+            "SELECT plugin_name, provider_id, total_tokens, cost_estimate FROM ai_usage_log",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(plugin, PLUGIN);
+        assert_eq!(provider, ai::ANTHROPIC_PROVIDER);
+        assert_eq!(total, 1280);
+        let cost = cost.expect("the call was priced from ai_pricing");
+        assert!(cost > 0.0 && cost < 0.01, "{cost}");
+
+        let log = ai::captured_log()[log_before..].to_string();
+        let stored = ai::stored_ai_text(&pool).await;
+        for key in [ai::FAKE_ANTHROPIC_KEY, ai::FAKE_OPENAI_KEY] {
+            assert!(!log.contains(key), "a log line carries the key");
+            assert!(!stored.contains(key), "a stored row carries the key");
+        }
+    });
+}
+
+/// Ritrovo's daily budgets, in deny mode: a member who has spent the
+/// authenticated role's 20,000 tokens on the chat provider today is refused
+/// without a provider call; an editor with the same spend is under the editor
+/// role's 100,000 and goes through.
+#[test]
+fn the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        let recorder = drafting_with_scripted_provider(&pool).await;
+        host::create_demo_users(&pool).await;
+        let budgets =
+            trovato_kernel::services::ai_token_budget::AiTokenBudgetService::new(pool.clone());
+        let mut users = Vec::new();
+        for name in ["viewer_carol", "editor_alice"] {
+            let user = host::visitor_named(&pool, name).await;
+            assert!(
+                user.has_permission("use ai") && user.has_permission("use ai chat"),
+                "{name} does not hold use ai and use ai chat"
+            );
+            budgets
+                .record_usage(
+                    &pool,
+                    trovato_kernel::services::ai_token_budget::UsageLogEntry {
+                        user_id: Some(user.id),
+                        plugin_name: "ritrovo-test-spend".to_string(),
+                        provider_id: ai::ANTHROPIC_PROVIDER.to_string(),
+                        operation: "Chat".to_string(),
+                        model: ai::CHAT_MODEL.to_string(),
+                        prompt_tokens: 20_000,
+                        completion_tokens: 0,
+                        total_tokens: 20_000,
+                        latency_ms: 0,
+                        cost_estimate: None,
+                    },
+                )
+                .await
+                .unwrap();
+            users.push(user);
+        }
+        recorder.push(
+            trovato_kernel::services::ai_tools::scripted_provider::Scripted::ok(
+                ai::anthropic_reply(r#"{"title": "Bozza", "description": ""}"#, 10, 5),
+            ),
+        );
+
+        let member = cron_as(&pool, users[0].clone()).await;
+        assert_eq!(member["failed"], 1, "{member}");
+        assert_eq!(
+            recorder.request_count(),
+            0,
+            "the member's call reached a provider"
+        );
+
+        let editor = cron_as(&pool, users[1].clone()).await;
+        switch_drafting_off(&pool).await;
+        assert_eq!(editor["drafted"], 1, "{editor}");
+        assert_eq!(recorder.request_count(), 1);
     });
 }

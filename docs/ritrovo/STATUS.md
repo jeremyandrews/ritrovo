@@ -89,11 +89,15 @@ done, 14 kernel has it, 0 must build and 33 blocked on the kernel. A11 rechecked
 all 33 against the new pin; "A11: the kernel-blocked rows rechecked" below has
 the row-by-row result.
 
+A9b (2026-11-23), first part: 31.1, 31.2 and 31.3 move to done and 31.4 and
+31.9 to part done, all five from "kernel has it". The other A9b rows are
+unchanged until the parts that build on the first are merged.
+
 | Status | Stories (63) | What It Demonstrates (25) | Plugin taps (19) | All (107) |
 | :- | -: | -: | -: | -: |
-| done | 31 | 8 | 13 | 52 |
-| part done | 8 | 6 | 1 | 15 |
-| kernel has it, Ritrovo does not use it | 14 | 2 | 0 | 16 |
+| done | 34 | 8 | 13 | 55 |
+| part done | 10 | 6 | 1 | 17 |
+| kernel has it, Ritrovo does not use it | 9 | 2 | 0 | 11 |
 | buildable, not built | 6 | 5 | 4 | 15 |
 | Ritrovo must build it | 0 | 0 | 0 | 0 |
 | blocked on the kernel | 4 | 4 | 1 | 9 |
@@ -441,15 +445,15 @@ is not honoured on create (`G-DEFAULT-STAGE-IGNORED-ON-CREATE`). The row is P3.
 
 | # | The brief promises | Where | Status | Evidence | Closes in |
 | :- | :- | :- | :- | :- | :- |
-| 31.1 | AI provider registry, keys never in the database | config | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/routes/admin_ai_provider.rs`, `services/ai_provider.rs`; admin at `/admin/system/ai-providers` (linked from `/admin` in the demo). | A9b |
-| 31.2 | `ai_request()` host function | kernel | **kernel has it, Ritrovo does not use it** | `ai-api` interface in `crates/wit/kernel.wit`, `crates/kernel/src/host/ai.rs`. | A9b |
-| 31.3 | Token budgets | config | **kernel has it, Ritrovo does not use it** | `crates/kernel/src/routes/admin_ai_budget.rs`, `/admin/system/ai-budgets`. | A9b |
-| 31.4 | AI permissions | config | **kernel has it, Ritrovo does not use it** | Kernel permissions, not `tap_perm` ones: `use ai`, `use ai chat` and others at `crates/kernel/src/models/role.rs:49-53`. | A9b |
+| 31.1 | AI provider registry, keys never in the database | config | **done (A9b)** | `demo/config/variable.ai_providers.yml`: Anthropic (`https://api.anthropic.com/v1`, chat `claude-haiku-5-5`, key from `RITROVO_ANTHROPIC_API_KEY`) and OpenAI (embeddings `text-embedding-3-small`, `RITROVO_OPENAI_API_KEY`); `variable.ai_defaults.yml` routes chat and embeddings. The registry stores the variable names only. Host tests `the_key_value_appears_in_no_page_answer_export_stored_row_or_log_line` (screen, connection test, `config export`, `site_config`, `ai_usage_log`, every log line) and `with_no_key_every_ai_surface_answers_without_a_500_or_provider_text`; `verify-demo.sh` "AI" checks `(set)`/`(not set)` and nothing key-shaped. Live (A9b, 2026-11-23): both connection tests succeeded, Anthropic 557 ms, OpenAI 1,059 ms. An empty variable counts as a key (`G-AI-REQUESTS-SENT-WITHOUT-A-KEY`), so the compose file passes the names without a default. | A9b |
+| 31.2 | `ai_request()` host function | kernel | **done (A9b)** | `ritrovo_translate`'s drafting job calls it with Ritrovo's chat model and no temperature (the `0.2` it set is gone). Host tests `a_draft_goes_through_ai_request_with_ritrovo_s_model_no_temperature_and_a_priced_usage_row` and `ai_request_refuses_a_caller_without_use_ai_before_asking_any_provider`, against the kernel's scripted provider. Live (2026-11-23): one cron cycle, three `claude-haiku-5-5` calls, 429 tokens, three Italian drafts stored; the job is off again (`assist_enabled` 0). | A9b |
+| 31.3 | Token budgets | config | **done (A9b)** | `variable.ai_token_budgets.yml`: daily, deny; 20,000 tokens a member and 100,000 an editor or publisher per provider, 20,000 a day for `ritrovo_translate`. `variable.ai_pricing.yml` prices both models, so every `ai_usage_log` row carries a cost. Host test `the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it`. Live: the dashboard shows Anthropic 429 tokens, 3 requests. Search AI is not metered (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`), so it is off. | A9b |
+| 31.4 | AI permissions | config | **part done (A9b)** | `use ai` and `use ai chat` for every signed-in member, `view ai usage` for editors and publishers, nothing for anonymous visitors (`role.*.yml`). Host tests `the_roles_grant_ai_to_members_usage_to_editors_and_nothing_to_visitors`, `chat_and_search_ai_refuse_a_visitor_without_use_ai_and_ask_no_provider`; `verify-demo.sh` checks the dashboard is 200 to an editor and 403 to a viewer, and anonymous chat 401. Not done: per-role rate limits (`G-AI-RATE-LIMITS-ARE-NOT-PER-ROLE`) and a permission on search AI (`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`; the stages are switched off instead). | A9b |
 | 31.5 | Content enrichment field rules on presave | config | **kernel has it, Ritrovo does not use it** | `tap_item_presave` dispatched and its `fields` merged (`crates/kernel/src/content/item_service.rs:365-390`); `trovato_ai` disabled. | A9b |
 | 31.6 | AI Assist buttons in forms | kernel | **blocked on the kernel** | `POST /api/v1/ai/assist` exists (`routes/api_ai_assist.rs:54`); the buttons are injected by `tap_form_alter`, which never fires (`G-FORM-TAPS-UNREACHABLE`). **A11:** Not rechecked: the AI rows are A9b and out of A11's scope. The kernel's changelog says the form taps now fire (`044c5dc`). | A9b |
 | 31.7 | Chatbot tile with SSE and RAG | config | **kernel has it, Ritrovo does not use it** | `chat` tile type (`crates/kernel/src/services/tile.rs:120-122`), `POST /api/v1/chat` (`routes/api_chat.rs:433`). | A9b |
 | 31.8 | Chatbot actions through tool calling | plugin | **kernel has it, Ritrovo does not use it** | `tap_chat_actions` is superseded; the dispatched surface is `tap_assistant_scopes`, `tap_assistant_context`, `tap_assistant_tool` (`crates/wit/kernel.wit:476-478`, `services/ai_assistant.rs:665`, `:696`). | A9b |
-| 31.9 | AI admin UI and usage dashboard | config | **kernel has it, Ritrovo does not use it** | `routes/admin_ai_provider.rs`, `admin_ai_budget.rs`, `admin_ai_chat.rs`, `admin_ai_features.rs`. | A9b |
+| 31.9 | AI admin UI and usage dashboard | config | **part done (A9b)** | `trovato_ai` enabled by `demo-bootstrap.sh`; `/admin/system/ai-providers`, `ai-budgets`, `ai-chat` and `ai-assistant` are 303 to a visitor and 200 to the administrator in `verify-demo.sh`; the usage dashboard showed live usage (screenshots in the A9b run). Not done: the kernel removed its AI features screen (`6e58a9b`) and has no screen for field rules or rate limits (`G-AI-ADMIN-HAS-NO-FEATURES-RULES-OR-RATE-LIMIT-SCREENS`). `docs/AI.md` documents each screen. | A9b |
 | 31.10 | MCP server | kernel | **kernel has it, Ritrovo does not use it** | `crates/mcp-server`. | A9b |
 | 31.11 | VectorStore trait and pgvector | kernel | **kernel has it, Ritrovo does not use it** | `trait VectorStore`, `crates/kernel/src/services/vector_store.rs:56`. The demo's Postgres image is `postgres:16-alpine`, without pgvector. | A9b |
 
@@ -730,6 +734,11 @@ Moved out of A9: 30.4, 30.5 and 31.1 to 31.11 (31.6 **[kernel:
 `G-FORM-TAPS-UNREACHABLE`]**). They need a provider key and no model calls or
 provider configuration were made in A9, by the brief. Their status cells are
 unchanged and their milestone column reads A9b.
+
+**A9b, first part (2026-11-23):** the providers, defaults, budgets, prices and
+AI permissions are configuration in `demo/config`, documented in `docs/AI.md`;
+31.1 to 31.3 done, 31.4 and 31.9 part done. Search AI stays off
+(`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`).
 
 ### Proposed changes to the series
 

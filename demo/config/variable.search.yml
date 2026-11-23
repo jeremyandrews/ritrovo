@@ -1,0 +1,19 @@
+# The search page's AI stages: query expansion, the streamed summary and the
+# follow-up questions (STATUS 30.4 and 30.5). OFF.
+#
+# These three switches are the only thing between a visitor and Ritrovo's chat
+# provider on /search. The kernel's AI search endpoints check no permission, no
+# token budget and no plugin, and log no usage
+# (`crates/kernel/src/routes/api_search.rs`, `expand_query` and `summarize`):
+# with a key set and a stage on, any anonymous visitor's search spends the
+# site's tokens, unmetered. FRICTION.md, G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET.
+# The kernel's default for all three is on; this file is what turns them off.
+#
+# Every other search setting is left at the kernel's default: the stored value
+# is read with the defaults filled in (`SearchSettings`, `#[serde(default)]`),
+# and the ranking settings are not Ritrovo's to change here (STATUS 30.3).
+key: search
+value:
+  expand: false
+  summarize: false
+  followup: false

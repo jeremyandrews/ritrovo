@@ -1,0 +1,47 @@
+# Ritrovo's two AI providers (STATUS 31.1), in the kernel's provider registry.
+#
+# The kernel keeps this list in `site_config` under `ai_providers` and reads it
+# on every AI call (`crates/kernel/src/services/ai_provider.rs`). Configuration
+# import carries it like any other site variable; the administration screen at
+# /admin/system/ai-providers edits the same row.
+#
+# NO KEY IS HERE, OR ANYWHERE IN THIS REPOSITORY. `api_key_env` is the NAME of
+# an environment variable the kernel reads when it makes a call, and the value
+# is never stored. docker-compose.demo.yml passes both through to the kernel,
+# empty by default; docs/AI.md says how to set them. With neither set, every AI
+# feature degrades without an error page, and the provider screen says
+# "(not set)".
+#
+# The Anthropic `base_url` ends in `/v1` because the kernel appends `/messages`
+# to it (`crates/kernel/src/host/ai.rs`, `build_anthropic_request`).
+#
+# Chat is Claude Haiku 5.5, the cheapest current model. No `temperature` is set
+# anywhere: Anthropic's newest models refuse a request that carries one.
+# Embeddings are OpenAI's text-embedding-3-small; Anthropic has no embeddings
+# API.
+#
+# `rate_limit_rpm` is per provider and shared by every server, in requests a
+# minute. The defaults below are in variable.ai_defaults.yml; the budgets that
+# cap what each role may spend are in variable.ai_token_budgets.yml.
+key: ai_providers
+value:
+- id: 0193a5a0-0005-7000-8000-000000000001
+  label: Anthropic
+  protocol: anthropic
+  base_url: https://api.anthropic.com/v1
+  api_key_env: RITROVO_ANTHROPIC_API_KEY
+  models:
+  - operation: chat
+    model: claude-haiku-5-5
+  rate_limit_rpm: 30
+  enabled: true
+- id: 0193a5a0-0005-7000-8000-000000000002
+  label: OpenAI
+  protocol: open_ai_compatible
+  base_url: https://api.openai.com/v1
+  api_key_env: RITROVO_OPENAI_API_KEY
+  models:
+  - operation: embedding
+    model: text-embedding-3-small
+  rate_limit_rpm: 60
+  enabled: true

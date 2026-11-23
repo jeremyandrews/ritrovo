@@ -42,8 +42,20 @@
 
 set -eu
 
-PORT="${PORT:-3000}"
-BASE="http://127.0.0.1:${PORT}"
+# The published port, which only the final server listens on.
+SERVE_PORT="${PORT:-3000}"
+# The final server's own default, given to every start so they agree on it.
+export SITE_URL="${SITE_URL:-http://localhost:${SERVE_PORT}}"
+# Every server before the last listens here instead: a port neither the cron
+# container nor the host can reach. On the published port, the cron poker (which
+# waits only for /health) ran cron against them before demo/config was imported,
+# and cron cached the default search settings, AI stages on, for 300 seconds
+# past the import (FRICTION.md, G-CONFIG-IMPORT-LEAVES-SEARCH-SETTINGS-CACHED).
+# PORT goes back to SERVE_PORT just before the final `exec ./trovato serve`,
+# after every import. Checked by demo/checks/tests/bootstrap_port.rs.
+BOOTSTRAP_PORT=3099
+export PORT="$BOOTSTRAP_PORT"
+BASE="http://127.0.0.1:${BOOTSTRAP_PORT}"
 DEMO_ADMIN_USER="${DEMO_ADMIN_USER:-admin}"
 DEMO_ADMIN_PASSWORD="${DEMO_ADMIN_PASSWORD:-ritrovo-demo-password}"
 DEMO_ADMIN_EMAIL="${DEMO_ADMIN_EMAIL:-admin@ritrovo.example}"
@@ -70,7 +82,12 @@ RITROVO_PLUGINS="ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_forms ritro
 #                   whole fix: the index is built on the first cron poke after this
 #                   script hands over, and rebuilt after every import cycle that
 #                   changes anything, with no further wiring.
-KERNEL_PLUGINS="trovato_search"
+#
+#   trovato_ai      the AI content plugin: its AI Assist buttons on the item
+#                   forms and its presave field rules (docs/AI.md). The AI
+#                   permissions the role files grant are the kernel's own, so
+#                   the import does not need it enabled first.
+KERNEL_PLUGINS="trovato_search trovato_ai"
 
 say() { printf '\n==> %s\n' "$*"; }
 
@@ -319,5 +336,6 @@ fi
 # topic/year file from 2015 to now and pushes the batches onto the ritrovo_import
 # queue, which takes minutes. The cron service drains the queue meanwhile.
 
+export PORT="$SERVE_PORT"
 say "serving on port $PORT"
 exec ./trovato serve

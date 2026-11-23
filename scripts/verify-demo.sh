@@ -1574,6 +1574,95 @@ else
     bad "/metrics shows no item cache hits ('${item_hits:-absent}') after reading conference pages (G-CACHE-METRICS-NEVER-COUNT)"
 fi
 
+head_ "AI"
+# The kernel's AI features as Ritrovo configures them (docs/AI.md, STATUS 31.1
+# to 31.4 and 31.9). These checks hold with or without the two provider keys,
+# and spend nothing either way: no check here makes a model call.
+# The state is read whole from the status column (scripts/plugin-state.sh): a
+# list that leaves trovato_ai out fails, and only no list at all is a skip.
+ai_plugin="$( (cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T trovato \
+    ./trovato plugin list 2>/dev/null) | "$ROOT/scripts/plugin-state.sh" trovato_ai)"
+case "$ai_plugin" in
+    enabled) ok "trovato_ai is enabled" ;;
+    unknown) note "skipped the trovato_ai check: needs the $COMPOSE_FILE stack" ;;
+    *) bad "trovato_ai is not enabled: $ai_plugin" ;;
+esac
+
+for path in /admin/system/ai-providers /admin/system/ai-budgets /admin/system/ai-chat; do
+    anon="$(code "$path")"
+    admin="$(code_as_admin "$path")"
+    if [ "$anon" = "303" ] && [ "$admin" = "200" ]; then
+        ok "$path — anonymous $anon, administrator $admin"
+    else
+        bad "$path — anonymous $anon, administrator $admin (want 303 / 200)"
+    fi
+done
+# The usage dashboard is `view ai usage`, which the editorial roles hold and a
+# plain member does not.
+usage_editor="$(code_with "$editor_jar" /admin/system/ai-budgets)"
+usage_viewer="$(code_with "$viewer_jar" /admin/system/ai-budgets)"
+if [ "$usage_editor" = "200" ] && [ "$usage_viewer" = "403" ]; then
+    ok "the usage dashboard is 200 to editor_alice and 403 to viewer_carol"
+else
+    bad "the usage dashboard: editor $usage_editor, viewer $usage_viewer (want 200 / 403)"
+fi
+
+# Both providers, by their variable names, each shown only as set or not set.
+providers_page="$(curl -s -b "$JAR" "$BASE/admin/system/ai-providers")"
+anthropic_key_state=""
+for env in RITROVO_ANTHROPIC_API_KEY RITROVO_OPENAI_API_KEY; do
+    state="$(printf '%s' "$providers_page" | grep -o "$env ([a-z ]*)" | head -1)"
+    case "$state" in
+        "$env (set)"|"$env (not set)") ok "the providers screen shows $state" ;;
+        *) bad "the providers screen does not show $env as set or not set" ;;
+    esac
+    [ "$env" = RITROVO_ANTHROPIC_API_KEY ] && anthropic_key_state="$state"
+done
+if printf '%s' "$providers_page" | grep -Eq 'sk-(ant-)?[A-Za-z0-9_-]{16,}'; then
+    bad "the providers screen contains something shaped like a key"
+else
+    ok "the providers screen contains nothing shaped like a key"
+fi
+
+# Chat is for signed-in members: a visitor's session is refused before any
+# provider work. The AI search stages are switched off in demo/config, because
+# the kernel checks no permission or budget on them
+# (G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET); each answers 404 to anyone.
+anon_jar="$(mktemp)"
+anon_token="$(curl -s -c "$anon_jar" "$BASE/user/login" | sed -n 's/.*name="_token" value="\([^"]*\)".*/\1/p' | head -1)"
+anon_chat="$(curl -s -o /dev/null -w '%{http_code}' -b "$anon_jar" -X POST "$BASE/api/v1/chat" \
+    -H 'Content-Type: application/json' -H "X-CSRF-Token: $anon_token" -d '{"message":"What Rust conferences are in Europe?"}')"
+if [ "$anon_chat" = "401" ]; then
+    ok "a visitor's chat request is refused (401)"
+else
+    bad "a visitor's chat request answered $anon_chat, expected 401"
+fi
+for path in /api/v1/search/expand /api/v1/search/summarize /api/v1/search/followup; do
+    answer="$(curl -s -w ' %{http_code}' -b "$anon_jar" -X POST "$BASE$path" -H 'Content-Type: application/json' \
+        -d '{"query":"rust conferences in europe","context":"x","messages":[{"role":"user","content":"rust"}]}')"
+    case "$answer" in
+        *"switched off"*" 404") ok "$path is switched off (404)" ;;
+        *) bad "$path answered '$(printf '%s' "$answer" | head -c 120)', expected 404 switched off" ;;
+    esac
+done
+rm -f "$anon_jar"
+
+# With no key, a member's chat answers cleanly: no 500 and no word of the
+# provider's refusal. Only without a key, so this script never spends tokens.
+if [ "$anthropic_key_state" = "RITROVO_ANTHROPIC_API_KEY (not set)" ]; then
+    member_chat="$(curl -s -w ' %{http_code}' -b "$viewer_jar" -X POST "$BASE/api/v1/chat" \
+        -H 'Content-Type: application/json' -H "X-CSRF-Token: $(csrf_of "$viewer_jar")" \
+        -d '{"message":"What Rust conferences are in Europe?"}')"
+    case "$member_chat" in
+        *authentication_error*|*x-api-key*|*" 500") bad "a member's chat with no key: $(printf '%s' "$member_chat" | head -c 160)" ;;
+        *" 503") ok "a member's chat with no key answers 503 '$(printf '%s' "$member_chat" | sed -n 's/.*"message":"\([^"]*\)".*/\1/p')'" ;;
+        *) bad "a member's chat with no key answered '$(printf '%s' "$member_chat" | head -c 160)', expected 503" ;;
+    esac
+else
+    note "a member's chat is not exercised here while a key is set: it would spend tokens"
+fi
+
+
 head_ "cleanup"
 
 # What this run created goes again, through the kernel's own delete routes as the

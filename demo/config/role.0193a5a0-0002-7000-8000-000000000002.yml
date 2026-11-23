@@ -57,6 +57,10 @@
 #
 # `edit any comments` is NOT here: `ritrovo_access` declares it and nothing in
 # the kernel checks it, so it would be a grant with nothing behind it.
+#
+# `view ai usage` opens the kernel's AI usage dashboard, /admin/system/ai-budgets:
+# who spent how many tokens on which provider this period. Saving the budgets
+# there needs `configure ai`, which only the administrator holds. docs/AI.md.
 id: 0193a5a0-0002-7000-8000-000000000002
 name: editor
 created: "2026-01-01T00:00:00Z"
@@ -69,5 +73,6 @@ permissions:
 - edit any content
 - access files
 - use filtered_html
+- view ai usage
 - translate content
 - view own profile

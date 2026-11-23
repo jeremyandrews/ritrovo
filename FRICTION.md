@@ -85,6 +85,15 @@ says are addressed, and which Ritrovo has not built on, are listed in
 buildable and not built; they are not marked fixed here, because nothing in this
 repository has exercised them.
 
+**A9b, 2026-11-23, same revision.** The AI rows. Six new entries, found switching
+the kernel's AI features on through configuration: `G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`
+(High: the AI search endpoints spend the site's tokens for any visitor, unmetered,
+so Ritrovo keeps them off), `G-AI-RATE-LIMITS-ARE-NOT-PER-ROLE`,
+`G-AI-REQUESTS-SENT-WITHOUT-A-KEY`, `G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED`,
+`G-AI-ADMIN-HAS-NO-FEATURES-RULES-OR-RATE-LIMIT-SCREENS` and
+`G-CONFIG-IMPORT-LEAVES-SEARCH-SETTINGS-CACHED` (Medium: an imported search setting
+waits out a five-minute cache).
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -2416,6 +2425,164 @@ worked for the URI form.
 **Recommendation.** Resolve File fields to `{url, alt}` on gather rows as the item
 route does, or serve `/file/{id}` with the file access check `183e16e` added.
 
+
+### G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET: **[High, NEW]** the AI search endpoints spend the site's provider tokens for any visitor, unmetered and unlogged
+
+Found at Trovato `main` `81290cc` (A9b). `POST /api/v1/search/expand`, `/summarize`
+and `/followup` (`crates/kernel/src/routes/api_search.rs:36-53`, handlers at `:128`,
+`:259`, `:289`) are not behind a plugin gate, check no permission, check no token
+budget and write no usage row: `complete` (`:501`) throws the token count away
+(`:535`, `let (content, _tokens)`). The only thing in their way is the search
+settings' stage switches, and all three default to on (`crates/kernel/src/search/settings.rs:127-129`).
+So the moment a site configures a default chat provider and sets its key, every
+search any anonymous visitor makes calls the provider twice, with no per-person
+limit beyond the IP rate limit and no record on the usage dashboard. The brief asks
+for `use ai` for authenticated callers, a site switch for anonymous ones, and the
+31.3 budgets (`docs/ritrovo/epic-02.md`, stories 30.4 and 30.5).
+
+A second, smaller effect: an import of the `search` variable is read through a
+five-minute cache that the import does not drop (`settings.rs:11-14`), so a
+running server keeps the old stages for up to five minutes.
+
+**What Ritrovo does.** `demo/config/variable.search.yml` switches all three stages
+off; each answers 404 before any provider work, which `verify-demo.sh` and
+`chat_and_search_ai_refuse_a_visitor_without_use_ai_and_ask_no_provider` assert.
+Search AI stays off until the kernel meters it.
+
+**Blocks.** 30.4, 30.5; the search half of 31.4.
+
+**Recommendation.** Check `use ai` (and a site setting for anonymous use) in the
+three handlers, run the caller's budget check before `complete`, and record usage
+from the token count `complete` already parses.
+
+### G-AI-RATE-LIMITS-ARE-NOT-PER-ROLE: **[Low, NEW]** an AI rate limit is one number for every member, or one number for the whole provider
+
+Found at `81290cc` (A9b). The brief's 31.4 composes rate limits with permissions:
+"a role can have `use ai chat` with 20 req/hr". The kernel has two limits and
+neither knows a role: the chat route's `rate_limit_per_hour`, one value for every
+signed-in member (`crates/kernel/src/services/ai_chat.rs:54`, checked at
+`crates/kernel/src/routes/api_chat.rs:151`), and each provider's
+`rate_limit_rpm`, shared by every caller of that provider on every server
+(`crates/kernel/src/host/ai.rs:41`). Per-role control is the daily token budget
+only. Related to the residual `G-API-RATE-LIMITS-FIXED`.
+
+**What Ritrovo does.** Sets the provider limits (30 and 60 a minute) and leaves the
+chat limit at the kernel's 20 an hour; the per-role difference is in the budgets.
+
+**Blocks.** The rate-limit half of 31.4.
+
+**Recommendation.** Key the chat limit, and the `ai_request` limit, by role as the
+budgets are.
+
+### G-AI-REQUESTS-SENT-WITHOUT-A-KEY: **[Medium, NEW]** with the key variable unset, the kernel still sends every AI request, content and all, without credentials
+
+Found at `81290cc` (A9b). A provider whose `api_key_env` names a variable that is
+not set resolves with `api_key: None` (`crates/kernel/src/services/ai_provider.rs:750-756`),
+and every send path adds the credential header only `if let Some(key)`
+(`crates/kernel/src/host/ai.rs:276`, `:342`, `:404`;
+`crates/kernel/src/services/ai_chat.rs:557`, `:610`;
+`crates/kernel/src/routes/api_search.rs:556`, `:571`;
+`crates/kernel/src/routes/api_ai_assist.rs:276`, `:291`). The request goes to the
+provider anyway, the provider answers 401, and the caller gets the kernel's
+generic failure. Nothing is spent, but the request is sent whole: a member's
+chat message, the conference text a translation draft carries, an editor's
+field for AI Assist. A site that has not configured a provider, and so has
+no account or terms with it, still sends that content to it. CI and every
+keyless install make outbound calls that cannot succeed, and the failure reads
+as a provider outage rather than as "not configured".
+
+An empty value counts as a key. `resolve_api_key` is `std::env::var(..).ok()`
+(`ai_provider.rs:754`), so a variable set to the empty string, which is what
+Compose's `${VAR:-}` produces, resolves to `Some("")`: the provider screen says
+"(set)" (`mask_key_ref`, `:765-773`) and every call goes out with an empty key.
+Found when `verify-demo.sh` read "(set)" off a demo started with no key.
+
+**What Ritrovo does.** `docker-compose.demo.yml` passes each key variable through
+with no value, so it is absent from the container when the starting shell has
+none, and says why. Translation drafts are off by default and the search
+stages are off, so a keyless demo sends only what a signed-in member types into
+chat. `docs/AI.md` says so, and says to set each provider's `enabled` to false on
+an install that runs without keys. The visitor-facing answers are clean
+(`with_no_key_every_ai_surface_answers_without_a_500_or_provider_text`). Pinned by
+`with_no_key_the_kernel_still_sends_a_member_s_message_to_the_provider`, which
+fails once the kernel stops sending.
+
+**Blocks.** Nothing.
+
+**Recommendation.** Treat a provider whose key variable is named and unset or empty
+as not configured in `resolve_provider`, so every caller takes its "no provider" path.
+
+### G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED: **[Low, NEW]** a failed chat stream logs the provider's error body without the key redaction the other paths apply
+
+Found at `81290cc` (A9b), by reading. `execute_streaming` logs the provider's
+failure through `log_provider_failure` (`crates/kernel/src/services/ai_chat.rs:481-486`),
+which redacts the key (`crates/kernel/src/services/ai_provider.rs:1040`, `:1055`),
+and then fails with the first 200 bytes of the same body in its error
+(`ai_chat.rs:487-497`). The chat route wraps that error in
+`AppError::service_unavailable` (`crates/kernel/src/routes/api_chat.rs:262`), whose `reason` is logged as is (`crates/kernel/src/error.rs:403-404`).
+The visitor sees only "AI is temporarily unavailable". A provider that echoed the
+credential in an error body would put it in the log through this one path. Neither
+of the two providers Ritrovo uses echoes the key it was sent, which is why the
+host test that searches every log line for a known key value passes; that test
+covers what the kernel writes of its own accord, not this path. Pinned by
+`a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path`: a
+scripted provider echoes a fake key in its 401, the member sees only the
+generic answer, and the key is in the log.
+
+**Blocks.** Nothing.
+
+**Recommendation.** Build the error from `provider_error_excerpt(&body, api_key)`.
+
+### G-AI-ADMIN-HAS-NO-FEATURES-RULES-OR-RATE-LIMIT-SCREENS: **[Low, NEW]** three of the five AI administration tabs the brief describes do not exist
+
+Found at `81290cc` (A9b). The kernel's AI screens are providers
+(`/admin/system/ai-providers`), budgets and usage (`/admin/system/ai-budgets`),
+chat (`/admin/system/ai-chat`) and the assistant (`/admin/system/ai-assistant`),
+merged at `crates/kernel/src/routes/admin.rs:1073-1079`. The features screen was
+deleted as never mounted and never read (`6e58a9b`, "admin_ai_features is
+deleted"), and nothing replaced it; the search AI stages are on the search
+settings screen instead. There is no field rules screen (rules are a raw JSON
+`site_config` value, `plugins/trovato_ai/src/lib.rs:22-24`) and no AI rate-limit
+screen. The usage screen shows tokens and requests per provider and per user for
+the budget period (`templates/admin/ai-budgets.html`), with no cost column, no
+per-role view, no time range and no request log, although every row of
+`ai_usage_log` carries a cost estimate.
+
+**Blocks.** Part of 31.9.
+
+**Recommendation.** A cost column and a request log on the usage screen, from the
+rows already written; a field rules list; or drop those tabs from the brief.
+
+### G-CONFIG-IMPORT-LEAVES-SEARCH-SETTINGS-CACHED: **[Medium, NEW]** importing `variable.search.yml` does not drop the cached search settings, so the old ones stay in force for up to five minutes
+
+Found at `81290cc` (A9b), when the Demo workflow saw the search AI stages answer
+503 instead of 404. `SearchSettings::load` keeps the settings in Redis under
+`search_settings` for 300 seconds (`crates/kernel/src/search/settings.rs:32-35`,
+`:295-320`). `SearchSettings::save`, the admin form's path, drops that entry
+(`:353`). `config import` writes the `search` variable with
+`save_variable` (`crates/kernel/src/config_storage/direct.rs:524-541`), which bumps
+the `SiteConfig` cache generation, and that generation clears only the
+in-memory front page (`crates/kernel/src/state.rs:1407`), never the Redis entry.
+Anything that read the settings before the import keeps the old ones, here the
+defaults with every AI stage on, until the entry expires. With a key set, that
+is up to five minutes in which any visitor's search spends the site's tokens
+(`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`).
+
+In the demo the reader was cron. The bootstrap started temporary servers on the
+published port before the import, the cron poker reached them as soon as
+`/health` answered, and a cron run read the settings (`crates/kernel/src/cron/mod.rs:1184`).
+
+**What Ritrovo does.** `scripts/demo-bootstrap.sh` runs every server before the
+last on a private port, so nothing outside the container reaches the kernel
+until every import is done (`demo/checks/tests/bootstrap_port.rs`). An install
+that imports `variable.search.yml` into a running site still waits out the
+five minutes, or saves the search settings form once.
+
+**Blocks.** Nothing.
+
+**Recommendation.** Have `save_variable` drop `search_settings` when the key is
+`search`, or have the `SiteConfig` generation clear the Redis entries derived
+from `site_config` as well as the front page.
 
 ## No-friction findings (surfaces that just worked)
 

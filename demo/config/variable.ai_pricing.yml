@@ -1,0 +1,19 @@
+# Prices per 1,000 tokens, in USD, for the two models Ritrovo configures. The
+# kernel prices each logged call from this table, and the usage dashboard at
+# /admin/system/ai-budgets shows the estimate (STATUS 31.9). A model missing
+# from it is logged with no cost rather than a made-up one.
+#
+# Claude Haiku 5.5: 0.10 USD per million input tokens, 0.50 per million output.
+# text-embedding-3-small: 0.02 USD per million input tokens.
+# Check both against the providers' price lists before relying on the figures.
+key: ai_pricing
+value:
+  models:
+    claude-haiku-5-5:
+      input_per_1k: 0.0001
+      output_per_1k: 0.0005
+      currency: USD
+    text-embedding-3-small:
+      input_per_1k: 0.00002
+      output_per_1k: 0.0
+      currency: USD

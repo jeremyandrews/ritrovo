@@ -57,6 +57,12 @@
 # the kernel checks it, so granting it would be a permission with nothing behind
 # it. The kernel's moderation screens ask for `administer comments` instead; the
 # editor and publisher files grant that.
+#
+# `use ai` and `use ai chat` are the kernel's own AI permissions
+# (`crates/kernel/src/models/role.rs`), so the import needs no plugin to have
+# declared them. Every signed-in member may use the AI features that are switched
+# on, within the daily token budget in variable.ai_token_budgets.yml. Anonymous
+# visitors hold neither. docs/AI.md.
 id: 00000000-0000-0000-0000-000000000002
 name: authenticated user
 created: "2026-01-01T00:00:00Z"
@@ -67,5 +73,7 @@ permissions:
 - edit own comments
 - manage own subscriptions
 - post comments
+- use ai
+- use ai chat
 - use filtered_html
 - view own profile

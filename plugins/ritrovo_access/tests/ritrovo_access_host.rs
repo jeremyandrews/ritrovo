@@ -18,6 +18,9 @@
 #[path = "../../../tests/host/mod.rs"]
 mod host;
 
+#[path = "../../../tests/host/ai.rs"]
+mod ai;
+
 use trovato_kernel::tap::UserContext;
 
 use host::{CURATED_STAGE, INCOMING_STAGE, serial};
@@ -1302,6 +1305,461 @@ fn a_kernel_edit_shows_at_once_a_raw_write_waits_for_the_cache_and_no_view_leaks
         assert!(
             !as_anonymous.body.contains("Wombatcon Curated Secret"),
             "an editor's view of a Curated conference reached an anonymous visitor"
+        );
+    });
+}
+
+// ===========================================================================
+// The AI surfaces a visitor and a member can reach (A9b, 31.1, 31.3, 31.4, 31.9)
+// ===========================================================================
+//
+// The kernel's own chat, search and admin routes, served by the kernel's
+// router over `demo/config`. Ritrovo's providers are pointed at the kernel's
+// scripted provider (`tests/host/ai.rs`), so no model is called and every
+// request that would have reached one is counted.
+
+use trovato_kernel::services::ai_tools::scripted_provider::{self, Recorder, Scripted};
+
+/// The app, `demo/config` imported, and Ritrovo's providers pointed at a fresh
+/// scripted provider.
+async fn ai_app() -> (&'static host::App, sqlx::PgPool, Recorder) {
+    let pool = host::fresh_pool().await;
+    host::prepare_app_database(&pool, &[PLUGIN]).await;
+    host::import_demo_config(&pool).await;
+    let app = host::app().await;
+    host::clear_rate_limits().await;
+    // The search settings are read through the kernel's cache for five
+    // minutes, and an import does not drop the cached copy
+    // (`crates/kernel/src/search/settings.rs`). Drop it, as saving the settings
+    // screen does, so the stages are the ones `demo/config` just imported and
+    // not whatever an earlier run left in Redis.
+    app.state
+        .cache()
+        .invalidate(trovato_kernel::search::settings::SETTINGS_CACHE_KEY)
+        .await;
+    let (url, recorder) = scripted_provider::start().await;
+    ai::point_providers_at(&pool, &url).await;
+    (app, pool, recorder)
+}
+
+/// The session's CSRF token from a kernel page: the `csrf-token` meta tag the
+/// base template renders, or a form's `_token`.
+fn session_token(html: &str) -> String {
+    for marker in [r#"name="csrf-token" content=""#, r#"name="_token" value=""#] {
+        if let Some(start) = html.find(marker) {
+            let rest = &html[start + marker.len()..];
+            return rest[..rest.find('"').unwrap()].to_string();
+        }
+    }
+    panic!("no CSRF token in: {html}")
+}
+
+/// POST a JSON body with the session's CSRF header, as the kernel's own
+/// scripts do.
+async fn post_json(
+    app: &host::App,
+    path: &str,
+    body: serde_json::Value,
+    cookies: &str,
+    token: &str,
+) -> host::Response {
+    let mut request = axum::http::Request::post(path)
+        .header("content-type", "application/json")
+        .header("x-csrf-token", token);
+    if !cookies.is_empty() {
+        request = request.header(axum::http::header::COOKIE, cookies);
+    }
+    app.send(
+        request
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await
+}
+
+/// An anonymous session and its token, from the login form.
+async fn anonymous_session(app: &host::App) -> (String, String) {
+    let login = app.get("/user/login", "").await;
+    assert_eq!(login.status, 200, "{}", login.body);
+    (login.cookies.clone(), session_token(&login.body))
+}
+
+/// A member's session and token.
+async fn member_session(app: &host::App) -> (String, String) {
+    let (cookies, _) = app.login_as_new_member(&[]).await;
+    let page = app.get("/user/profile", &cookies).await;
+    assert_eq!(page.status, 200, "{}", page.body);
+    (cookies.clone(), session_token(&page.body))
+}
+
+const SEARCH_AI: [&str; 3] = [
+    "/api/v1/search/expand",
+    "/api/v1/search/summarize",
+    "/api/v1/search/followup",
+];
+
+fn search_ai_body() -> serde_json::Value {
+    serde_json::json!({
+        "query": "rust conferences in europe",
+        "context": "RustConf Europe, Berlin",
+        "messages": [{"role": "user", "content": "rust conferences in europe"}],
+    })
+}
+
+/// Who holds which AI permission, as `demo/config` grants them: every signed-in
+/// member `use ai` and `use ai chat`, the editorial roles `view ai usage` as
+/// well, a visitor none of them. `configure ai` is the administrator's alone,
+/// which the administrator flag carries.
+#[test]
+fn the_roles_grant_ai_to_members_usage_to_editors_and_nothing_to_visitors() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::import_demo_config(&pool).await;
+        host::create_demo_users(&pool).await;
+        for (name, usage) in [
+            ("viewer_carol", false),
+            ("editor_alice", true),
+            ("publisher_bob", true),
+        ] {
+            let user = host::visitor_named(&pool, name).await;
+            assert!(user.has_permission("use ai"), "{name}");
+            assert!(user.has_permission("use ai chat"), "{name}");
+            assert_eq!(user.has_permission("view ai usage"), usage, "{name}");
+            assert!(!user.has_permission("configure ai"), "{name}");
+        }
+        let anonymous: Vec<String> = sqlx::query_scalar(
+            "SELECT rp.permission FROM role_permissions rp JOIN roles r ON r.id = rp.role_id \
+             WHERE r.name = 'anonymous user'",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !anonymous.iter().any(|p| p.contains("ai")),
+            "the anonymous role holds an AI permission: {anonymous:?}"
+        );
+    });
+}
+
+/// A visitor without `use ai` gets the kernel's clean refusal from chat (401,
+/// JSON, sign in) and from the three AI search endpoints (404: Ritrovo keeps
+/// those stages off, because the kernel checks no permission and no budget on
+/// them). No provider is asked. A member is refused by search AI the same way.
+#[test]
+fn chat_and_search_ai_refuse_a_visitor_without_use_ai_and_ask_no_provider() {
+    serial(async {
+        let (app, _pool, recorder) = ai_app().await;
+        recorder.push(Scripted::ok(ai::anthropic_reply("never", 1, 1)));
+
+        let (anon, anon_token) = anonymous_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "What Rust conferences are in Europe?"}),
+            &anon,
+            &anon_token,
+        )
+        .await;
+        assert_eq!(chat.status, 401, "{}", chat.body);
+        assert!(chat.content_type.contains("json"), "{}", chat.content_type);
+
+        let (member, member_token) = member_session(app).await;
+        for (cookies, token) in [(&anon, &anon_token), (&member, &member_token)] {
+            for path in SEARCH_AI {
+                let refused = post_json(app, path, search_ai_body(), cookies, token).await;
+                assert_eq!(refused.status, 404, "{path}: {}", refused.body);
+                assert!(
+                    refused.body.contains("switched off"),
+                    "{path}: {}",
+                    refused.body
+                );
+            }
+        }
+        assert_eq!(recorder.request_count(), 0, "a provider was asked");
+    });
+}
+
+/// With no key set, which is CI and any install that has not configured one,
+/// every AI surface Ritrovo exposes answers without a 500 and without a word of
+/// the provider's error, and the pages around them still render.
+#[test]
+fn with_no_key_every_ai_surface_answers_without_a_500_or_provider_text() {
+    serial(async {
+        ai::unset_keys();
+        let (app, _pool, recorder) = ai_app().await;
+        for _ in 0..4 {
+            recorder.push(Scripted {
+                status: 401,
+                body: ai::anthropic_no_key(),
+                delay: std::time::Duration::ZERO,
+            });
+        }
+        let provider_text = ["authentication_error", "x-api-key"];
+
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "What Rust conferences are in Europe?"}),
+            &member,
+            &token,
+        )
+        .await;
+        assert_ne!(chat.status, 500, "{}", chat.body);
+        assert_ne!(
+            chat.status, 200,
+            "chat claimed success with no key: {}",
+            chat.body
+        );
+        for path in SEARCH_AI {
+            let answer = post_json(app, path, search_ai_body(), &member, &token).await;
+            assert_ne!(answer.status, 500, "{path}: {}", answer.body);
+            for text in provider_text {
+                assert!(!answer.body.contains(text), "{path}: {}", answer.body);
+            }
+        }
+        for text in provider_text {
+            assert!(!chat.body.contains(text), "chat: {}", chat.body);
+        }
+
+        let search = app.get("/search?q=rust", &member).await;
+        assert_eq!(search.status, 200, "{}", search.body);
+        assert!(search.body.contains("scolta-search"), "{}", search.body);
+
+        let admin = app.login_as_new_admin().await;
+        let providers = app.get("/admin/system/ai-providers", &admin).await;
+        assert_eq!(providers.status, 200, "{}", providers.body);
+        for env in [ai::ANTHROPIC_KEY_ENV, ai::OPENAI_KEY_ENV] {
+            assert!(
+                providers.body.contains(&format!("{env} (not set)")),
+                "{env} is not shown as not set: {}",
+                providers.body
+            );
+        }
+        let budgets = app.get("/admin/system/ai-budgets", &admin).await;
+        assert_eq!(budgets.status, 200, "{}", budgets.body);
+    });
+}
+
+/// With a known fake key set, the value is in no page, no API answer, no
+/// exported configuration, no stored row and no log line. The provider screen
+/// shows the variable's name and "set".
+///
+/// The provider here answers as Anthropic does, without echoing the key. One
+/// kernel path logs a provider's error body unredacted; what happens when a
+/// provider does echo it is pinned by
+/// `a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path`.
+#[test]
+fn the_key_value_appears_in_no_page_answer_export_stored_row_or_log_line() {
+    serial(async {
+        let log_before = ai::captured_log().len();
+        let (app, pool, recorder) = ai_app().await;
+        for _ in 0..4 {
+            recorder.push(Scripted {
+                status: 401,
+                body: ai::anthropic_no_key(),
+                delay: std::time::Duration::ZERO,
+            });
+        }
+        ai::set_fake_keys();
+
+        let mut seen = Vec::new();
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "What Rust conferences are in Europe?"}),
+            &member,
+            &token,
+        )
+        .await;
+        seen.push(format!("chat: {}", chat.body));
+
+        let admin = app.login_as_new_admin().await;
+        for path in ["/admin/system/ai-providers", "/admin/system/ai-budgets"] {
+            let page = app.get(path, &admin).await;
+            assert_eq!(page.status, 200, "{path}: {}", page.body);
+            seen.push(format!("{path}: {}", page.body));
+        }
+        let providers = &seen[1];
+        for env in [ai::ANTHROPIC_KEY_ENV, ai::OPENAI_KEY_ENV] {
+            assert!(
+                providers.contains(&format!("{env} (set)")),
+                "{env} is not shown as set: {providers}"
+            );
+        }
+        let test = app
+            .post_form(
+                &format!("/admin/system/ai-providers/{}/test", ai::ANTHROPIC_PROVIDER),
+                &format!("_token={}", session_token(providers)),
+                &admin,
+            )
+            .await;
+        seen.push(format!("connection test: {}", test.body));
+
+        let export = std::env::temp_dir().join(format!("ritrovo-ai-export-{}", host::now()));
+        let storage = trovato_kernel::config_storage::DirectConfigStorage::new(pool.clone());
+        trovato_kernel::config_storage::yaml::export_config(&storage, &pool, &export, true)
+            .await
+            .unwrap();
+        let mut exported = String::new();
+        for entry in std::fs::read_dir(&export).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_file() {
+                exported.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+            }
+        }
+        let _ = std::fs::remove_dir_all(&export);
+        assert!(
+            exported.contains(ai::ANTHROPIC_KEY_ENV),
+            "the export does not carry the provider's key variable name"
+        );
+        seen.push(format!("export: {exported}"));
+        ai::unset_keys();
+
+        seen.push(format!("stored: {}", ai::stored_ai_text(&pool).await));
+        seen.push(format!("log: {}", &ai::captured_log()[log_before..]));
+        for text in &seen {
+            for key in [ai::FAKE_ANTHROPIC_KEY, ai::FAKE_OPENAI_KEY] {
+                assert!(
+                    !text.contains(key),
+                    "the key value is in {}",
+                    text.split(':').next().unwrap_or("?")
+                );
+            }
+        }
+    });
+}
+
+/// The authenticated role, as `demo/config` identifies it. Every signed-in
+/// member holds `use ai` and `use ai chat` through it.
+const AUTHENTICATED_ROLE: &str = "00000000-0000-0000-0000-000000000002";
+
+/// Take `permission` from the authenticated role, or give it back: the only
+/// way to have a signed-in member without it. A member's permissions are
+/// cached by user, so this must happen before that member signs in.
+async fn set_authenticated_permission(pool: &sqlx::PgPool, permission: &str, granted: bool) {
+    let role = uuid::Uuid::parse_str(AUTHENTICATED_ROLE).unwrap();
+    let sql = if granted {
+        "INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+    } else {
+        "DELETE FROM role_permissions WHERE role_id = $1 AND permission = $2"
+    };
+    sqlx::query(sql)
+        .bind(role)
+        .bind(permission)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// A signed-in member who lacks `use ai chat`, or `use ai`, is refused by chat
+/// with a 403 before any provider is asked. The sign-in check alone is not
+/// what keeps chat to the members Ritrovo grants it.
+#[test]
+fn chat_refuses_a_member_without_use_ai_or_use_ai_chat_and_asks_no_provider() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        recorder.push(Scripted::ok(ai::anthropic_reply("never", 1, 1)));
+        for missing in ["use ai chat", "use ai"] {
+            set_authenticated_permission(&pool, missing, false).await;
+            let (member, token) = member_session(app).await;
+            let chat = post_json(
+                app,
+                "/api/v1/chat",
+                serde_json::json!({"message": "What Rust conferences are in Europe?"}),
+                &member,
+                &token,
+            )
+            .await;
+            set_authenticated_permission(&pool, missing, true).await;
+            assert_eq!(chat.status, 403, "without {missing}: {}", chat.body);
+            assert_eq!(
+                recorder.request_count(),
+                0,
+                "without {missing}, a provider was asked"
+            );
+        }
+    });
+}
+
+/// With no key set, the kernel still sends a member's chat message to the
+/// provider, without credentials, and the provider refuses it. The text leaves
+/// the site even though nothing is spent. Pins `FRICTION.md`,
+/// `G-AI-REQUESTS-SENT-WITHOUT-A-KEY`: when the kernel stops sending a request
+/// it has no key for, this fails, and the entry and `docs/AI.md` change with it.
+#[test]
+fn with_no_key_the_kernel_still_sends_a_member_s_message_to_the_provider() {
+    serial(async {
+        ai::unset_keys();
+        let (app, _pool, recorder) = ai_app().await;
+        recorder.push(Scripted {
+            status: 401,
+            body: ai::anthropic_no_key(),
+            delay: std::time::Duration::ZERO,
+        });
+        let probe = "no-key probe 4c1d9e";
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": format!("{probe}: which Rust conferences are in Europe?")}),
+            &member,
+            &token,
+        )
+        .await;
+        assert_eq!(chat.status, 503, "{}", chat.body);
+        let sent = recorder.requests();
+        assert_eq!(sent.len(), 1, "requests sent with no key: {sent:?}");
+        assert!(
+            sent[0].to_string().contains(probe),
+            "the member's message did not reach the provider: {}",
+            sent[0]
+        );
+    });
+}
+
+/// A provider error body that carries the key reaches the log through the chat
+/// path, which logs the first 200 bytes of the body without redacting them.
+/// The member still sees only the generic answer. Pins `FRICTION.md`,
+/// `G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED`: when the kernel redacts
+/// that path, this fails, and it turns into a test that the log is clean.
+#[test]
+fn a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path() {
+    serial(async {
+        let log_before = ai::captured_log().len();
+        let (app, _pool, recorder) = ai_app().await;
+        recorder.push(Scripted {
+            status: 401,
+            body: serde_json::json!({
+                "type": "error",
+                "error": {
+                    "type": "authentication_error",
+                    "message": format!("invalid x-api-key: {}", ai::FAKE_ANTHROPIC_KEY)
+                }
+            }),
+            delay: std::time::Duration::ZERO,
+        });
+        ai::set_fake_keys();
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "What Rust conferences are in Europe?"}),
+            &member,
+            &token,
+        )
+        .await;
+        ai::unset_keys();
+        assert_eq!(chat.status, 503, "{}", chat.body);
+        assert!(!chat.body.contains(ai::FAKE_ANTHROPIC_KEY), "{}", chat.body);
+        assert_eq!(recorder.request_count(), 1, "the chat request was not sent");
+        let log = ai::captured_log()[log_before..].to_string();
+        assert!(
+            log.contains(ai::FAKE_ANTHROPIC_KEY),
+            "the echoed key is no longer in the log: the kernel now redacts the \
+             chat error path, so G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED \
+             is fixed and this test should assert the opposite"
         );
     });
 }
