@@ -99,6 +99,12 @@ waits out a five-minute cache).
 does not have, so no field rule runs), `G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK`,
 `G-EMBEDDINGS-BYPASS-BUDGETS-AND-THE-USAGE-LOG` and `G-EMBEDDINGS-HAVE-NO-TEST-PROVIDER`.
 
+**A9b, third part (chat, the assistant and MCP).** Five more:
+`G-MCP-RUN-GATHER-REFUSES-DOTTED-QUERY-IDS` (Medium: the MCP server cannot run
+any of the tutorial's gathers), `G-CHAT-RAG-REQUIRES-EVERY-WORD` (Medium: a
+natural question retrieves nothing), `G-VISITOR-CHAT-HAS-NO-TOOLS`,
+`G-CHAT-CONTEXT-HAS-NO-ITEM-LINKS` and `G-ASSISTANT-WRITE-CANNOT-REFUSE-A-PROPOSAL`.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -2693,6 +2699,122 @@ the no-embedding answer; the ranking is checked live (`docs/AI.md`).
 
 **Recommendation.** Serve `/embeddings` from the scripted provider, and give tests
 a way to allow its loopback address.
+
+### G-CHAT-RAG-REQUIRES-EVERY-WORD: **[Medium, NEW]** the chat retrieves an item only if it contains every word of the question, so natural questions get no context
+
+Found at `81290cc` (A9b), live. The chat's retrieval passes the member's message
+to the kernel's full-text search unchanged (`crates/kernel/src/services/ai_chat.rs:290-300`).
+The search turns each whitespace-separated word into a prefix term and joins
+them all with AND (`crates/kernel/src/search/mod.rs:232-238`). Stop words drop
+out, every other word must be in the item. "What Rust conferences are in
+Europe?" becomes `'rust':* & 'confer':* & 'europ':*`. On the demo that matches
+one Live item, the API documentation page, at rank 0.004, under the cut-off, and
+no conference: a conference's indexed text names its city and country, never
+"Europe", and rarely says "conference". Even "Rust conferences" matched no Live
+conference. The model was asked with no context both times (156 and 163 prompt
+tokens) and answered that Ritrovo had none. "Rust" alone retrieved both Live
+Rust conferences and the answer cited them with their websites.
+
+**What Ritrovo does.** Nothing to work around it: retrieval is the kernel's.
+`a_question_with_one_word_no_conference_contains_retrieves_no_context` pins it
+and fails once the kernel fixes it. The system prompt tells the model to say so
+and point at the search when the context is empty, rather than invent.
+
+**Blocks.** 31.7's live acceptance question, "What Rust conferences are in
+Europe?", which gets an honest "none" instead of an answer.
+
+**Recommendation.** Retrieve with OR, or with `websearch_to_tsquery`, and rank;
+the cut-off then does the filtering. Or retrieve through the gather pipeline
+with the question's content words.
+
+### G-VISITOR-CHAT-HAS-NO-TOOLS: **[Low, NEW]** the chat tile cannot call a tool, so a visitor's chatbot can only answer from retrieved text
+
+Found at `81290cc` (A9b). The chat widget's request bodies carry no `tools`, for
+either protocol (`crates/kernel/src/services/ai_chat.rs:545-551`, `:594-599`).
+`tap_chat_actions`, the brief's way for a plugin to give the chatbot actions, is
+declared and never dispatched, and the WIT says it never will be
+(`crates/wit/kernel.wit:647-654`, `crates/kernel/src/plugin/info_parser.rs:491-493`).
+Its replacement is the AI assistant, whose conversations are scoped to one thing,
+need a scope permission, and turn every write into a proposal a person applies.
+That is the right home for the brief's editor actions, and it is where Ritrovo
+built them (`ritrovo_cfp`, scope `ritrovo_conference`).
+
+**What Ritrovo does.** The chat tile answers from retrieval only. The tool half of
+31.8 is built in the assistant, for editors.
+
+**Blocks.** 31.8's visitor half: a member asking the chat tile "which CFPs close
+this week" gets an answer from whatever full-text retrieval found, not from a
+query.
+
+**Recommendation.** Either let a chat tile name an assistant scope whose read
+tools it may call (no write tools, no proposals), or record in the kernel's
+roadmap that the visitor chatbot is retrieval-only by design.
+
+### G-CHAT-CONTEXT-HAS-NO-ITEM-LINKS: **[Low, NEW]** the chat's retrieved context names each item but gives no address for it, so an answer cannot link to the site
+
+Found at `81290cc` (A9b). `search_for_context` writes each hit as its title and
+type (`crates/kernel/src/services/ai_chat.rs:352`) followed by its string fields
+(`format_item_fields`, `:950-984`). Neither the item's alias nor `/item/{id}` is
+in it. The gather pipeline already computes each row's `url`
+(`crates/kernel/src/gather/gather_service.rs:1127`); the chat context does not use
+it.
+
+**What Ritrovo does.** The system prompt asks the model to link each conference to
+its own website, which is a string field (`field_url`) and so is in the context.
+`the_chat_context_carries_live_conferences_and_never_an_incoming_or_curated_one`
+asserts the website is there and that no Ritrovo address is.
+
+**Blocks.** 31.7's "citing real Ritrovo conferences with links" links to each
+conference's site rather than its page on Ritrovo.
+
+**Recommendation.** Write the item's served address on the line after its title
+in the context.
+
+### G-MCP-RUN-GATHER-REFUSES-DOTTED-QUERY-IDS: **[Medium, NEW]** the MCP server's `run_gather` refuses every gather whose id has a dot, which includes all of the tutorial's
+
+Found at `81290cc` (A9b). `run_gather` calls `validate_machine_name` on its
+`query_id` (`crates/mcp-server/src/tools/gather.rs:26`), and that accepts
+`[a-z][a-z0-9_]*` only (`crates/kernel/src/routes/helpers.rs:674-689`). Gather ids
+are namespaced with a dot: every gather in the kernel's own tutorial is
+`ritrovo.*` (`docs/tutorial/config/gather_query.ritrovo.*.yml`), as are all nine of
+Ritrovo's. So `run_gather {"query_id": "ritrovo.upcoming_conferences"}` answers
+JSON-RPC `-32602`, "invalid query_id", before the gather is looked up. No kernel
+test calls `run_gather`.
+
+**What Ritrovo does.** Nothing to work around it: renaming every gather to suit
+one tool would break their URLs and the tutorial they come from.
+`trovato_mcp_cannot_run_ritrovo_upcoming_conferences_because_its_id_has_a_dot`
+pins the refusal and fails once it is fixed. An MCP client can still list, read
+and search conferences.
+
+**Blocks.** 31.10's "runs `ritrovo.upcoming_conferences`".
+
+**Recommendation.** Validate `query_id` with the rule gather ids are created
+under, or look it up and answer not-found, and add a `run_gather` test with a
+dotted id.
+
+### G-ASSISTANT-WRITE-CANNOT-REFUSE-A-PROPOSAL: **[Low, NEW]** a write tool that refuses to describe a change still gets a proposal card, and the model is told it was proposed
+
+Found at `81290cc` (A9b). When a write tool's Describe answers `ok: false`, the
+kernel still records a proposal, described from the raw call
+(`crates/kernel/src/services/ai_assistant.rs:930-940`). The model is then told
+the call's status is `proposed` (`:584-593`), so it tells the person the change
+is waiting for them. The plugin's refusal reaches nobody until Apply, when the
+Execute call refuses again and the proposal is marked failed. The comment gives
+the reason: a person must see what was asked for even when the plugin was
+unhelpful. That holds for a plugin that said nothing, not for one that said no.
+
+**What Ritrovo does.** `propose_cfp_end_date` refuses a date after the conference
+ends at Describe and again at Execute, so the date is never saved.
+`a_cfp_date_after_the_conference_ends_is_refused_at_apply_and_never_saved` pins
+both the card and the refusal at Apply.
+
+**Blocks.** Nothing in the brief; an editor can be offered an Apply button for a
+change the plugin has already refused.
+
+**Recommendation.** When Describe answers `ok: false`, return its content to the
+model as a failed tool result and record no proposal. Keep the raw-call
+description for a Describe that succeeded with no summary.
 
 ## No-friction findings (surfaces that just worked)
 

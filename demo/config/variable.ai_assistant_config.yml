@@ -1,0 +1,29 @@
+# The kernel's AI assistant (STATUS 31.8), switched on. Read on every message
+# (`crates/kernel/src/services/ai_assistant.rs`, `AssistantConfig`); the
+# administration screen at /admin/system/ai-assistant edits the same row.
+#
+# Ritrovo's only scope is `ritrovo_conference`, declared by `ritrovo_cfp`: an
+# editor opens it from a conference page and can look conferences up by topic
+# and city, list the calls for papers closing soon, and propose a corrected CFP
+# end date. A proposal changes nothing until the editor applies it. The scope
+# needs `edit any content`, which editors and publishers hold and members do
+# not.
+#
+# The provider and model are left unset, so the assistant uses the site's chat
+# default (variable.ai_defaults.yml): Claude Haiku 5.5 on Anthropic. Every call
+# is held to the token budgets in variable.ai_token_budgets.yml and logged to
+# the usage dashboard, as `kernel_assistant`.
+#
+# The limits are the kernel's defaults except three, each lower: at most six
+# tool calls a message (8), 20,000 tokens a conversation (60,000) and 30
+# messages an hour (60). No `temperature`: Anthropic's newest models refuse it.
+#
+# Nothing here costs anything until an editor sends a message. With no
+# RITROVO_ANTHROPIC_API_KEY set, a message ends "The model provider refused the
+# request." and no conference changes.
+key: ai_assistant_config
+value:
+  enabled: true
+  max_tool_calls_per_message: 6
+  max_tokens_per_conversation: 20000
+  rate_limit_per_hour: 30

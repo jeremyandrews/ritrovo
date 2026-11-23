@@ -6,10 +6,10 @@ permissions, the administration screens and the usage log. Nothing in this
 repository talks to a model provider directly, and no key is stored anywhere in
 it.
 
-Rows 31.1 to 31.5, 31.9 and 31.11 and the search AI rows 30.4 and 30.5 of
-[`STATUS.md`](ritrovo/STATUS.md) are what this page describes. The chat tile
-(31.7), the assistant's tools (31.8) and the MCP server (31.10) build on it and
-are not switched on yet; their rows say so.
+Rows 31.1 to 31.5 and 31.7 to 31.11, and the search AI rows 30.4 and 30.5, of
+[`STATUS.md`](ritrovo/STATUS.md) are what this page describes: the providers,
+budgets and permissions, the chat tile, the editors' conference assistant, the
+MCP server, similar conferences, and what is switched off and why.
 
 ## Turning it on
 
@@ -55,7 +55,10 @@ All of it is in `demo/config/`, imported by the kernel's own `config import`:
 | `variable.search.yml` | The search page's AI stages, all **off** (see below) |
 | `variable.trovato_ai.field_rules.yml` | A summary of each conference's description, written into `field_summary` on a save; inert at the pinned kernel (see below) |
 | `gather_query.ritrovo.similar_conferences.yml` | Similar conferences, at `/conferences/similar` (see below) |
-| `role.*.yml` | `use ai` and `use ai chat` for every signed-in member, `view ai usage` for editors and publishers, nothing for anonymous visitors |
+| `tile.0193a5a0-0003-7000-8000-000000000009.yml` | The Ask Ritrovo chat tile, in the sidebar for signed-in members (see below) |
+| `variable.ai_chat_config.yml` | The chat's system prompt and retrieval settings, Live content only (see below) |
+| `variable.ai_assistant_config.yml` | The kernel's assistant, on, with Ritrovo's limits; its one scope is `ritrovo_cfp`'s (see below) |
+| `role.*.yml` | `use ai` and `use ai chat` for every signed-in member; `view ai usage` and `use ai assistant` for editors and publishers; nothing for anonymous visitors |
 
 `scripts/demo-bootstrap.sh` also enables the kernel's `trovato_ai` plugin.
 
@@ -80,7 +83,9 @@ output), a call of 1,000 tokens in and 300 out costs about 0.00025 USD.
 | Feature | Calls | Who pays | Switched on |
 | :- | :- | :- | :- |
 | Translation drafts (`ritrovo_translate`) | one per drafted conference, at most three per cron cycle | the plugin's background budget, 20,000 tokens a day | no: plugin variable `assist_enabled`, off |
-| Chat (`POST /api/v1/chat`) | one per message | the member's daily budget | the route is live for members; no tile shows it yet (31.7) |
+| Chat (the Ask Ritrovo tile, `POST /api/v1/chat`) | one per message, at most 20 an hour per member | the member's daily budget | yes, for signed-in members |
+| The conference assistant | one per model turn, up to six tool calls a message; at most 20,000 tokens a conversation and 30 messages an hour | the editor's daily budget | yes, for editors and publishers |
+| The MCP server (`trovato-mcp`) | none: it reads and writes content and calls no model | nothing | run by hand, below |
 | AI Assist on the edit form | one per button press | the editor's daily budget | buttons render for members with `use ai chat`; not yet checked (31.6) |
 | Search expansion and summary | one each per search | nobody: the kernel meters neither | **no**, see below |
 | Similar conferences (`/conferences/similar?q=`) | one embedding call per page view with a `q` | nobody: the kernel meters no embedding call | yes, for everyone |
@@ -109,6 +114,178 @@ first block has no text. Live on the demo, with the stages switched on locally
 for three calls, expansion returned four terms and the summary came back empty
 twice, after spending the tokens
 (`G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK`).
+
+## The chat tile
+
+Ask Ritrovo is the kernel's chat widget, placed in the sidebar of every page but
+the admin pages for signed-in members
+(`demo/config/tile.0193a5a0-0003-7000-8000-000000000009.yml`). An anonymous
+visitor gets no tile at all. A question goes to `POST /api/v1/chat`, which needs
+`use ai` and `use ai chat` (every member holds both), and the answer streams back
+over server-sent events.
+
+What the model is told is `variable.ai_chat_config.yml`: Ritrovo's system prompt,
+then the conferences the kernel's retrieval found for the question. Retrieval is
+the kernel's full-text search over the Live stage only, published items or the
+member's own, with every hit the member may not view dropped, so an Incoming or
+Curated conference is never in the context. `the_chat_context_carries_live_conferences_and_never_an_incoming_or_curated_one`
+reads the request the kernel sends the provider and checks exactly that.
+
+Two things the kernel decides that shape the answers:
+
+- **Every word of the question must match** (`G-CHAT-RAG-REQUIRES-EVERY-WORD`).
+  The search joins the question's words with AND, so "What Rust conferences are
+  in Europe?" needs "rust", "conferences" and "europe" in one conference's
+  indexed text, which has its city and country but neither of the last two.
+  Live on the demo (2026-11-23) that question, and "Rust conferences", got no
+  context and an honest "Ritrovo has none"; "Rust" got both Live Rust
+  conferences, RustLab Firenze 2026 and betterCode() Rust, each with its dates
+  and website.
+- **The context has no Ritrovo links.** It names each conference and its text
+  fields, but not its address on the site (`G-CHAT-CONTEXT-HAS-NO-ITEM-LINKS`).
+  The prompt asks for each conference's own website instead, which is a text
+  field, in plain text: the widget renders no Markdown.
+
+The chat cannot call a tool (`G-VISITOR-CHAT-HAS-NO-TOOLS`); the editors'
+assistant can.
+
+## The conference assistant
+
+The kernel's AI assistant with one scope, `ritrovo_conference`, declared by
+`ritrovo_cfp` (`plugins/ritrovo_cfp/src/assistant.rs`). It needs `use ai`,
+`use ai assistant` and `edit any content`, so editors and publishers have it and
+members do not. On a conference page the kernel shows an editor a launcher to
+`/ai/assistant/ritrovo_conference/{conference id}`. The conversation starts from
+a snapshot of that conference: its dates, city, website, CFP page and CFP end
+date.
+
+The model can call three tools:
+
+| Tool | Kind | What it does |
+| :- | :- | :- |
+| `find_conferences` | read | upcoming Live conferences by topic, city or both, soonest first, up to ten, each with its address |
+| `cfps_closing_soon` | read | open calls for papers closing within some days (default 14, at most 90), soonest first |
+| `propose_cfp_end_date` | write | proposes a corrected CFP end date for this conference |
+
+A read runs as soon as the model calls it, through the kernel's gather pipeline,
+as the editor and on the Live stage. A write never runs on the model's say-so.
+The kernel asks the plugin to describe the change and shows it as a proposal
+card ("Change the CFP end date of ... from ... to ..."). Only the editor's Apply
+saves it, through the kernel's item service, as a revision with the editor's
+reason in its log. A date after the conference ends is refused, and the
+proposal is then marked failed when applied
+(`G-ASSISTANT-WRITE-CANNOT-REFUSE-A-PROPOSAL`).
+
+`ritrovo_cfp`'s suite drives all of this through the kernel's own routes with
+the kernel's scripted provider playing the model: the read runs and returns only
+the Live conference, the write proposes and changes nothing until applied, and a
+member is refused.
+
+Live on the demo (2026-11-23), as `editor_alice` on Big Data Europe, one
+message asked for upcoming Rust conferences and reported a two-day CFP
+extension. `find_conferences` returned betterCode() Rust, and the extension
+became the card "Change the CFP end date of Big Data Europe from 2026-11-23 to
+2026-11-25" with Apply and Discard. Unapplied, the stored date stayed
+2026-11-23. Two model calls, 4,089 tokens.
+
+## The MCP server
+
+`trovato-mcp` is the kernel's MCP server: it lets an MCP client, Claude Desktop
+for one, list, read, search, create and edit content on the site as one Trovato
+user, with exactly that user's permissions. It calls no model and spends no
+tokens. It runs on your machine, beside the demo, and reads the demo's database
+and Redis directly. These are the steps against `scripts/serve-demo.sh`'s demo,
+from the repository root.
+
+1. **Install it from the pinned kernel revision.** The revision is
+   `kernel-release.toml`'s, the one the demo's image was built from, so read it
+   from there rather than typing it:
+
+   ```bash
+   rev="$(sed -n 's/^rev = "\(.*\)"$/\1/p' kernel-release.toml)"
+   cargo install --git https://github.com/jeremyandrews/trovato.git --rev "$rev" --locked trovato-mcp
+   ```
+
+2. **Give it the database and Redis.** The demo publishes neither; the override
+   publishes both, on loopback only. It recreates the two containers, which
+   signs everyone out:
+
+   ```bash
+   docker compose -f docker-compose.demo.yml -f docker-compose.mcp.yml up -d postgres redis
+   ```
+
+   | Variable | Value |
+   | :- | :- |
+   | `DATABASE_URL` | `postgres://trovato:trovato@127.0.0.1:55433/ritrovo` |
+   | `REDIS_URL` | `redis://127.0.0.1:56380/0` |
+
+3. **Give it the demo's plugins and templates.** The server builds the same
+   kernel state the site runs, so it loads the same plugins (`ritrovo_access`
+   among them, which decides who reads Incoming and Curated conferences) and
+   refuses to start without the kernel's templates. Copy them out of the running
+   demo:
+
+   ```bash
+   mkdir -p ~/.ritrovo-mcp
+   docker compose -f docker-compose.demo.yml cp trovato:/app/templates ~/.ritrovo-mcp/kernel-templates
+   docker compose -f docker-compose.demo.yml cp trovato:/app/plugins ~/.ritrovo-mcp/kernel-plugins
+   docker compose -f docker-compose.demo.yml cp trovato:/ritrovo/overlay/plugins ~/.ritrovo-mcp/ritrovo-plugins
+   ```
+
+   | Variable | Value |
+   | :- | :- |
+   | `TEMPLATES_DIR` | `~/.ritrovo-mcp/kernel-templates:<this checkout>/docs/tutorial/templates` |
+   | `PLUGINS_DIR` | `~/.ritrovo-mcp/kernel-plugins:~/.ritrovo-mcp/ritrovo-plugins` |
+
+4. **Get an API token** for the user the client should act as. Signed in, open
+   `/user/tokens` and create one; it is shown once. Or from a script, with the
+   session's CSRF token from the `csrf-token` meta tag of any page:
+
+   ```bash
+   curl -s -b cookies.txt -X POST http://localhost:3000/api/v1/tokens \
+     -H 'Content-Type: application/json' -H "X-CSRF-Token: $csrf" \
+     -d '{"name":"claude-desktop","expires_in_days":30}'
+   # {"id":"...","name":"claude-desktop","token":"<64 hex characters>","expires_at":...}
+   ```
+
+   Put the token in a file only you can read, `~/.ritrovo-mcp/token`
+   (`chmod 600`). The server takes it with `--token-file`, or `--token`, or the
+   `TROVATO_API_TOKEN` variable, and refuses to start on a token that is not
+   one. Revoke it on `/user/tokens` when you are done.
+
+5. **Tell Claude Desktop about it**, in `claude_desktop_config.json`, with every
+   path absolute (Claude Desktop expands no `~`):
+
+   ```json
+   {
+     "mcpServers": {
+       "ritrovo": {
+         "command": "/Users/you/.cargo/bin/trovato-mcp",
+         "args": ["--token-file", "/Users/you/.ritrovo-mcp/token"],
+         "env": {
+           "DATABASE_URL": "postgres://trovato:trovato@127.0.0.1:55433/ritrovo",
+           "REDIS_URL": "redis://127.0.0.1:56380/0",
+           "TEMPLATES_DIR": "/Users/you/.ritrovo-mcp/kernel-templates:/Users/you/ritrovo/docs/tutorial/templates",
+           "PLUGINS_DIR": "/Users/you/.ritrovo-mcp/kernel-plugins:/Users/you/.ritrovo-mcp/ritrovo-plugins"
+         }
+       }
+     }
+   }
+   ```
+
+The server offers ten tools: `list_items`, `get_item`, `create_item`,
+`update_item`, `delete_item`, `search`, `list_content_types`,
+`list_categories`, `list_tags` and `run_gather`. What each one may do is the
+token's user's permissions, checked as the web checks them: an editor's token
+reads Incoming and Curated conferences, a member's reads Live ones only.
+`run_gather` cannot run any of Ritrovo's gathers: their ids carry a dot, and the
+tool accepts letters, digits and underscores only
+(`G-MCP-RUN-GATHER-REFUSES-DOTTED-QUERY-IDS`).
+
+`ritrovo_access`'s suite serves the same server in process over a pipe, with
+real tokens: an editor's token lists conference content, a member's cannot read
+a Curated conference, a bad token opens no session, and `run_gather` refuses
+`ritrovo.upcoming_conferences`.
 
 ## Similar conferences
 
@@ -168,7 +345,9 @@ degrades without an error page and without a word of the provider's answer:
 | Surface | Answer |
 | :- | :- |
 | A visitor's chat request | 401, sign in (with or without a key) |
+| The chat tile | shown to members; a question answers "Error: AI is temporarily unavailable" |
 | A member's chat request | 503, "AI is temporarily unavailable" |
+| The conference assistant | the page opens for an editor; a message ends "The model provider refused the request." and changes nothing |
 | Search AI | 404, switched off (with or without a key); the Pagefind results are unchanged |
 | Similar conferences | 200 with no rows and "No similar conferences found." |
 | Translation drafts | none stored; the cron result counts the failure |

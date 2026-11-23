@@ -1,5 +1,5 @@
 name = "ritrovo_cfp"
-description = "CFP deadline badge and validation for conferences"
+description = "CFP deadline badge, validation and the conference assistant for conferences"
 version = "1.2.0"
 api_version = "0.107"
 default_enabled = false
@@ -15,6 +15,12 @@ implements = [
     # something is allowed to say no, which is the submission form
     # `ritrovo_forms` serves.
     "tap_item_presave",
+    # The conference assistant (STATUS 31.8): one item scope on `conference`
+    # for editors, two read tools and one write tool that only proposes.
+    # src/assistant.rs.
+    "tap_assistant_scopes",
+    "tap_assistant_context",
+    "tap_assistant_tool",
 ]
 weight = 0
 
@@ -29,6 +35,12 @@ weight = 0
 # The badge used to count from the item's `changed` timestamp instead, and so
 # reported the day the record was last saved rather than today.
 [capabilities]
-host_interfaces = ["db", "logging"]
+#
+# The assistant adds three. `query` is the gather pipeline its two read tools
+# run, as the editor and on Live. `item-api` loads the conference for the
+# snapshot and saves the corrected CFP date once an editor applies it, through
+# the kernel's item service. `user-api` is the permission check every tool
+# makes again at the moment of the call.
+host_interfaces = ["db", "logging", "query", "item-api", "user-api"]
 # Uses the raw-SQL host function query-raw, for SELECT NOW() and nothing else.
 raw_sql = true

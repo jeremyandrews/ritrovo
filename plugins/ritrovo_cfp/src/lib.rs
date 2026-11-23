@@ -15,6 +15,8 @@
 use trovato_sdk::host;
 use trovato_sdk::prelude::*;
 
+mod assistant;
+
 const DAY: i64 = 86_400;
 
 /// Render a CFP badge when viewing a conference with an active CFP deadline.
@@ -179,6 +181,29 @@ pub fn tap_item_presave(input: serde_json::Value) -> serde_json::Value {
     // Nothing modified. An empty object is the "no changes" answer: the kernel
     // merges the `fields` it finds, and there are none.
     serde_json::json!({})
+}
+
+// ─── The conference assistant ────────────────────────────────────────
+//
+// The three taps the kernel's AI assistant dispatches. What they declare and
+// do is in `assistant.rs`.
+
+/// Declare the conference assistant's scope and its three tools.
+#[plugin_tap]
+pub fn tap_assistant_scopes() -> Vec<AssistantScope> {
+    assistant::scopes()
+}
+
+/// Describe the conference a conversation is about.
+#[plugin_tap]
+pub fn tap_assistant_context(request: AssistantContextRequest) -> AssistantContext {
+    assistant::context(&request)
+}
+
+/// Run, describe or carry out one tool call.
+#[plugin_tap]
+pub fn tap_assistant_tool(call: AssistantToolCall) -> AssistantToolResult {
+    assistant::tool(&call)
 }
 
 /// The instant the CFP closes, as a Unix timestamp, or `None` if the item has

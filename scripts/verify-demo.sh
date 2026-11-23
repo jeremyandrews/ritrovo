@@ -1696,6 +1696,53 @@ else
     note "similar conferences' rows are not checked while a key is set: each request is an embedding call"
 fi
 
+# The chat tile (STATUS 31.7): the kernel's chat widget in the sidebar for a
+# signed-in member, and no tile at all for an anonymous visitor. Its prompt and
+# retrieval settings are demo/config's, all eight fields (a partial value does
+# not load). Nothing here asks a question.
+if curl -s -b "$viewer_jar" "$BASE/item/$similar_from" | grep -q 'id="chat-widget-ask_ritrovo"'; then
+    ok "a member's conference page carries the Ask Ritrovo chat tile"
+else
+    bad "viewer_carol's conference page has no Ask Ritrovo chat tile"
+fi
+if curl -s "$BASE/item/$similar_from" | grep -q 'chat-widget'; then
+    bad "an anonymous visitor's conference page carries the chat tile"
+else
+    ok "an anonymous visitor's conference page has no chat tile"
+fi
+chat_config="$(sql "select (value ? 'system_prompt' and value ? 'rag_min_score' and value ? 'max_history_turns' and value ? 'rate_limit_per_hour')::text || ',' || (value->>'rag_enabled') from site_config where key = 'ai_chat_config'")"
+if [ "$chat_config" = "true,true" ]; then
+    ok "ai_chat_config is imported whole, with retrieval on"
+else
+    bad "ai_chat_config is missing or partial: '${chat_config:-absent}'"
+fi
+
+# The conference assistant (STATUS 31.8): `ritrovo_cfp`'s item scope, which
+# needs `use ai assistant` and `edit any content`. An editor gets the launcher on
+# a conference page and the conversation page; a member is refused; a visitor is
+# sent to the login form. Opening the page asks no model anything.
+assistant_path="/ai/assistant/ritrovo_conference/$similar_from"
+if curl -s -b "$editor_jar" "$BASE/item/$similar_from" | grep -q "href=\"$assistant_path\""; then
+    ok "editor_alice's conference page carries the assistant launcher"
+else
+    bad "editor_alice's conference page has no launcher to $assistant_path"
+fi
+assistant_editor="$(curl -s -b "$editor_jar" -w ' %{http_code}' "$BASE$assistant_path")"
+assistant_viewer="$(code_with "$viewer_jar" "$assistant_path")"
+assistant_anon="$(code "$assistant_path")"
+if [[ "$assistant_editor" == *data-conversation-id=*" 200" ]] && [ "$assistant_viewer" = "403" ] \
+    && [ "$assistant_anon" = "303" ]; then
+    ok "the conference assistant opens for editor_alice, 403 to viewer_carol, 303 to a visitor"
+else
+    bad "the conference assistant: editor ${assistant_editor##* }, viewer $assistant_viewer, visitor $assistant_anon (want 200 / 403 / 303)"
+fi
+if [ "$(code_as_admin /admin/system/ai-assistant)" = "200" ] \
+    && curl -s -b "$JAR" "$BASE/admin/system/ai-assistant" | grep -q 'ritrovo_conference'; then
+    ok "/admin/system/ai-assistant lists the ritrovo_conference scope"
+else
+    bad "/admin/system/ai-assistant does not list the ritrovo_conference scope"
+fi
+
 
 head_ "cleanup"
 

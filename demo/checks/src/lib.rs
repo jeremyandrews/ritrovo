@@ -40,7 +40,8 @@ mod tests {
     /// exercised on another kernel is a test that proves nothing about what
     /// ships: it would pass against host functions the released kernel no longer
     /// has, or fail against ones it does not have yet, and either way say nothing
-    /// true about the pinned release.
+    /// true about the pinned release. The MCP server the access suite drives is
+    /// the third entry, held to the same revision for the same reason.
     #[test]
     fn the_sdk_and_the_test_kernel_pin_the_same_trovato() {
         let manifest = include_str!("../../../Cargo.toml");
@@ -55,6 +56,7 @@ mod tests {
 
         let sdk = pin("trovato-sdk");
         let kernel = pin("trovato-kernel");
+        let mcp = pin("trovato-mcp");
         assert!(sdk.is_some(), "trovato-sdk has no pinned rev in Cargo.toml");
         assert!(
             kernel.is_some(),
@@ -63,6 +65,10 @@ mod tests {
         assert_eq!(
             sdk, kernel,
             "trovato-sdk and trovato-kernel pin different Trovato revisions"
+        );
+        assert_eq!(
+            sdk, mcp,
+            "trovato-sdk and trovato-mcp pin different Trovato revisions"
         );
     }
 }

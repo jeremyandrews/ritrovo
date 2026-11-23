@@ -32,6 +32,10 @@
 # `view ai usage` opens the kernel's AI usage dashboard, /admin/system/ai-budgets:
 # who spent how many tokens on which provider this period. Saving the budgets
 # there needs `configure ai`, which only the administrator holds. docs/AI.md.
+#
+# `use ai assistant` opens the conference assistant from a conference page
+# (`ritrovo_cfp`, scope `ritrovo_conference`, STATUS 31.8). The scope itself
+# also needs `edit any content`, held here; a member holds neither.
 id: 0193a5a0-0002-7000-8000-000000000003
 name: publisher
 created: "2026-01-01T00:00:00Z"
@@ -48,6 +52,7 @@ permissions:
 - administer files
 - administer categories
 - use filtered_html
+- use ai assistant
 - view ai usage
 - use full_html
 - view own profile

@@ -1,0 +1,31 @@
+# Ask Ritrovo (machine_name: ask_ritrovo), sidebar. The kernel's chat widget
+# (STATUS 31.7): a question box that posts to /api/v1/chat and streams the
+# answer back over SSE.
+#
+# Signed-in members only, `roles: [authenticated user]`, the same pseudo-role
+# My Subscriptions uses, so an anonymous visitor gets no tile at all rather than
+# a box that says "please log in". Every member holds `use ai` and `use ai chat`
+# (role.00000000-0000-0000-0000-000000000002.yml); the 20,000-token daily
+# budget in variable.ai_token_budgets.yml caps what each can spend.
+#
+# `config` is empty: the kernel's chat tile takes no settings of its own. What
+# it says, and which content it may read, is variable.ai_chat_config.yml.
+#
+# Not on the admin pages, where a sidebar question box is in the way.
+id: 0193a5a0-0003-7000-8000-000000000009
+machine_name: ask_ritrovo
+label: Ask Ritrovo
+region: sidebar
+tile_type: chat
+config: {}
+visibility:
+  roles:
+  - authenticated user
+  paths_exclude:
+  - /admin*
+weight: -4
+status: 1
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1767225600
+changed: 1795900000

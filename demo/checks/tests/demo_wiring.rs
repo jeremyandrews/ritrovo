@@ -713,11 +713,11 @@ fn kernel_release_is_named_consistently() {
         );
     }
 
-    // Both git dependencies. Cargo cannot read a `rev` out of another file, so
+    // The three git dependencies. Cargo cannot read a `rev` out of another file, so
     // the literal sha in the manifest is unavoidable and this is the only thing
     // holding it to the contract file.
     let manifest = read("Cargo.toml");
-    for dependency in ["trovato-sdk", "trovato-kernel"] {
+    for dependency in ["trovato-sdk", "trovato-kernel", "trovato-mcp"] {
         let line = manifest
             .lines()
             .find(|line| line.starts_with(&format!("{dependency} = ")))

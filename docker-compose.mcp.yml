@@ -1,0 +1,19 @@
+# Publish the demo's Postgres and Redis on loopback, for the kernel's MCP server.
+#
+# `trovato-mcp` runs on your machine, not in the demo, and reads the same
+# database and Redis the demo's kernel does. docker-compose.demo.yml publishes
+# neither, on purpose: the demo needs only its web port. This override adds the
+# two, bound to 127.0.0.1 so nothing beyond this machine can reach them:
+#
+#   docker compose -f docker-compose.demo.yml -f docker-compose.mcp.yml up -d postgres redis
+#
+# Applying it recreates the two containers. The database is on its volume and
+# survives; Redis holds sessions and caches only, so everyone is signed out.
+# docs/AI.md, "The MCP server", has the rest of the steps.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:55433:5432"
+  redis:
+    ports:
+      - "127.0.0.1:56380:6379"
