@@ -644,6 +644,9 @@ pub async fn app() -> &'static App {
         // search answers from, for whom, and that only the stage switch changes
         // it; the honest way is the route a browser calls.
         .merge(trovato_kernel::routes::search::router())
+        // The gather pages, `/gather/{query_id}`. A9b asserts what the
+        // similar-conferences gather answers with no embedding provider.
+        .merge(trovato_kernel::routes::gather::router())
         .merge(trovato_kernel::routes::admin::router())
         .merge(trovato_kernel::routes::plugin_api::build_plugin_api_router(
             &state.menu_registry().all().cloned().collect::<Vec<_>>(),

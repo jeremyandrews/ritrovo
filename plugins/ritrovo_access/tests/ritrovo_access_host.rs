@@ -1763,3 +1763,209 @@ fn a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path() 
         );
     });
 }
+
+/// Ritrovo's field rule (STATUS 31.5) is imported where the kernel's
+/// `trovato_ai` plugin looks for it, and the conference type declares its
+/// target field. The plugin never applies it: it reads the rule with
+/// `WHERE name = $1`, and `site_config`'s column is `key`, so the query fails
+/// and every save goes through with no rule. Pins `FRICTION.md`,
+/// `G-AI-FIELD-RULES-NEVER-LOAD`: the query is read out of the kernel's own
+/// `trovato_ai` source at the pinned rev, so when the kernel fixes it this test
+/// fails, and 31.5 needs its live check and its row changed.
+#[test]
+fn trovato_ai_reads_its_field_rules_from_a_column_site_config_does_not_have() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::import_demo_config(&pool).await;
+
+        let stored = trovato_kernel::models::SiteConfig::get(&pool, "trovato_ai.field_rules")
+            .await
+            .unwrap()
+            .expect("demo/config imported no trovato_ai.field_rules");
+        let rule = &stored["rules"][0];
+        assert_eq!(rule["item_type"], "conference", "{stored}");
+        assert_eq!(rule["source_field"], "field_description", "{stored}");
+        assert_eq!(rule["target_field"], "field_summary", "{stored}");
+        assert_eq!(rule["behavior"], "fill_if_empty", "{stored}");
+        let fields: serde_json::Value = sqlx::query_scalar(
+            "SELECT settings->'fields' FROM item_type WHERE type = 'conference'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            fields
+                .as_array()
+                .is_some_and(|f| f.iter().any(|f| f["field_name"] == "field_summary")),
+            "the conference type has no field_summary: {fields}"
+        );
+
+        let source = std::fs::read_to_string(
+            host::kernel_source_dir().join("plugins/trovato_ai/src/lib.rs"),
+        )
+        .unwrap();
+        let at = source
+            .find("fn load_field_rules")
+            .expect("trovato_ai has no load_field_rules");
+        let call = &source[at..];
+        let start = call
+            .find("query_raw(")
+            .expect("load_field_rules runs no query")
+            + 10;
+        let literal = &call[start..];
+        let open = literal.find('"').unwrap() + 1;
+        let sql = &literal[open..open + literal[open..].find('"').unwrap()];
+        assert!(sql.contains("site_config"), "unexpected query: {sql}");
+
+        let result = sqlx::query(sqlx::AssertSqlSafe(sql.to_string()))
+            .bind("trovato_ai.field_rules")
+            .fetch_all(&pool)
+            .await;
+        let error = match result {
+            Ok(rows) => panic!(
+                "trovato_ai's field-rule query now runs ({} row(s)): \
+                 G-AI-FIELD-RULES-NEVER-LOAD is fixed in the kernel. Run 31.5's live \
+                 check, update its row and FRICTION.md, and turn this test around: {sql}",
+                rows.len()
+            ),
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            error.contains("column \"name\" does not exist"),
+            "the query fails for another reason: {error}"
+        );
+    });
+}
+
+/// Why the search page's AI stages stay off even once the kernel checks a
+/// permission on them: its search AI reads only the first content block of an
+/// Anthropic answer, and Claude Haiku 5.5, Ritrovo's chat model, thinks by
+/// default, so the first block is a thinking block with no text. Expansion
+/// answers 200 with no terms and the summary 200 with an empty summary, though
+/// the provider sent both. Pins `FRICTION.md`,
+/// `G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK`: when the kernel reads the
+/// text blocks, this fails. The stages are switched on here, in the test
+/// database, for this test alone; `demo/config` keeps them off.
+#[test]
+fn the_search_ai_stages_answer_empty_when_the_model_thinks_first() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        let cache = app.state.cache();
+        let mut settings = trovato_kernel::search::SearchSettings::load(&pool, cache).await;
+        settings.expand = true;
+        settings.summarize = true;
+        settings.save(&pool, cache).await.unwrap();
+        ai::set_fake_keys();
+
+        recorder.push(Scripted::ok(ai::anthropic_reply(
+            r#"["rust meetup", "rustconf", "systems programming conference"]"#,
+            40,
+            20,
+        )));
+        recorder.push(Scripted::ok(ai::anthropic_reply(
+            "RustConf Europe in Berlin is the closest match.",
+            80,
+            20,
+        )));
+        let (member, token) = member_session(app).await;
+        let expand = post_json(
+            app,
+            "/api/v1/search/expand",
+            search_ai_body(),
+            &member,
+            &token,
+        )
+        .await;
+        let summary = post_json(
+            app,
+            "/api/v1/search/summarize",
+            search_ai_body(),
+            &member,
+            &token,
+        )
+        .await;
+        ai::unset_keys();
+        settings.expand = false;
+        settings.summarize = false;
+        settings.save(&pool, cache).await.unwrap();
+
+        assert_eq!(
+            recorder.request_count(),
+            2,
+            "the stages did not ask the provider"
+        );
+        assert_eq!(expand.status, 200, "{}", expand.body);
+        let terms: serde_json::Value = serde_json::from_str(&expand.body).unwrap();
+        assert_eq!(
+            terms["terms"],
+            serde_json::json!([]),
+            "expansion now carries the model's terms: the kernel reads past the \
+             thinking block, so G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK is \
+             fixed: {}",
+            expand.body
+        );
+        assert_eq!(summary.status, 200, "{}", summary.body);
+        let summary: serde_json::Value = serde_json::from_str(&summary.body).unwrap();
+        assert_eq!(summary["summary"], "", "{summary}");
+    });
+}
+
+/// The similar-conferences gather (STATUS 31.11) ranks Live conferences by the
+/// kernel's `semantic_similarity` operator on the `q` parameter, with no sort of
+/// its own so the kernel's relevance order stands, and the Postgres it runs on
+/// has pgvector, so the kernel made its embedding table. With no embedding it
+/// can reach, which is CI and every keyless install, the page answers 200 with
+/// no rows and no error. The ranking itself needs a live embedding provider:
+/// the kernel refuses a loopback one on this path and its scripted provider
+/// serves no embeddings (`FRICTION.md`, `G-EMBEDDINGS-HAVE-NO-TEST-PROVIDER`).
+#[test]
+fn similar_conferences_ranks_live_conferences_by_q_and_is_empty_without_embeddings() {
+    serial(async {
+        let (app, pool, _recorder) = ai_app().await;
+        let definition: serde_json::Value = sqlx::query_scalar(
+            "SELECT definition FROM gather_query WHERE query_id = 'ritrovo.similar_conferences'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap()
+        .expect("demo/config imported no ritrovo.similar_conferences");
+        assert_eq!(definition["item_type"], "conference", "{definition}");
+        assert_eq!(definition["stage_aware"], true, "{definition}");
+        assert_eq!(definition["sorts"], serde_json::json!([]), "{definition}");
+        let filters = definition["filters"].as_array().unwrap();
+        assert_eq!(filters.len(), 1, "{definition}");
+        assert_eq!(
+            filters[0]["operator"], "semantic_similarity",
+            "{definition}"
+        );
+        assert_eq!(
+            filters[0]["value"],
+            serde_json::json!({"url_arg": "q"}),
+            "{definition}"
+        );
+
+        let table: Option<String> =
+            sqlx::query_scalar("SELECT to_regclass('item_embeddings')::text")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            table.as_deref(),
+            Some("item_embeddings"),
+            "no item_embeddings table: the test Postgres has no pgvector"
+        );
+
+        for query in ["?q=rust+conferences+in+europe", ""] {
+            let page = app
+                .get(&format!("/gather/ritrovo.similar_conferences{query}"), "")
+                .await;
+            assert_eq!(page.status, 200, "{query}: {}", page.body);
+            assert!(
+                page.body.contains("No similar conferences found."),
+                "{query}: {}",
+                page.body
+            );
+            assert!(!page.body.contains("card--conf"), "{query}: {}", page.body);
+        }
+    });
+}
