@@ -91,6 +91,13 @@ limit or a record. `variable.search.yml` switches all three off; each then
 answers 404 before any provider work. `FRICTION.md`,
 `G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`.
 
+A change to `variable.search.yml` imported into a running site takes up to five
+minutes to apply: the kernel caches the search settings and `config import`
+does not drop the cached copy (`G-CONFIG-IMPORT-LEAVES-SEARCH-SETTINGS-CACHED`).
+Saving the search settings form at `/admin/config/search` applies it at once.
+The demo's bootstrap keeps every outside request away until its imports are
+done, so the stages are off from the first request.
+
 ## With no key
 
 Which is CI, the public demo workflow, the nightly run against the kernel's

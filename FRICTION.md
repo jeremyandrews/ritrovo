@@ -85,12 +85,14 @@ says are addressed, and which Ritrovo has not built on, are listed in
 buildable and not built; they are not marked fixed here, because nothing in this
 repository has exercised them.
 
-**A9b, 2026-11-23, same revision.** The AI rows. Five new entries, found switching
+**A9b, 2026-11-23, same revision.** The AI rows. Six new entries, found switching
 the kernel's AI features on through configuration: `G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`
 (High: the AI search endpoints spend the site's tokens for any visitor, unmetered,
 so Ritrovo keeps them off), `G-AI-RATE-LIMITS-ARE-NOT-PER-ROLE`,
-`G-AI-REQUESTS-SENT-WITHOUT-A-KEY`, `G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED`
-and `G-AI-ADMIN-HAS-NO-FEATURES-RULES-OR-RATE-LIMIT-SCREENS`.
+`G-AI-REQUESTS-SENT-WITHOUT-A-KEY`, `G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED`,
+`G-AI-ADMIN-HAS-NO-FEATURES-RULES-OR-RATE-LIMIT-SCREENS` and
+`G-CONFIG-IMPORT-LEAVES-SEARCH-SETTINGS-CACHED` (Medium: an imported search setting
+waits out a five-minute cache).
 
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
@@ -2550,6 +2552,37 @@ per-role view, no time range and no request log, although every row of
 
 **Recommendation.** A cost column and a request log on the usage screen, from the
 rows already written; a field rules list; or drop those tabs from the brief.
+
+### G-CONFIG-IMPORT-LEAVES-SEARCH-SETTINGS-CACHED: **[Medium, NEW]** importing `variable.search.yml` does not drop the cached search settings, so the old ones stay in force for up to five minutes
+
+Found at `81290cc` (A9b), when the Demo workflow saw the search AI stages answer
+503 instead of 404. `SearchSettings::load` keeps the settings in Redis under
+`search_settings` for 300 seconds (`crates/kernel/src/search/settings.rs:32-35`,
+`:295-320`). `SearchSettings::save`, the admin form's path, drops that entry
+(`:353`). `config import` writes the `search` variable with
+`save_variable` (`crates/kernel/src/config_storage/direct.rs:524-541`), which bumps
+the `SiteConfig` cache generation, and that generation clears only the
+in-memory front page (`crates/kernel/src/state.rs:1407`), never the Redis entry.
+Anything that read the settings before the import keeps the old ones, here the
+defaults with every AI stage on, until the entry expires. With a key set, that
+is up to five minutes in which any visitor's search spends the site's tokens
+(`G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`).
+
+In the demo the reader was cron. The bootstrap started temporary servers on the
+published port before the import, the cron poker reached them as soon as
+`/health` answered, and a cron run read the settings (`crates/kernel/src/cron/mod.rs:1184`).
+
+**What Ritrovo does.** `scripts/demo-bootstrap.sh` runs every server before the
+last on a private port, so nothing outside the container reaches the kernel
+until every import is done (`demo/checks/tests/bootstrap_port.rs`). An install
+that imports `variable.search.yml` into a running site still waits out the
+five minutes, or saves the search settings form once.
+
+**Blocks.** Nothing.
+
+**Recommendation.** Have `save_variable` drop `search_settings` when the key is
+`search`, or have the `SiteConfig` generation clear the Redis entries derived
+from `site_config` as well as the front page.
 
 ## No-friction findings (surfaces that just worked)
 
