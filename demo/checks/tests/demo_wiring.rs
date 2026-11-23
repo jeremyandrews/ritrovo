@@ -116,9 +116,9 @@ impl KernelRelease {
         );
 
         if let Some(image) = &nightly_image {
-            let short = image.strip_prefix("nightly-").unwrap_or_else(|| {
-                panic!("{CONTRACT} image {image:?} is not a nightly-<sha> tag")
-            });
+            let short = image
+                .strip_prefix("nightly-")
+                .unwrap_or_else(|| panic!("{CONTRACT} image {image:?} is not a nightly-<sha> tag"));
             assert!(
                 short.len() >= 7 && rev.starts_with(short),
                 "{CONTRACT} image {image:?} is not the nightly of rev {rev}"
@@ -771,11 +771,7 @@ fn kernel_release_is_named_consistently() {
     // somewhere in the file". A dated sentence about a release the pin has since
     // moved past is history and is correct forever; only what is inside the
     // markers is a live value, and only that is asserted.
-    for (doc, block) in [
-        ("README.md", "pin"),
-        ("docs/INSTALL.md", "image"),
-        ("docs/INSTALL.md", "api"),
-    ] {
+    for (doc, block) in [("README.md", "pin"), ("docs/INSTALL.md", "api")] {
         let body = read(doc);
         let generated = marker_block(&body, block, doc);
         assert!(
@@ -784,6 +780,14 @@ fn kernel_release_is_named_consistently() {
             release.version
         );
     }
+    // The image block names the image, which for a nightly pin carries the
+    // commit rather than the version.
+    let image = marker_block(&read("docs/INSTALL.md"), "image", "docs/INSTALL.md");
+    assert!(
+        image.contains(&release.image()),
+        "the kernel-release:image block in docs/INSTALL.md does not name {}; {fix}",
+        release.image()
+    );
     let pin = marker_block(&read("README.md"), "pin", "README.md");
     for value in [release.source(), release.rev.clone(), release.image()] {
         assert!(

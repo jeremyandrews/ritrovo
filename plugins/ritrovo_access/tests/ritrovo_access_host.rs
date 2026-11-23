@@ -212,8 +212,8 @@ fn incoming_and_curated_conferences_are_gated_by_permission() {
 /// likely to be false, since none of the permissions the brief names can be
 /// granted to any role at all (`G-PERM-TAP-NOT-DISPATCHED`).
 ///
-/// So this one imports `demo/config`, lets `tap_install` create the three
-/// editorial users with their real roles, and resolves each viewer's permissions
+/// So this one imports `demo/config`, creates the three editorial users with
+/// their real roles as the demo bootstrap does, and resolves each viewer's permissions
 /// the way a request does. If a role file stops granting what the plugin reads,
 /// or the substitution drifts, this fails and the other suite still passes.
 #[test]
@@ -224,19 +224,9 @@ fn the_real_roles_grant_what_the_editorial_workflow_needs() {
         host::install_and_enable(&pool, PLUGIN).await.unwrap();
         host::import_demo_config(&pool).await;
 
-        // tap_install is what creates editor_alice, publisher_bob and
-        // viewer_carol, active and with roles. Dispatch it here rather than
-        // inserting users by hand, so this also covers that it works.
-        host::dispatch(
-            &pool,
-            &host::dispatcher(PLUGIN),
-            PLUGIN,
-            "tap_install",
-            "{}",
-            UserContext::background(),
-            host::offline_client(),
-        )
-        .await;
+        // editor_alice, publisher_bob and viewer_carol, active and with
+        // their real roles, made as the demo bootstrap makes them.
+        host::create_demo_users(&pool).await;
 
         sqlx::query("DELETE FROM item WHERE type = 'conference'")
             .execute(&pool)
@@ -355,16 +345,9 @@ fn editor_notes_is_stripped_from_the_item_a_reader_is_given() {
         host::uninstall(&pool, PLUGIN).await;
         host::install_and_enable(&pool, PLUGIN).await.unwrap();
         host::import_demo_config(&pool).await;
-        host::dispatch(
-            &pool,
-            &host::dispatcher(PLUGIN),
-            PLUGIN,
-            "tap_install",
-            "{}",
-            UserContext::background(),
-            host::offline_client(),
-        )
-        .await;
+        // editor_alice, publisher_bob and viewer_carol, active and with
+        // their real roles, made as the demo bootstrap makes them.
+        host::create_demo_users(&pool).await;
 
         sqlx::query("DELETE FROM item WHERE type = 'conference'")
             .execute(&pool)

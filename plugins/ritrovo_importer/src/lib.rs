@@ -112,13 +112,9 @@ const TOPICS_CATEGORY_ID: &str = "topics";
 ///
 /// Imports used to land on Live, which meant nothing was ever reviewed and the
 /// brief's editorial pipeline had no input. They land here instead, and an
-/// editor promotes them. The kernel cannot do this itself: no route, form,
-/// bulk action or host call sets an item's stage, and `item-api`'s `save-item`
-/// hardcodes `stage_id: None` on create, which `Item::create` resolves to Live
-/// (`G-NO-ITEM-STAGE-TRANSITION`). The importer can only do it because it
-/// writes its own INSERT through the raw-SQL host call, where the column is
-/// just a column. A conference submitted through a form still lands on Live,
-/// for exactly the reason this comment exists.
+/// editor promotes them. `save-item` takes a stage since the kernel's 0.107
+/// line, but cannot be called from the queue worker (see [`insert_conference`]),
+/// so the importer writes the column in its own INSERT.
 const INCOMING_STAGE_UUID: &str = "0193a5a0-0000-7000-8000-000000000002";
 
 /// State key prefix for topic term UUIDs: `"topic_term.{term_slug}"`.
@@ -1351,9 +1347,23 @@ fn detect_language(locales: Option<&str>) -> (String, bool) {
 /// is `internal`, whatever its status. Promotion to Live is what makes it
 /// public, and that is an editor's act, on the editorial screen.
 ///
-/// The ON CONFLICT branch deliberately does NOT touch `stage_id`: a re-import
-/// refreshes a conference's source-derived fields, and must never drag an item
-/// an editor has already promoted back to Incoming.
+/// A raw INSERT, and the only item write in this plugin that is. It would be
+/// `host::save_item`, which since the kernel's 0.107 line takes a stage and
+/// goes through the item service (taps, revision, pathauto, cache), but the
+/// kernel's queue worker dispatches with services that carry no item service,
+/// so every `item-api` call from `tap_queue_worker` fails with
+/// `ERR_NO_SERVICES` whatever the manifest declares (FRICTION.md,
+/// G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE). It was an `INSERT ... ON
+/// CONFLICT ((fields->>'field_source_id'))` upsert; the kernel's raw-SQL guard
+/// cannot parse an index-expression conflict target and refuses it
+/// (G-SQL-GUARD-REFUSES-INDEX-EXPRESSION-CONFLICT-TARGET), so the conflict is
+/// handled here instead.
+///
+/// The unique index on `field_source_id` still refuses a second copy of a
+/// conference two workers insert at once. This recovers the way the upsert
+/// did: it finds the row that won and merges into it through
+/// [`update_conference`], which deliberately does NOT touch the stage, so a
+/// re-import never drags an item an editor has promoted back to Incoming.
 ///
 /// This plugin does not define the `conference` type it writes. The type, its
 /// fields and their types are Ritrovo's, in `demo/config/item_type.conference.yml`,
@@ -1388,10 +1398,6 @@ fn insert_conference(
     let topics: Vec<String> = topic_uuid.map(|u| vec![u.to_string()]).unwrap_or_default();
     let fields = build_source_fields(conf, source_id, &topics);
 
-    // Use an upsert so that concurrent queue workers processing different topic
-    // files don't create duplicate conference items.  On conflict, source-derived
-    // fields are refreshed and `field_topics` is merged (SQL-side UNION dedup)
-    // so both the existing and incoming topic UUIDs are preserved.
     let result = host::execute_raw(
         "INSERT INTO item (id, type, title, status, author_id, stage_id, created, changed, fields, language) \
          VALUES (\
@@ -1408,27 +1414,7 @@ fn insert_conference(
              (SELECT id FROM language WHERE id = $4::jsonb->>'field_language'), \
              (SELECT id FROM language WHERE is_default ORDER BY weight LIMIT 1), \
              'en')\
-         ) \
-         ON CONFLICT ((fields->>'field_source_id')) \
-         WHERE type = 'conference' \
-           AND fields->>'field_source_id' IS NOT NULL \
-           AND fields->>'field_source_id' != '' \
-         DO UPDATE SET \
-           title    = EXCLUDED.title, \
-           changed  = EXCLUDED.changed, \
-           language = EXCLUDED.language, \
-           fields  = item.fields \
-                  || (EXCLUDED.fields - 'field_topics') \
-                  || jsonb_build_object(\
-                       'field_topics', \
-                       (SELECT COALESCE(jsonb_agg(t ORDER BY t), '[]'::jsonb) \
-                        FROM (\
-                          SELECT jsonb_array_elements_text(item.fields->'field_topics') \
-                          UNION \
-                          SELECT jsonb_array_elements_text(EXCLUDED.fields->'field_topics') \
-                        ) u(t)\
-                       )\
-                     )",
+         )",
         &[
             serde_json::json!(conf.name),
             serde_json::json!(INCOMING_STAGE_UUID),
@@ -1437,7 +1423,51 @@ fn insert_conference(
         ],
     );
 
-    matches!(result, Ok(1))
+    match result {
+        Ok(1) => true,
+        Ok(_) => false,
+        Err(code) => {
+            // Another worker may have landed the same conference since this
+            // batch read the existing ones; the unique index refused this copy.
+            if let Some(existing) = find_conference(source_id) {
+                let merged = merge_topics(&existing.topics, topic_uuid);
+                return update_conference(&existing.item_id, conf, source_id, &merged, now);
+            }
+            host::log(
+                "error",
+                PLUGIN_NAME,
+                &format!("could not insert '{}': host error {code}", conf.name),
+            );
+            false
+        }
+    }
+}
+
+/// One conference by its dedup key, as [`load_existing_conferences`] reads them.
+fn find_conference(source_id: &str) -> Option<ExistingConference> {
+    let json = host::query_raw(
+        "SELECT id, fields->'field_topics' AS topics \
+         FROM item \
+         WHERE type = 'conference' AND fields->>'field_source_id' = $1 \
+         LIMIT 1",
+        &[serde_json::json!(source_id)],
+    )
+    .ok()?;
+    let rows: Vec<serde_json::Value> = serde_json::from_str(&json).ok()?;
+    let row = rows.first()?;
+    Some(ExistingConference {
+        item_id: row.get("id")?.as_str()?.to_string(),
+        topics: row
+            .get("topics")
+            .and_then(serde_json::Value::as_array)
+            .map(|topics| {
+                topics
+                    .iter()
+                    .filter_map(|t| t.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
 }
 
 /// Update an existing conference with fresh data from the source.

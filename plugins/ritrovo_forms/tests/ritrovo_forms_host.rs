@@ -60,7 +60,7 @@ fn the_migration_runs_and_creates_the_profile_table() {
         let pool = host::fresh_pool().await;
         host::uninstall(&pool, PLUGIN).await;
         for table in ["ritrovo_profile", "ritrovo_form_state"] {
-            sqlx::query(&format!("DROP TABLE IF EXISTS {table}"))
+            sqlx::query(sqlx::AssertSqlSafe(format!("DROP TABLE IF EXISTS {table}")))
                 .execute(&pool)
                 .await
                 .unwrap();

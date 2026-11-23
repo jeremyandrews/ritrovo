@@ -1,5 +1,13 @@
 # Editorial workflow transition graph
 # Defines allowed stage transitions and required permissions
+#
+# The kernel enforces this graph (a user moves an item between stages only when
+# a transition names that pair with a permission they hold) and `config import`
+# refuses a transition naming a permission it cannot find. The publishing
+# transitions therefore name the kernel's `publish content`, which the publisher
+# role holds, rather than ritrovo_access's `publish conferences`: that one is
+# declared by a plugin the demo enables only after this set is imported, so the
+# import would refuse it.
 key: workflow.editorial
 value:
   transitions:
@@ -9,11 +17,11 @@ value:
       label: "Promote to Curated"
     - from: curated
       to: live
-      permission: "publish conferences"
+      permission: "publish content"
       label: "Publish"
     - from: live
       to: curated
-      permission: "publish conferences"
+      permission: "publish content"
       label: "Unpublish to Curated"
     - from: curated
       to: incoming

@@ -273,17 +273,37 @@ fn topic_cloud() -> Option<String> {
 /// items, with who wrote them and where, linked to the comment itself. Markup
 /// in a comment body is stripped, then the text escaped; a tile is no place for
 /// a commenter's formatting.
+///
+/// The authors' names come from the kernel's user directory
+/// (`host::load_users`, the manifest's `user_directory`): `users` is a table no
+/// plugin may read since the kernel's 0.107 line, which is right, and the
+/// directory answers a name without anything else about the account.
 fn recent_comments() -> Option<String> {
     let sql = format!(
-        "SELECT c.id::text AS id, c.item_id::text AS item_id, i.title, u.name AS author, \
+        "SELECT c.id::text AS id, c.item_id::text AS item_id, i.title, \
+                c.author_id::text AS author_id, \
                 left(regexp_replace(c.body, '<[^>]*>', '', 'g'), 140) AS excerpt \
            FROM comment c \
            JOIN item i ON i.id = c.item_id \
-           JOIN users u ON u.id = c.author_id \
           WHERE c.status = 1 AND i.status = 1 AND i.stage_id = '{LIVE}' \
           ORDER BY c.created DESC, c.id LIMIT 5"
     );
     let found = rows(&sql)?;
+    let author_ids: Vec<String> = found.iter().map(|row| text(row, "author_id")).collect();
+    let author_refs: Vec<&str> = author_ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| uuid(id).is_some())
+        .collect();
+    let authors: std::collections::HashMap<String, String> = if author_refs.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        host::load_users(&author_refs)
+            .ok()?
+            .into_iter()
+            .map(|user| (user.id, user.name))
+            .collect()
+    };
     let mut html = String::new();
     if found.is_empty() {
         html.push_str("<p class=\"tile-list__empty\">No comments yet.</p>");
@@ -299,7 +319,9 @@ fn recent_comments() -> Option<String> {
             "<li class=\"tile-list__item\"><a href=\"/item/{item}#comment-{id}\">{}</a>\
              <span class=\"tile-list__detail\">{} on {}</span></li>",
             esc(text(row, "excerpt").trim()),
-            esc(&text(row, "author")),
+            esc(authors
+                .get(&text(row, "author_id"))
+                .map_or("Anonymous", String::as_str)),
             esc(&text(row, "title")),
         ));
     }

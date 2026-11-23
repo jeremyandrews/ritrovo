@@ -324,6 +324,7 @@ fn the_queue_lists_what_needs_translating_and_drops_what_the_kernel_saved() {
                 "it",
                 "Giornata del software libero",
                 &serde_json::json!({}),
+                &UserContext::background(),
             )
             .await
             .unwrap();

@@ -17,8 +17,6 @@ implements = [
     "tap_api",
     # The demo seed: one-shot editorial state so the public site is not empty.
     "tap_cron",
-    # Activates the demo editorial users and assigns their roles.
-    "tap_install",
 ]
 weight = 0
 

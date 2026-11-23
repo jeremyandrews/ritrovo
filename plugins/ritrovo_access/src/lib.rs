@@ -83,7 +83,15 @@ const EDITOR_PERMISSIONS: &[&str] = &["edit conferences", "edit any content"];
 /// separates the publisher role from the editor role, and it is a stand-in
 /// rather than an equivalent. The editorial screen says so where it matters, on
 /// the control it gates.
-const PUBLISHER_PERMISSIONS: &[&str] = &["publish conferences", "delete any content"];
+///
+/// The kernel now has `publish content`, which its editorial workflow requires for
+/// the curated <-> live transitions; the publisher role holds it, so it is
+/// accepted here too.
+const PUBLISHER_PERMISSIONS: &[&str] = &[
+    "publish conferences",
+    "publish content",
+    "delete any content",
+];
 
 /// The administrator's permission.
 ///
@@ -805,146 +813,11 @@ const CHANGED_NOW: &str = "extract(epoch from now())::bigint";
 
 // ═══ The demo's editorial users ══════════════════════════════════════
 
-/// The demo's editorial users: name, role, email, and password hash.
-///
-/// # These passwords are published on purpose
-///
-/// The point of these three accounts is that a reader logs in as each one and
-/// sees a different site, so the credentials are in `docs/EDITORIAL.md` next to
-/// the walkthrough that uses them. They are:
-///
-/// | user | password | role |
-/// | :- | :- | :- |
-/// | `editor_alice` | `ritrovo-editor-demo` | editor |
-/// | `publisher_bob` | `ritrovo-publisher-demo` | publisher |
-/// | `viewer_carol` | `ritrovo-viewer-demo` | viewer |
-///
-/// The hashes are Argon2id, RFC 9106's second recommended parameter set
-/// (m=65536, t=3, p=4), the same the kernel hashes with. The kernel verifies by
-/// parsing the PHC string, so these verify exactly as a hash it wrote would.
-///
-/// # Why the hashes are here rather than registered
-///
-/// The brief's recipe is to create these through the registration form and then
-/// activate them by SQL, and that is what this did first. It does not work: the
-/// kernel counts one registration against the rate limit TWICE, once in the
-/// middleware and once in the handler, so a limit of three per hour admits ONE
-/// account per hour and the second POST is refused on a completely clean
-/// install. Verified on a fresh stack: the first registration succeeds, the
-/// second is refused by the handler, the third by the middleware, each with a
-/// different error shape. `FRICTION.md`, `G-RATE-LIMIT-COUNTED-TWICE`.
-///
-/// Creating the rows here needs no HTTP, no ordering against the registration
-/// setting, and no second server start. A reader who wants to see registration
-/// itself registers a fourth account by hand; `docs/EDITORIAL.md` says so, and
-/// says that only one will succeed per hour and why.
-const DEMO_USERS: &[DemoUser] = &[
-    DemoUser {
-        name: "editor_alice",
-        role: "editor",
-        mail: "editor_alice@ritrovo.example",
-        pass: "$argon2id$v=19$m=65536,t=3,p=4$tJH+13r6X0ydF13JMlUrng$\
-               BazcHjuGCcQkPkOS401WbT/ILJ0afd2nS0KIrVg2PMw",
-    },
-    DemoUser {
-        name: "publisher_bob",
-        role: "publisher",
-        mail: "publisher_bob@ritrovo.example",
-        pass: "$argon2id$v=19$m=65536,t=3,p=4$BhDJHybsUah4eDEPrqAnPw$\
-               yBTn/f9IOdyxQ2Kuof8ee/xVMLvhNLdhShl/nLfKQuo",
-    },
-    DemoUser {
-        name: "viewer_carol",
-        role: "viewer",
-        mail: "viewer_carol@ritrovo.example",
-        pass: "$argon2id$v=19$m=65536,t=3,p=4$5Hs4HMy86IllRQuOVfhBQA$\
-               otVfNkDz09huegk3fTpuNBN8dbAJd1dzYE2o7iZmQfs",
-    },
-];
-
-/// One of the demo's editorial users.
-struct DemoUser {
-    name: &'static str,
-    role: &'static str,
-    mail: &'static str,
-    pass: &'static str,
-}
-
-/// Create the demo's editorial users, active, with their roles.
-///
-/// # Why a plugin does this
-///
-/// The kernel has no route and no CLI that creates an active user with a role.
-/// Registration creates one with `status = 0` and no role, there is no admin UI
-/// for user-to-role assignment, and `trovato user` has a single subcommand,
-/// `reset-password`. The brief says as much itself ("Role assignment via SQL").
-/// This is that SQL, in the one place in Ritrovo that can run it.
-///
-/// # Why `tap_install`
-///
-/// It fires on the first server start after the plugin is enabled, which is the
-/// last step of `scripts/demo-bootstrap.sh`, so the three accounts work the
-/// moment the demo is up. Cron would leave them unusable for an interval, and
-/// nothing else runs later: the bootstrap's last line is an `exec`.
-///
-/// Idempotent three times over: the insert is conditional on the name not
-/// existing, the role insert is `ON CONFLICT DO NOTHING`, and `tap_install`
-/// itself fires once per install.
-#[plugin_tap]
-pub fn tap_install() -> serde_json::Value {
-    let mut created = 0u64;
-    let mut assigned = 0u64;
-
-    for user in DEMO_USERS {
-        // `status = 1` and no verification row: these accounts exist to be
-        // logged into. A user created here skips the email verification a
-        // registered user would wait for, which is the point of creating them
-        // here rather than registering them.
-        match host::execute_raw(
-            "INSERT INTO users (id, name, pass, mail, status, is_admin) \
-             SELECT gen_random_uuid(), $1, $2, $3, 1, false \
-             WHERE NOT EXISTS (SELECT 1 FROM users WHERE lower(name) = lower($1))",
-            &[
-                serde_json::json!(user.name),
-                serde_json::json!(user.pass),
-                serde_json::json!(user.mail),
-            ],
-        ) {
-            Ok(count) => created += count,
-            Err(code) => host::log(
-                "error",
-                "ritrovo_access",
-                &format!("could not create {}: host error {code}", user.name),
-            ),
-        }
-
-        match host::execute_raw(
-            "INSERT INTO user_roles (user_id, role_id) \
-             SELECT u.id, r.id FROM users u, roles r \
-             WHERE u.name = $1 AND r.name = $2 \
-             ON CONFLICT (user_id, role_id) DO NOTHING",
-            &[serde_json::json!(user.name), serde_json::json!(user.role)],
-        ) {
-            Ok(count) => assigned += count,
-            Err(code) => host::log(
-                "error",
-                "ritrovo_access",
-                &format!(
-                    "could not give {} the {} role: host error {code}",
-                    user.name, user.role
-                ),
-            ),
-        }
-    }
-
-    host::log(
-        "info",
-        "ritrovo_access",
-        &format!("demo editorial users: {created} created, {assigned} role(s) assigned"),
-    );
-
-    serde_json::json!({"created": created, "roles_assigned": assigned})
-}
+// The demo's editorial users (editor_alice, publisher_bob, viewer_carol) used to
+// be created here, by `tap_install`, with raw SQL into `users` and `user_roles`.
+// The kernel protects both tables from every plugin since its 0.107 line, so
+// `scripts/demo-bootstrap.sh` creates them through the kernel's own user service
+// instead (the administrator's "Add user" form and `trovato user role-add`).
 
 // ═══ The demo seed ═══════════════════════════════════════════════════
 

@@ -33,7 +33,12 @@ files = [
 # exactly the host interfaces named here (plus baseline WASI). Derived from
 # the compiled .wasm import section.
 [capabilities]
-host_interfaces = ["db", "http", "logging", "queue"]
+host_interfaces = ["db", "http", "logging", "queue", "user-api"]
+
+# `user-api` with the user directory, for one thing: the recent-comments tile
+# names each comment's author, and `users` is a table no plugin may read.
+user_directory = true
+
 # Uses the raw-SQL host functions (query-raw/execute-raw). WASM-2 field
 # (declared now, enforced later); inert under WASM-1.
 raw_sql = true
