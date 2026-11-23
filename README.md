@@ -227,7 +227,7 @@ Two layers, and CI runs both on every push (`.github/workflows/ci.yml`):
 
 ```bash
 docker run -d --name ritrovo-test-pg -p 127.0.0.1:55432:5432 \
-  -e POSTGRES_USER=trovato -e POSTGRES_PASSWORD=trovato -e POSTGRES_DB=trovato postgres:17
+  -e POSTGRES_USER=trovato -e POSTGRES_PASSWORD=trovato -e POSTGRES_DB=trovato pgvector/pgvector:pg17
 docker run -d --name ritrovo-test-redis -p 127.0.0.1:56379:6379 redis:7-alpine
 
 cargo build --target wasm32-wasip1 --release && scripts/assemble-overlay.sh

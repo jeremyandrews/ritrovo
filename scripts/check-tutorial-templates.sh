@@ -103,6 +103,10 @@ UPDATE=0
 #       conference. The last two render the brief's tile gathers through their own
 #       routes, because the tiles themselves render nothing on this kernel.
 #
+#   gather/query--ritrovo.similar_conferences.html
+#       New here and absent from the release: the similar-conferences gather
+#       (STATUS 31.11), with its query form.
+#
 #   page.html
 #       Not in the release's tutorial set; it overrides the kernel's own
 #       templates/page.html, from which it starts. It links ritrovo.css and renders
@@ -146,6 +150,7 @@ gather/query--ritrovo.by_city.html
 gather/query--ritrovo.conferences_this_month.html
 gather/query--ritrovo.cfps_closing_soon.html
 page--admin--content--translations.html
+gather/query--ritrovo.similar_conferences.html
 "
 
 is_owned() {

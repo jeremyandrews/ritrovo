@@ -157,6 +157,10 @@
     </div>
     {% endif %}
 
+    {# The AI summary (STATUS 31.5), plain text and escaped, when there is one. #}
+    {% if item.fields.field_summary is defined and item.fields.field_summary is string and item.fields.field_summary | trim %}
+    <p class="conf-detail__summary">{{ item.fields.field_summary | trim }}</p>
+    {% endif %}
     {# Render the description only when it renders to something. A Blocks field
        saved through the admin form with no blocks in it comes back as the STRING
        "[]" rather than an empty array, and printing that put a literal [] on the
@@ -208,6 +212,8 @@
         {% if safe_urls.field_cfp_url is defined and safe_urls.field_cfp_url %}
         <a href="{{ safe_urls.field_cfp_url }}" class="conf-detail__link conf-detail__link--cfp" target="_blank" rel="noopener noreferrer">Submit a Talk &nearr;</a>
         {% endif %}
+        {# Conferences close to this one in meaning (STATUS 31.11). #}
+        <a href="/conferences/similar?q={{ item.title | urlencode }}" class="conf-detail__link conf-detail__link--similar">Similar conferences</a>
     </div>
 
     {% if item.fields.field_cfp_end_date %}

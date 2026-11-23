@@ -1610,6 +1610,7 @@ fi
 # Both providers, by their variable names, each shown only as set or not set.
 providers_page="$(curl -s -b "$JAR" "$BASE/admin/system/ai-providers")"
 anthropic_key_state=""
+openai_key_state=""
 for env in RITROVO_ANTHROPIC_API_KEY RITROVO_OPENAI_API_KEY; do
     state="$(printf '%s' "$providers_page" | grep -o "$env ([a-z ]*)" | head -1)"
     case "$state" in
@@ -1617,6 +1618,7 @@ for env in RITROVO_ANTHROPIC_API_KEY RITROVO_OPENAI_API_KEY; do
         *) bad "the providers screen does not show $env as set or not set" ;;
     esac
     [ "$env" = RITROVO_ANTHROPIC_API_KEY ] && anthropic_key_state="$state"
+    [ "$env" = RITROVO_OPENAI_API_KEY ] && openai_key_state="$state"
 done
 if printf '%s' "$providers_page" | grep -Eq 'sk-(ant-)?[A-Za-z0-9_-]{16,}'; then
     bad "the providers screen contains something shaped like a key"
@@ -1660,6 +1662,38 @@ if [ "$anthropic_key_state" = "RITROVO_ANTHROPIC_API_KEY (not set)" ]; then
     esac
 else
     note "a member's chat is not exercised here while a key is set: it would spend tokens"
+fi
+
+# Similar conferences (STATUS 31.11): the kernel's semantic_similarity gather
+# over pgvector. The demo's Postgres carries pgvector, so the kernel made its
+# embedding table; every conference page links to the page (the main menu's link
+# is checked with the others); and
+# with no OpenAI key the page answers with no rows and no error. With a key each
+# request is an embedding call, so the rows are not checked here.
+if [ "$(sql "select to_regclass('item_embeddings') is not null")" = "t" ]; then
+    ok "the demo Postgres has pgvector: the kernel made item_embeddings"
+else
+    bad "no item_embeddings table: the demo Postgres has no pgvector"
+fi
+similar_from="$(sql "select id from item where type='conference' and stage_id='0193a5a0-0000-7000-8000-000000000001' order by title limit 1")"
+if curl -s "$BASE/item/$similar_from" | grep -q 'href="/conferences/similar?q='; then
+    ok "a conference page links to its similar conferences"
+else
+    bad "the conference page /item/$similar_from has no similar-conferences link"
+fi
+similar="$(curl -s -w ' %{http_code}' "$BASE/conferences/similar?q=rust+conferences+in+europe")"
+case "$similar" in
+    *" 200") ok "/conferences/similar?q=... answers 200" ;;
+    *) bad "/conferences/similar?q=... answered ${similar##* }, expected 200" ;;
+esac
+if [ "$openai_key_state" = "RITROVO_OPENAI_API_KEY (not set)" ]; then
+    if [[ "$similar" == *"No similar conferences found."* ]] && [[ "$similar" != *card--conf* ]]; then
+        ok "with no OpenAI key, similar conferences shows no rows and no error"
+    else
+        bad "with no OpenAI key, similar conferences did not show its empty text"
+    fi
+else
+    note "similar conferences' rows are not checked while a key is set: each request is an embedding call"
 fi
 
 

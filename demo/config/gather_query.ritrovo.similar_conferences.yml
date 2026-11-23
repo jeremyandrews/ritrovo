@@ -1,0 +1,44 @@
+# Conferences ranked by meaning (STATUS 31.11): the kernel's semantic_similarity
+# operator on the `q` query parameter, Live conferences only for a visitor.
+#
+# The kernel embeds `q` with the embedding provider (variable.ai_defaults.yml,
+# OpenAI text-embedding-3-small) on every request, searches the pgvector store
+# for the nearest conference embeddings, and orders the rows by that distance,
+# because the gather declares no sort of its own. The embeddings come from the
+# kernel's backfill, /admin/embed/backfill, drained by cron: the importer writes
+# conferences by raw SQL, so no save ever queues one
+# (G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE).
+#
+# With no `q`, no key, no provider or no pgvector the kernel answers with no rows
+# and no error, and the page says so. Each query is one unmetered embedding call
+# for any visitor (FRICTION.md, G-EMBEDDINGS-BYPASS-BUDGETS-AND-THE-USAGE-LOG).
+query_id: ritrovo.similar_conferences
+label: Similar Conferences
+description: Live conferences ranked by how close their text is to a query
+definition:
+  base_table: item
+  fields: []
+  filters:
+  - exposed: false
+    exposed_label: null
+    field: id
+    operator: semantic_similarity
+    value:
+      url_arg: q
+  includes: {}
+  item_type: conference
+  relationships: []
+  sorts: []
+  stage_aware: true
+display:
+  canonical_url: /conferences/similar
+  empty_text: No similar conferences found.
+  footer: null
+  format: table
+  header: null
+  items_per_page: 10
+  pager:
+    enabled: true
+    show_count: false
+    style: full
+plugin: ritrovo_importer

@@ -94,6 +94,11 @@ so Ritrovo keeps them off), `G-AI-RATE-LIMITS-ARE-NOT-PER-ROLE`,
 `G-CONFIG-IMPORT-LEAVES-SEARCH-SETTINGS-CACHED` (Medium: an imported search setting
 waits out a five-minute cache).
 
+**A9b, second part (search, enrichment and vectors).** Four more:
+`G-AI-FIELD-RULES-NEVER-LOAD` (High: `trovato_ai` queries a column `site_config`
+does not have, so no field rule runs), `G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK`,
+`G-EMBEDDINGS-BYPASS-BUDGETS-AND-THE-USAGE-LOG` and `G-EMBEDDINGS-HAVE-NO-TEST-PROVIDER`.
+
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
 findings were surfaced by this repository; **RESIDUAL** ones are re-confirmed
@@ -2583,6 +2588,111 @@ five minutes, or saves the search settings form once.
 **Recommendation.** Have `save_variable` drop `search_settings` when the key is
 `search`, or have the `SiteConfig` generation clear the Redis entries derived
 from `site_config` as well as the front page.
+
+### G-AI-FIELD-RULES-NEVER-LOAD: **[High, NEW]** `trovato_ai` reads its field rules from a column `site_config` does not have, so no field rule ever runs
+
+Found at `81290cc` (A9b). `load_field_rules` sends
+`SELECT value FROM site_config WHERE name = $1` (`plugins/trovato_ai/src/lib.rs:121-124`);
+`site_config`'s column is `key`. The query fails, the error path logs at
+`debug` and returns no rules (`:126-133`), and `tap_item_presave` returns the
+item unchanged (`:207-210`). No save anywhere runs a rule, whatever is configured.
+Pinned by `trovato_ai_reads_its_field_rules_from_a_column_site_config_does_not_have`,
+which reads the query out of the kernel source and runs it against the real
+schema.
+
+Read past the query, what the plugin would do once it loads a rule falls short of
+story 31.5 as well:
+- `trigger` is deserialized and never read (`:34-35`), so `on_change` and
+  `always` are the same.
+- `suggest` skips the rule (`:234-237`) and `validate` does not exist.
+- There is no stage routing: the AI output is written into the item being
+  saved, so a Live item takes it at once (design decision D8 is not built).
+- A `Blocks` source reaches the prompt as its JSON text (`resolve_prompt`,
+  `:163-178`), which is what a conference description is.
+
+**What Ritrovo does.** `demo/config` adds `field_summary` to the conference type,
+renders it on the conference page when present, and imports the rule
+(`variable.trovato_ai.field_rules.yml`: description to summary,
+`fill_if_empty`), so it runs as soon as the kernel reads it. Until then only an
+editor fills the summary. Imported conferences would get none in any case: they
+are written by raw SQL (`G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE`).
+
+**Blocks.** 31.5.
+
+**Recommendation.** `WHERE key = $1`, and log a failed rule query at `warn`.
+Then honour `trigger`, and route an AI write to a Live item onto an internal
+stage as D8 says.
+
+### G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK: **[Medium, NEW]** the search AI stages read the first content block only, so a model that thinks first answers with nothing
+
+Found at `81290cc` (A9b). The search AI's own response parser reads
+`content[0].text` and nothing else (`crates/kernel/src/routes/api_search.rs:604-617`;
+the OpenAI parser reads `choices[0]`, `:589-601`). Claude Haiku 5.5 thinks by
+default, so its first block is a thinking block with no `text`, and the content
+comes back `""`. `complete` treats that as success (`:534-539`): expansion answers
+200 `{"terms":[]}`, and the summary and follow-up 200 with an empty `summary` or
+`response`, after spending the tokens. The plugin `ai_request` path and chat
+join every text block and are not affected. Pinned by
+`the_search_ai_stages_answer_empty_when_the_model_thinks_first`, against the
+kernel's scripted provider. Live with `claude-haiku-5-5` on the demo (2026-11-23,
+the stages switched on locally for three calls): expansion returned four terms,
+and both summary calls answered `{"summary":""}`.
+
+**Blocks.** 30.4 and 30.5, with `G-SEARCH-AI-CHECKS-NO-PERMISSION-OR-BUDGET`.
+
+**Recommendation.** Join the `text` blocks as `host/ai.rs` does, and treat an
+empty answer as a failure.
+
+### G-EMBEDDINGS-BYPASS-BUDGETS-AND-THE-USAGE-LOG: **[Medium, NEW]** every embedding call is unmetered, including one per visitor query on a similarity gather
+
+Found at `81290cc` (A9b). `AiProviderService::embed` (`crates/kernel/src/services/ai_provider.rs:796-877`)
+checks no permission and no budget and writes no `ai_usage_log` row. The only
+writer of that log is the plugin `ai_request` path. Its callers:
+- the embed queue, on purpose (`crates/kernel/src/cron/mod.rs:637-639`);
+- the `semantic_similarity` gather operator, once per request, for any visitor,
+  anonymous included, with no cache (`crates/kernel/src/gather/gather_service.rs:1740-1782`).
+
+The token budgets therefore cannot cap embedding spend, and the usage dashboard
+never shows it. What is embedded is not configurable either:
+- every string field of every item type (`item_embedding_text`,
+  `crates/kernel/src/content/item_service.rs:83-105`), editors' notes included;
+- `embed_policy` can make a type synchronous but cannot leave one out
+  (`crates/kernel/src/services/embed_index.rs:72-94`);
+- the backfill queues every item in every stage (`find_backfill_gaps`, `:279-302`).
+
+The gather takes its nearest 500 candidates across every embedded item before
+the gather's own filters apply (`GATHER_SEMANTIC_SEARCH_MAX`,
+`crates/kernel/src/gather/access.rs:62-104`). With the demo's 5,698 items embedded,
+5,635 of them Incoming, "rust conferences in europe" found two Live conferences.
+
+**What Ritrovo does.** `ritrovo.similar_conferences` is public, as a gather is.
+An embedding of a short query costs about two millionths of a dollar, so the
+exposure is a rate, not a sum. `docs/AI.md` says what is embedded and sent.
+
+**Blocks.** The embedding half of 31.3's cap. Nothing else.
+
+**Recommendation.** Meter `embed` through the budget service under the caller's
+principal, with the queue's as a background principal, and log it. Cache query
+embeddings. Let `embed_policy` exclude types and fields, and the backfill take a
+stage and a type.
+
+### G-EMBEDDINGS-HAVE-NO-TEST-PROVIDER: **[Low, NEW]** no test can reach an embedding provider, so similarity ranking can only be checked live
+
+Found at `81290cc` (A9b). `embed` calls `validate_base_url`, which refuses
+loopback, private and `localhost` hosts (`crates/kernel/src/services/ai_provider.rs:395-444`,
+`:815-819`). The kernel's scripted provider answers `/chat/completions` and
+`/messages` only (`crates/kernel/src/services/ai_tools.rs:831-834`). The chat path
+skips the URL check, which is why chat tests can script a provider. The kernel's
+own `gather_semantic_test.rs` says the same in its header and seeds vectors
+directly instead.
+
+**What Ritrovo does.** The host test checks the gather's definition, pgvector and
+the no-embedding answer; the ranking is checked live (`docs/AI.md`).
+
+**Blocks.** A host test for 31.11's ranking.
+
+**Recommendation.** Serve `/embeddings` from the scripted provider, and give tests
+a way to allow its loopback address.
 
 ## No-friction findings (surfaces that just worked)
 
