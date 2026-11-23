@@ -99,6 +99,11 @@ tower = { version = "0.5", features = ["util"] }
 tower-sessions = "0.14"
 redis = { version = "0.27", features = ["tokio-comp"] }
 uuid = { version = "1", features = ["v7", "serde"] }
+# Log capture for the AI suites (tests/host/ai.rs): every log line the kernel
+# and a plugin write in a test, searched for a key value. The versions the
+# pinned kernel resolves.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
