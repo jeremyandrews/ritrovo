@@ -2355,3 +2355,40 @@ fn trovato_mcp_cannot_run_ritrovo_upcoming_conferences_because_its_id_has_a_dot(
         );
     });
 }
+
+/// The kernel's chat retrieval needs every word of the question in a
+/// conference's indexed text, so a natural question finds nothing: the Live
+/// conference matches "Wombat Rust" (above) and is not retrieved for "Wombat
+/// Rust conferences", because a conference's text does not say "conferences".
+/// The model is then asked with no context at all. FRICTION.md,
+/// G-CHAT-RAG-REQUIRES-EVERY-WORD; when this fails, the kernel has fixed it.
+#[test]
+fn a_question_with_one_word_no_conference_contains_retrieves_no_context() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        wombat_conferences(&pool).await;
+        recorder.push(Scripted::ok(ai::anthropic_reply("None.", 50, 5)));
+
+        ai::set_fake_keys();
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "Wombat Rust conferences"}),
+            &member,
+            &token,
+        )
+        .await;
+        ai::unset_keys();
+        assert_eq!(chat.status, 200, "{}", chat.body);
+
+        let requests = recorder.requests();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        let system = requests[0]["system"].as_str().unwrap_or_default();
+        assert!(
+            !system.contains("---BEGIN CONTEXT---"),
+            "retrieval found a context for a question with a word no conference has: {system}"
+        );
+        assert!(!system.contains("Wombat Rust Days"), "{system}");
+    });
+}
