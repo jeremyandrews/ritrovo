@@ -50,6 +50,7 @@ const TUTORIAL_TEMPLATES: &[&str] = &[
     "gather/query--ritrovo.by_country.html",
     "gather/query--ritrovo.by_topic.html",
     "gather/query--ritrovo.cfps_closing_soon.html",
+    "gather/query--ritrovo.similar_conferences.html",
     "gather/query--ritrovo.conferences_this_month.html",
     "gather/query--ritrovo.open_cfps.html",
     "gather/query--ritrovo.upcoming_conferences.html",

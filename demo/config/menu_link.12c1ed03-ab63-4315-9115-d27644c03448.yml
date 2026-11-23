@@ -1,0 +1,11 @@
+# Main menu — the similar-conferences search (STATUS 31.11).
+id: 12c1ed03-ab63-4315-9115-d27644c03448
+menu_name: main
+path: /conferences/similar
+title: Similar
+weight: 20
+hidden: false
+plugin: core
+stage_id: 0193a5a0-0000-7000-8000-000000000001
+created: 1795000000
+changed: 1795000000

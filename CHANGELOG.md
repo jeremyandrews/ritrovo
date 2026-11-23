@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Similar conferences, conference summaries and the search AI stages (A9b, second part).**
+  - **Similar conferences** at `/conferences/similar`, linked from the main menu and from every conference page: Live conferences ranked by the kernel's `semantic_similarity` gather operator on the `q` parameter (`gather_query.ritrovo.similar_conferences.yml`). The demo's Postgres is `pgvector/pgvector:pg16`, and CI's and the kernel nightly's are `pgvector/pgvector:pg17`. Embeddings come from the kernel's backfill. With no key the page answers 200 with no rows. Test: `similar_conferences_ranks_live_conferences_by_q_and_is_empty_without_embeddings`; `verify-demo.sh` checks pgvector, the link and the no-key page.
+  - **Conference summaries:** a `field_summary` on the conference type, shown on the conference page when present, and a `trovato_ai` field rule to fill it from the description. The rule never runs at the pinned kernel, because `trovato_ai` queries a column `site_config` does not have (new: `G-AI-FIELD-RULES-NEVER-LOAD`). Test: `trovato_ai_reads_its_field_rules_from_a_column_site_config_does_not_have`.
+  - **The search AI stages stay off.** Besides checking no permission or budget, the kernel reads only the first block of a model's answer, so a model that thinks first returns empty terms or summaries (new: `G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK`). Test: `the_search_ai_stages_answer_empty_when_the_model_thinks_first`.
+  - `FRICTION.md` gains four entries: the two above, `G-EMBEDDINGS-BYPASS-BUDGETS-AND-THE-USAGE-LOG` and `G-EMBEDDINGS-HAVE-NO-TEST-PROVIDER`.
+
 - **Ritrovo uses the kernel's AI foundation (A9b, first part).** Configuration only, in `demo/config`, with `docs/AI.md` describing it:
   - Two providers in the kernel's registry, Anthropic for chat (`claude-haiku-5-5`) and OpenAI for embeddings (`text-embedding-3-small`), keyed by the environment variables `RITROVO_ANTHROPIC_API_KEY` and `RITROVO_OPENAI_API_KEY`. No key is stored anywhere; with none set every AI surface degrades without a 500 or a word of provider text.
   - Daily token budgets in deny mode (20,000 a member, 100,000 an editor or publisher, 20,000 for `ritrovo_translate`'s drafts) and prices, so the usage log carries a cost.

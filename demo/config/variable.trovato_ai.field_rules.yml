@@ -1,0 +1,20 @@
+# The kernel's trovato_ai field rules (STATUS 31.5): on a save through the
+# kernel's item form, by a member holding `use ai`, write a two-sentence summary
+# of the description into an empty field_summary, with the chat provider
+# variable.ai_defaults.yml names.
+#
+# Inert at the pinned kernel. trovato_ai reads this key with
+# `SELECT value FROM site_config WHERE name = $1`, and the column is `key`, so
+# the query fails and the plugin applies no rule (FRICTION.md,
+# G-AI-FIELD-RULES-NEVER-LOAD; pinned by
+# trovato_ai_reads_its_field_rules_from_a_column_site_config_does_not_have).
+# Conferences the importer writes never pass through presave either: they are
+# written by raw SQL (G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE).
+key: trovato_ai.field_rules
+value:
+  rules:
+    - item_type: conference
+      source_field: field_description
+      target_field: field_summary
+      behavior: fill_if_empty
+      prompt: "Summarise this tech conference in at most two plain sentences for a listing page. Description: {field_description}"

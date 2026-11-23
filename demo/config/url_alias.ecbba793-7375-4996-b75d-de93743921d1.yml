@@ -1,0 +1,8 @@
+# /conferences/similar -> the similar-conferences gather (STATUS 31.11). As for
+# /conferences/this-month, a canonical_url does not create the path; this does.
+id: 'ecbba793-7375-4996-b75d-de93743921d1'
+source: /gather/ritrovo.similar_conferences
+alias: /conferences/similar
+language: en
+stage_id: '0193a5a0-0000-7000-8000-000000000001'
+created: 1795000000

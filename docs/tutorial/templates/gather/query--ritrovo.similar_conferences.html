@@ -1,0 +1,22 @@
+{# Conferences ranked by meaning (STATUS 31.11): the gather orders the rows by
+   embedding distance to `q`, nearest first. With no `q`, or with no embedding
+   provider, key or pgvector, the kernel hands back no rows and this says so. #}
+{% extends "gather/query.html" %}
+
+{% block query_content %}
+<form class="similar-search" method="get" action="/conferences/similar">
+    <label for="similar-q">Find conferences about</label>
+    <input id="similar-q" type="search" name="q" placeholder="rust conferences in europe">
+    <button type="submit">Search</button>
+</form>
+
+<div class="card-list">
+    {% for row in rows %}
+    {% include "gather/includes/conf-card.html" %}
+    {% endfor %}
+</div>
+
+{% if not rows %}
+<p class="gather-empty">No similar conferences found.</p>
+{% endif %}
+{% endblock %}

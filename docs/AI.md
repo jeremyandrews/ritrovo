@@ -6,10 +6,10 @@ permissions, the administration screens and the usage log. Nothing in this
 repository talks to a model provider directly, and no key is stored anywhere in
 it.
 
-Rows 31.1 to 31.4 and 31.9 of [`STATUS.md`](ritrovo/STATUS.md) are what this page
-describes. Search AI (30.4, 30.5), field enrichment (31.5), the chat tile (31.7),
-the assistant's tools (31.8), the MCP server (31.10) and similarity search (31.11)
-build on it and are not switched on yet; their rows say so.
+Rows 31.1 to 31.5, 31.9 and 31.11 and the search AI rows 30.4 and 30.5 of
+[`STATUS.md`](ritrovo/STATUS.md) are what this page describes. The chat tile
+(31.7), the assistant's tools (31.8) and the MCP server (31.10) build on it and
+are not switched on yet; their rows say so.
 
 ## Turning it on
 
@@ -18,7 +18,7 @@ Two environment variables, and nothing else:
 | Variable | Provider | Used for |
 | :- | :- | :- |
 | `RITROVO_ANTHROPIC_API_KEY` | Anthropic, `claude-haiku-5-5` | chat: every text answer the site asks for |
-| `RITROVO_OPENAI_API_KEY` | OpenAI, `text-embedding-3-small` | embeddings (not used yet) |
+| `RITROVO_OPENAI_API_KEY` | OpenAI, `text-embedding-3-small` | embeddings: similar conferences |
 
 Set them in the shell that starts the demo, and start it:
 
@@ -53,6 +53,8 @@ All of it is in `demo/config/`, imported by the kernel's own `config import`:
 | `variable.ai_token_budgets.yml` | Daily budgets in deny mode: 20,000 tokens a member, 100,000 an editor or publisher, per provider; 20,000 a day for `ritrovo_translate`'s background drafts |
 | `variable.ai_pricing.yml` | Prices per 1,000 tokens, so the usage log carries a cost estimate |
 | `variable.search.yml` | The search page's AI stages, all **off** (see below) |
+| `variable.trovato_ai.field_rules.yml` | A summary of each conference's description, written into `field_summary` on a save; inert at the pinned kernel (see below) |
+| `gather_query.ritrovo.similar_conferences.yml` | Similar conferences, at `/conferences/similar` (see below) |
 | `role.*.yml` | `use ai` and `use ai chat` for every signed-in member, `view ai usage` for editors and publishers, nothing for anonymous visitors |
 
 `scripts/demo-bootstrap.sh` also enables the kernel's `trovato_ai` plugin.
@@ -81,6 +83,9 @@ output), a call of 1,000 tokens in and 300 out costs about 0.00025 USD.
 | Chat (`POST /api/v1/chat`) | one per message | the member's daily budget | the route is live for members; no tile shows it yet (31.7) |
 | AI Assist on the edit form | one per button press | the editor's daily budget | buttons render for members with `use ai chat`; not yet checked (31.6) |
 | Search expansion and summary | one each per search | nobody: the kernel meters neither | **no**, see below |
+| Similar conferences (`/conferences/similar?q=`) | one embedding call per page view with a `q` | nobody: the kernel meters no embedding call | yes, for everyone |
+| Embedding backfill | one embedding call per item | nobody, as above | by hand, below |
+| Conference summaries (`trovato_ai` field rule) | one per save through the edit form, by a member holding `use ai` | the member's daily budget | configured, but never runs at the pinned kernel |
 
 ### Why the search AI stages are off
 
@@ -98,6 +103,62 @@ Saving the search settings form at `/admin/config/search` applies it at once.
 The demo's bootstrap keeps every outside request away until its imports are
 done, so the stages are off from the first request.
 
+They would not work as they stand either. The kernel's search AI reads only the
+first block of a model's answer, and Claude Haiku 5.5 often thinks first, so the
+first block has no text. Live on the demo, with the stages switched on locally
+for three calls, expansion returned four terms and the summary came back empty
+twice, after spending the tokens
+(`G-SEARCH-AI-READS-ONLY-THE-FIRST-CONTENT-BLOCK`).
+
+## Similar conferences
+
+`/conferences/similar?q=rust+conferences+in+europe` lists Live conferences
+ranked by how close their text is to the query. Every conference page links to
+it with its own title as the query, and so does the main menu ("Similar"). It is
+the kernel's `semantic_similarity` gather operator over pgvector, configured in
+`gather_query.ritrovo.similar_conferences.yml`:
+
+1. The demo's Postgres is `pgvector/pgvector:pg16`, and CI's is
+   `pgvector/pgvector:pg17`. On a Postgres without the extension the kernel
+   starts, keeps no embeddings, and the page lists nothing.
+2. Each page view with a `q` embeds `q` once, with the embedding provider, and
+   asks pgvector for the nearest items.
+3. The items' own embeddings come from the kernel's backfill. The importer writes
+   conferences by raw SQL, so no save queues one. As the administrator:
+
+   ```bash
+   curl -b <admin session> -X POST -H "X-CSRF-Token: <token from any admin page>" \
+     "http://localhost:3000/admin/embed/backfill?limit=5000"
+   curl -b <admin session> http://localhost:3000/admin/embed/status
+   ```
+
+   The backfill only queues work; cron embeds at most 100 items a run, so the
+   demo's cron container gets through it in its own time.
+
+What leaves the site, and what it costs:
+- **Every item is sent.** The backfill takes every item in every stage, not
+  only Live conferences, and the kernel sends every text field of each, editors'
+  notes included (`G-EMBEDDINGS-BYPASS-BUDGETS-AND-THE-USAGE-LOG`).
+- **The full backfill is cheap.** On the demo, 5,698 items (every stage, 5,635 of them Incoming) came to 2.48 million characters, at most about 620,000 tokens: under 0.013 USD. Cron took about 40 minutes to work through the queue.
+- **A query costs almost nothing:** a few tokens, about two millionths of a dollar.
+- **None of it is metered.** No embedding call counts against a budget or appears
+  on the usage dashboard (same entry).
+
+With no key, the page answers 200 and says no similar conferences were found.
+
+## Conference summaries
+
+`variable.trovato_ai.field_rules.yml` gives the kernel's `trovato_ai` plugin one
+rule: on a save through the edit form, by a member holding `use ai`, write a
+two-sentence summary of the description into an empty `field_summary`, which the
+conference page shows when present. At the pinned kernel the rule never runs.
+`trovato_ai` reads its rules from a column `site_config` does not have, so it
+finds none (`G-AI-FIELD-RULES-NEVER-LOAD`). A save as `editor_alice` with both
+keys set left the summary empty and made no provider call.
+
+Conferences the importer writes would get no summary anyway: they never pass
+through a save (`G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE`).
+
 ## With no key
 
 Which is CI, the public demo workflow, the nightly run against the kernel's
@@ -109,6 +170,7 @@ degrades without an error page and without a word of the provider's answer:
 | A visitor's chat request | 401, sign in (with or without a key) |
 | A member's chat request | 503, "AI is temporarily unavailable" |
 | Search AI | 404, switched off (with or without a key); the Pagefind results are unchanged |
+| Similar conferences | 200 with no rows and "No similar conferences found." |
 | Translation drafts | none stored; the cron result counts the failure |
 | The provider screen | each variable `(not set)` |
 

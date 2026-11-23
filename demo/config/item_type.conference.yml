@@ -79,6 +79,14 @@ settings:
     - field_name: field_description
       field_type: Blocks
       label: Description
+    # A short plain-text summary (STATUS 31.5). The kernel's trovato_ai plugin is
+    # meant to fill it from the description on a form save, by the rule in
+    # variable.trovato_ai.field_rules.yml; at the pinned kernel no rule ever loads
+    # (FRICTION.md, G-AI-FIELD-RULES-NEVER-LOAD), so only an editor fills it.
+    # Rendered on the conference page when present.
+    - field_name: field_summary
+      field_type: TextLong
+      label: Summary
     - field_name: field_logo
       field_type: File
       label: Logo
