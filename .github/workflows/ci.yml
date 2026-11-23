@@ -172,6 +172,12 @@ jobs:
             chat_and_search_ai_refuse_a_visitor_without_use_ai_and_ask_no_provider \
             with_no_key_every_ai_surface_answers_without_a_500_or_provider_text \
             the_key_value_appears_in_no_page_answer_export_stored_row_or_log_line \
+            chat_refuses_a_member_without_use_ai_or_use_ai_chat_and_asks_no_provider \
+            with_no_key_the_kernel_still_sends_a_member_s_message_to_the_provider \
+            a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path \
+            verify_demo_fails_unless_trovato_ai_reads_enabled \
+            a_disabled_plugin_reads_disabled_not_enabled \
+            a_list_that_does_not_name_the_plugin_reads_absent \
             ai_request_refuses_a_caller_without_use_ai_before_asking_any_provider \
             a_draft_goes_through_ai_request_with_ritrovo_s_model_no_temperature_and_a_priced_usage_row \
             the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it \

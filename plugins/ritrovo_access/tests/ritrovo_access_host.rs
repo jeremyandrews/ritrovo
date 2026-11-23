@@ -1544,6 +1544,11 @@ fn with_no_key_every_ai_surface_answers_without_a_500_or_provider_text() {
 /// With a known fake key set, the value is in no page, no API answer, no
 /// exported configuration, no stored row and no log line. The provider screen
 /// shows the variable's name and "set".
+///
+/// The provider here answers as Anthropic does, without echoing the key. One
+/// kernel path logs a provider's error body unredacted; what happens when a
+/// provider does echo it is pinned by
+/// `a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path`.
 #[test]
 fn the_key_value_appears_in_no_page_answer_export_stored_row_or_log_line() {
     serial(async {
@@ -1623,5 +1628,138 @@ fn the_key_value_appears_in_no_page_answer_export_stored_row_or_log_line() {
                 );
             }
         }
+    });
+}
+
+/// The authenticated role, as `demo/config` identifies it. Every signed-in
+/// member holds `use ai` and `use ai chat` through it.
+const AUTHENTICATED_ROLE: &str = "00000000-0000-0000-0000-000000000002";
+
+/// Take `permission` from the authenticated role, or give it back: the only
+/// way to have a signed-in member without it. A member's permissions are
+/// cached by user, so this must happen before that member signs in.
+async fn set_authenticated_permission(pool: &sqlx::PgPool, permission: &str, granted: bool) {
+    let role = uuid::Uuid::parse_str(AUTHENTICATED_ROLE).unwrap();
+    let sql = if granted {
+        "INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2) ON CONFLICT DO NOTHING"
+    } else {
+        "DELETE FROM role_permissions WHERE role_id = $1 AND permission = $2"
+    };
+    sqlx::query(sql)
+        .bind(role)
+        .bind(permission)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// A signed-in member who lacks `use ai chat`, or `use ai`, is refused by chat
+/// with a 403 before any provider is asked. The sign-in check alone is not
+/// what keeps chat to the members Ritrovo grants it.
+#[test]
+fn chat_refuses_a_member_without_use_ai_or_use_ai_chat_and_asks_no_provider() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        recorder.push(Scripted::ok(ai::anthropic_reply("never", 1, 1)));
+        for missing in ["use ai chat", "use ai"] {
+            set_authenticated_permission(&pool, missing, false).await;
+            let (member, token) = member_session(app).await;
+            let chat = post_json(
+                app,
+                "/api/v1/chat",
+                serde_json::json!({"message": "What Rust conferences are in Europe?"}),
+                &member,
+                &token,
+            )
+            .await;
+            set_authenticated_permission(&pool, missing, true).await;
+            assert_eq!(chat.status, 403, "without {missing}: {}", chat.body);
+            assert_eq!(
+                recorder.request_count(),
+                0,
+                "without {missing}, a provider was asked"
+            );
+        }
+    });
+}
+
+/// With no key set, the kernel still sends a member's chat message to the
+/// provider, without credentials, and the provider refuses it. The text leaves
+/// the site even though nothing is spent. Pins `FRICTION.md`,
+/// `G-AI-REQUESTS-SENT-WITHOUT-A-KEY`: when the kernel stops sending a request
+/// it has no key for, this fails, and the entry and `docs/AI.md` change with it.
+#[test]
+fn with_no_key_the_kernel_still_sends_a_member_s_message_to_the_provider() {
+    serial(async {
+        ai::unset_keys();
+        let (app, _pool, recorder) = ai_app().await;
+        recorder.push(Scripted {
+            status: 401,
+            body: ai::anthropic_no_key(),
+            delay: std::time::Duration::ZERO,
+        });
+        let probe = "no-key probe 4c1d9e";
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": format!("{probe}: which Rust conferences are in Europe?")}),
+            &member,
+            &token,
+        )
+        .await;
+        assert_eq!(chat.status, 503, "{}", chat.body);
+        let sent = recorder.requests();
+        assert_eq!(sent.len(), 1, "requests sent with no key: {sent:?}");
+        assert!(
+            sent[0].to_string().contains(probe),
+            "the member's message did not reach the provider: {}",
+            sent[0]
+        );
+    });
+}
+
+/// A provider error body that carries the key reaches the log through the chat
+/// path, which logs the first 200 bytes of the body without redacting them.
+/// The member still sees only the generic answer. Pins `FRICTION.md`,
+/// `G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED`: when the kernel redacts
+/// that path, this fails, and it turns into a test that the log is clean.
+#[test]
+fn a_provider_error_that_echoes_the_key_reaches_the_log_through_the_chat_path() {
+    serial(async {
+        let log_before = ai::captured_log().len();
+        let (app, _pool, recorder) = ai_app().await;
+        recorder.push(Scripted {
+            status: 401,
+            body: serde_json::json!({
+                "type": "error",
+                "error": {
+                    "type": "authentication_error",
+                    "message": format!("invalid x-api-key: {}", ai::FAKE_ANTHROPIC_KEY)
+                }
+            }),
+            delay: std::time::Duration::ZERO,
+        });
+        ai::set_fake_keys();
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "What Rust conferences are in Europe?"}),
+            &member,
+            &token,
+        )
+        .await;
+        ai::unset_keys();
+        assert_eq!(chat.status, 503, "{}", chat.body);
+        assert!(!chat.body.contains(ai::FAKE_ANTHROPIC_KEY), "{}", chat.body);
+        assert_eq!(recorder.request_count(), 1, "the chat request was not sent");
+        let log = ai::captured_log()[log_before..].to_string();
+        assert!(
+            log.contains(ai::FAKE_ANTHROPIC_KEY),
+            "the echoed key is no longer in the log: the kernel now redacts the \
+             chat error path, so G-AI-CHAT-ERROR-LOGS-THE-PROVIDER-BODY-UNREDACTED \
+             is fixed and this test should assert the opposite"
+        );
     });
 }
