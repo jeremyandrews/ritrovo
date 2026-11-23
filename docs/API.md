@@ -1,8 +1,9 @@
 # Ritrovo's JSON API
 
 Read-only, public, JSON. Every response below was captured with `curl` against the demo
-(`scripts/serve-demo.sh`, kernel 0.103.0) on 2026-11-14, and `scripts/verify-demo.sh`
-checks each claim on this page against a running site. Long arrays are cut where marked.
+(`scripts/serve-demo.sh`, kernel 0.103.0) on 2026-11-14 and re-checked on Trovato `main`
+`81290cc` on 2026-11-23 (A11), and `scripts/verify-demo.sh` checks each claim on this page
+against a running site. Long arrays are cut where marked.
 
 | Endpoint | Served by | Why |
 |---|---|---|
@@ -11,9 +12,10 @@ checks each claim on this page against a running site. Long arrays are cut where
 | `GET /api/v1/topics` | **plugin** (`ritrovo_importer`, `tap_api`) | The kernel returns the topic tags flat with no parents (`/api/category/topics/tags`), or the roots alone. A client would need one request per node to build the tree. |
 | `GET /api/v1/search?q=` | **the kernel** (`crates/kernel/src/routes/api_v1.rs:71`) | Nothing to add. |
 
-There is no write endpoint. A plugin can only write `item` by raw SQL, which skips the
-kernel's access checks, revisions and taps (`G-ITEM-API-BYPASSES-ITEM-SERVICE` in
-`FRICTION.md`).
+There is no write endpoint. Through 0.103 a plugin could write `item` only by raw SQL,
+which skips the kernel's access checks, revisions and taps. On the pinned kernel a
+plugin's item write from a request goes through `ItemService`, so a write endpoint is
+buildable and not built (`docs/ritrovo/STATUS.md`, 38.5).
 
 ## What an anonymous caller sees
 
@@ -33,11 +35,12 @@ detail endpoint selects only Live, published rows itself (`plugins/ritrovo_impor
 out an allowlist of public fields (`PUBLIC_FIELDS`), so it never selects the notes, and a
 field added to the type later stays private until it is listed.
 
-> **The kernel leaks those notes elsewhere.** `POST /api/gather/query`, the kernel's ad-hoc
-> query route, answers anonymous callers and does not field-filter a definition that
-> selects the whole `fields` column, so editors' notes are readable there
-> (`G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS`, High). Ritrovo cannot close a kernel route.
-> `verify-demo.sh` reports whether it still leaks.
+> **The kernel's ad-hoc query route no longer leaks them.** Through 0.103,
+> `POST /api/gather/query` answered anonymous callers and did not field-filter a
+> definition that selected the whole `fields` column, so editors' notes were readable
+> there (`G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS`). On the pinned kernel it needs
+> `administer site` and answers an anonymous caller 401. `verify-demo.sh` asserts that
+> no notes come back.
 
 ## `GET /api/v1/conferences`
 
@@ -61,7 +64,7 @@ $ curl -s 'http://localhost:3000/api/v1/conferences?fields.field_language=it'
 ```
 ```json
 {
-    "items": [
+    "data": [
         {
             "author_id": "00000000-0000-0000-0000-000000000000",
             "changed": 1741824000,
@@ -105,12 +108,15 @@ $ curl -s 'http://localhost:3000/api/v1/conferences?fields.field_language=it'
     ],
     "total": 1,
     "page": 1,
-    "per_page": 25,
-    "total_pages": 1,
-    "has_next": false,
-    "has_prev": false
+    "per_page": 25
 }
 ```
+
+Every kernel list is this shape since the kernel's one API convention (Trovato
+`3b86b5a`): the rows in `data`, then `total`, `page` and `per_page`. There is no
+`total_pages`, `has_next` or `has_prev`. The page count is `ceil(total / per_page)`,
+and a client stops when `page * per_page >= total`. (Captured at 0.103.0, when the rows
+were under `items`. The row itself is unchanged.)
 
 Each row is the kernel's whole `item` row. **Use `id`, `title`, `language`, `fields`,
 `url`, `created` and `changed`; ignore the rest.** `search_vector`, `tenant_id`,
@@ -259,15 +265,16 @@ None is needed: everything above is public. A signed-in session cookie makes the
 `?stage=0193a5a0-0000-7000-8000-000000000002`, as the editorial roles allow. The two plugin
 endpoints answer the same for everyone: Live only, public fields only.
 
-The kernel issues API tokens to signed-in users: `POST /api/tokens` with a JSON body
+The kernel issues API tokens to signed-in users: `POST /api/v1/tokens` with a JSON body
 `{"name": "…"}` and the session's CSRF token in `X-CSRF-Token` answers
-`201 {"id","name","token","expires_at"}`. `GET /api/tokens` lists them and
-`DELETE /api/tokens/{id}` revokes one. **On 0.103.0 a token authenticates nothing.** Any
-request carrying `Authorization: Bearer <token>` is refused with 401 before the kernel
-looks the token up: the JWT middleware runs first and rejects every bearer it cannot
-verify, with "OAuth service unavailable" when `JWT_SECRET` is unset, as in the demo
-(`G-API-TOKENS-NEVER-AUTHENTICATE`). Do not send one to a public endpoint, since it turns a
-200 into a 401.
+`201 {"id","name","token","expires_at"}`. `GET /api/v1/tokens` lists them and
+`DELETE /api/v1/tokens/{id}` revokes one. The CSRF token is single-use, so read a fresh one
+before the revoke. A token authenticates a request on its own:
+`Authorization: Bearer <token>` makes the request the token owner's, with no session.
+`verify-demo.sh` gets 200 from `GET /api/v1/tokens` with a token and 401 with none or a
+forged one. Through 0.103 every bearer was refused (`G-API-TOKENS-NEVER-AUTHENTICATE`,
+fixed). An invalid or revoked token is still a 401, so do not send a stale one to a
+public endpoint.
 
 ## Rate limits
 
@@ -277,33 +284,37 @@ session (`crates/kernel/src/middleware/rate_limit.rs:179`, `:491-494`, `:655`). 
 window is fixed at a minute. The count is **not** fixed, though the brief assumed it was:
 an operator can set it for the whole site with `TROVATO_RATE_LIMIT_API=<n>` in the
 environment or `rate_limit.api` in site configuration, the environment winning
-(`rate_limit.rs:248-292`). Nothing varies it by role or by token, so the brief's 60 for
-anonymous and 300 for authenticated clients cannot be expressed
-(`G-API-RATE-LIMITS-FIXED`, narrowed). Over the limit:
+(`rate_limit.rs:248-292`, line numbers at 0.103.0). On the pinned kernel a limit can also
+be set per role, `TROVATO_RATE_LIMIT_API__ANONYMOUS_USER=<n>` and the like
+(`crates/kernel/src/middleware/rate_limit.rs:210`, `:403-421`), so the brief's 60 for
+anonymous and 300 for authenticated clients can be expressed. The demo does not set it:
+buildable, not built (`docs/ritrovo/STATUS.md`, 38.6). Over the limit:
 
 ```
 HTTP/1.1 429 Too Many Requests
 retry-after: <seconds>
 content-type: application/json
 
-{"error":"Rate limit exceeded","retry_after":<seconds>}
+{"code":"rate_limited","message":"Rate limit exceeded for requests. Retry after <seconds>s.","request_id":"…"}
 ```
 
-(From the kernel's `rate_limit_response`, `rate_limit.rs:603-613`. The demo is not driven
-over the limit to capture this.)
+(From the kernel's `rate_limit_response` and `AppError`, `rate_limit.rs:847` and
+`error.rs:309`. The demo is not driven over the limit to capture this.)
 
 ## OpenAPI
 
-`/api/openapi.json` does not describe this API. It is a hand-written list of kernel routes
-that includes three which do not exist (`/api/v1/items`, `/api/v1/items/{id}`,
-`/api/v1/categories`) and no plugin or alias route (`G-OPENAPI-IS-A-STATIC-LIST`). This
-page is the reference.
+`/api/v1/openapi.json` is generated from the served routes (Trovato `226fa5d`,
+`3b86b5a`) and lists the two plugin routes, `/api/v1/conferences/{id}` and
+`/api/v1/topics`, which `verify-demo.sh` asserts. It does not list the alias
+`/api/v1/conferences`, whose parameters are a gather's, and it says nothing about stages or
+field access. This page is the reference. Through 0.103 the document was a hand-written
+list (`G-OPENAPI-IS-A-STATIC-LIST`, fixed).
 
 ## Errors
 
 | Status | Body | When |
 |---|---|---|
 | 404 | `{"error":"not found"}` | `/api/v1/conferences/{id}` for anything but a Live, published conference. |
-| 401 | `OAuth service unavailable` (text) | Any request with an `Authorization: Bearer` header. |
-| 429 | `{"error":"Rate limit exceeded","retry_after":N}` | Over the `api` bucket. |
+| 401 | `{"code":"unauthorized","message":"Invalid or expired API token",…}` | An `Authorization: Bearer` header with a token that is not live. |
+| 429 | `{"code":"rate_limited","message":…,"request_id":…}` | Over the `api` bucket. |
 | 500 | `{"code":"internal_error",…}` | The kernel's answer to a gather it cannot find (`G-UNKNOWN-GATHER-IS-A-500`). Not reachable through the addresses on this page. |

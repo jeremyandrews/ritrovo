@@ -1,7 +1,7 @@
 name = "ritrovo_translate"
 description = "Language detection and translation workflow for conferences"
 version = "2.0.0"
-api_version = "0.103"
+api_version = "0.107"
 default_enabled = false
 dependencies = ["trovato_content_translation"]
 

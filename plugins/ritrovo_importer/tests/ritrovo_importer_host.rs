@@ -130,7 +130,7 @@ async fn drain(pool: &PgPool) -> trovato_kernel::cron::QueueDrainStats {
     }
 }
 
-async fn count(pool: &PgPool, sql: &str) -> i64 {
+async fn count(pool: &PgPool, sql: &'static str) -> i64 {
     sqlx::query_scalar(sql).fetch_one(pool).await.unwrap()
 }
 
@@ -761,7 +761,10 @@ fn migration_004_restores_blanked_keys_and_merges_the_duplicates_they_let_in() {
             host::plugin_dir(PLUGIN).join("migrations/004_restore_blanked_source_ids.sql"),
         )
         .unwrap();
-        sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql.clone()))
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // Every key back exactly as the plugin computed it, on the original Item.
         assert_eq!(keys(pool.clone()).await, good);
@@ -770,7 +773,10 @@ fn migration_004_restores_blanked_keys_and_merges_the_duplicates_they_let_in() {
         assert_eq!(topics_of(&pool, "RustConf").await, merged);
 
         // And replaying the repair is a no-op.
-        sqlx::raw_sql(&sql).execute(&pool).await.unwrap();
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+            .execute(&pool)
+            .await
+            .unwrap();
         assert_eq!(keys(pool.clone()).await, good);
     });
 }

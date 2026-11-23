@@ -120,6 +120,19 @@ for path in /admin/content/conferences /admin/config/importer; do
     fi
 done
 
+# The kernel's search settings and search analytics screens (Trovato 0d81def and
+# 6813241; STATUS 30.3 and 30.7, "kernel has it, Ritrovo does not use it"). A
+# kernel page sends an anonymous browser to the login form.
+for path in /admin/config/search /admin/reports/search; do
+    anon="$(code "$path")"
+    admin="$(code_as_admin "$path")"
+    if [ "$anon" = "303" ] && [ "$admin" = "200" ]; then
+        ok "$path — anonymous $anon, administrator $admin"
+    else
+        bad "$path — anonymous $anon, administrator $admin (want 303 / 200)"
+    fi
+done
+
 head_ "search"
 results="$(curl -s "$BASE/search?q=rust" | grep -o '[0-9]\+ results\? for' | head -n 1)"
 if [ -n "$results" ]; then
@@ -1003,10 +1016,21 @@ else
     COMMENT_BODY="Verify demo comment $$"
     REPLY_BODY="Verify demo reply $$"
 
-    curl -s -b "$viewer_jar" -o /dev/null -X POST "$BASE/api/item/$COMMENT_CONF/comments" \
-        --data-urlencode "_csrf=$(csrf_from "$member_page")" \
-        --data 'parent_id=' \
-        --data-urlencode "body=$COMMENT_BODY"
+    # Post as viewer_carol with a token from a fresh page. A 429 (the run's API
+    # checks share the bucket) waits for the window and posts again.
+    post_comment() {
+        local code
+        for _ in $(seq 1 40); do
+            member_page="$(curl -s -b "$viewer_jar" "$BASE/item/$COMMENT_CONF")"
+            code="$(curl -s -b "$viewer_jar" -o /dev/null -w '%{http_code}' -X POST "$BASE/api/item/$COMMENT_CONF/comments" \
+                --data-urlencode "_csrf=$(csrf_from "$member_page")" \
+                --data "parent_id=$1" \
+                --data-urlencode "body=$2")"
+            [ "$code" = "429" ] || return 0
+            sleep 3
+        done
+    }
+    post_comment "" "$COMMENT_BODY"
 
     parent="$(sql "SELECT id FROM comment WHERE item_id = '$COMMENT_CONF' AND body LIKE 'Verify demo comment%' ORDER BY created DESC LIMIT 1")"
     if [ -n "$parent" ]; then
@@ -1016,11 +1040,7 @@ else
     fi
 
     if [ -n "$parent" ]; then
-        member_page="$(curl -s -b "$viewer_jar" "$BASE/item/$COMMENT_CONF")"
-        curl -s -b "$viewer_jar" -o /dev/null -X POST "$BASE/api/item/$COMMENT_CONF/comments" \
-            --data-urlencode "_csrf=$(csrf_from "$member_page")" \
-            --data "parent_id=$parent" \
-            --data-urlencode "body=$REPLY_BODY"
+        post_comment "$parent" "$REPLY_BODY"
 
         reply_depth="$(sql "SELECT depth FROM comment WHERE item_id = '$COMMENT_CONF' AND parent_id = '$parent' LIMIT 1")"
         if [ "$reply_depth" = "1" ]; then
@@ -1326,7 +1346,16 @@ head_ "the JSON API"
 LIVE_STAGE="0193a5a0-0000-7000-8000-000000000001"
 INCOMING_STAGE="0193a5a0-0000-7000-8000-000000000002"
 total_of() { printf '%s' "$1" | grep -o '"total":[0-9]*' | head -1 | sed 's/.*://'; }
-pages_of() { printf '%s' "$1" | grep -o '"total_pages":[0-9]*' | head -1 | sed 's/.*://'; }
+per_page_of() { printf '%s' "$1" | grep -o '"per_page":[0-9]*' | head -1 | sed 's/.*://'; }
+# Every list is {data, total, page, per_page} since the kernel's one API
+# convention, with no `total_pages`, so the page count is worked out.
+pages_of() {
+    t="$(total_of "$1")"
+    k="$(per_page_of "$1")"
+    if [ -n "$t" ] && [ -n "$k" ] && [ "$k" -gt 0 ]; then
+        echo $(((t + k - 1) / k))
+    fi
+}
 # Every page of a list request, concatenated. $1 is the path with its query.
 all_pages() {
     first="$(curl -s "$BASE$1")"
@@ -1378,11 +1407,13 @@ else
     else
         ok "an upcoming Incoming conference ($hidden_id) is absent from every page"
     fi
+    # A stage the caller may not read (`use stages`) is answered from Live, not
+    # refused: the same conferences as no stage at all, and never the hidden one.
     staged="$(curl -s "$BASE/api/v1/conferences?stage=$INCOMING_STAGE")"
-    if [ "$(total_of "$staged")" = "0" ]; then
-        ok "asking for the Incoming stage anonymously returns nothing"
+    if [ "$(total_of "$staged")" = "$api_total" ] && ! printf '%s' "$staged" | grep -q "$hidden_id"; then
+        ok "asking for the Incoming stage anonymously is answered from Live ($api_total)"
     else
-        bad "?stage=Incoming returned $(total_of "$staged") conference(s) to an anonymous caller"
+        bad "?stage=Incoming answered $(total_of "$staged") conference(s) to an anonymous caller, want Live's $api_total without $hidden_id"
     fi
     hidden_code="$(code "/api/v1/conferences/$hidden_id")"
     if [ "$hidden_code" = "404" ]; then
@@ -1394,8 +1425,10 @@ fi
 
 page_two="$(curl -s "$BASE/api/v1/conferences?page=2")"
 if [ "$(pages_of "$api_list")" -ge 2 ] 2>/dev/null; then
-    if printf '%s' "$page_two" | grep -q '"page":2' && printf '%s' "$page_two" | grep -q '"has_prev":true'; then
-        ok "it pages: page 2 says so and has a previous page"
+    first_one="$(printf '%s' "$api_list" | grep -o '"id":"[0-9a-f-]*"' | head -n 1)"
+    first_two="$(printf '%s' "$page_two" | grep -o '"id":"[0-9a-f-]*"' | head -n 1)"
+    if printf '%s' "$page_two" | grep -q '"page":2' && [ -n "$first_two" ] && [ "$first_one" != "$first_two" ]; then
+        ok "it pages: page 2 says so and holds other conferences than page 1"
     else
         bad "?page=2 did not return page 2"
     fi
@@ -1468,38 +1501,115 @@ if [ -n "$hidden_id" ]; then
     fi
 fi
 
-# Tokens: issued by the kernel, refused by the kernel. Reported, not asserted
-# as a pass: a token that authenticates nothing is FRICTION.md's
-# G-API-TOKENS-NEVER-AUTHENTICATE, and this line will say so until it changes.
-token_csrf="$(curl -s -b "$editor_jar" "$BASE/user/profile" | sed -n 's/.*name="csrf-token" content="\([^"]*\)".*/\1/p' | head -1)"
-token_json="$(curl -s -b "$editor_jar" -X POST "$BASE/api/tokens" -H 'Content-Type: application/json' -H "X-CSRF-Token: $token_csrf" -d '{"name":"verify-demo"}')"
+# Tokens. A token from /api/tokens authenticates a request on its own, with no
+# session: GET /api/v1/tokens answers 401 to nobody and to a made-up bearer, and
+# 200 to the issued one (G-API-TOKENS-NEVER-AUTHENTICATE, fixed on the pinned
+# kernel). The kernel's CSRF token is single-use, so the revoke reads a fresh
+# one, and the token is revoked whatever the checks found.
+csrf_of() { curl -s -b "$1" "$BASE/user/profile" | sed -n 's/.*name="csrf-token" content="\([^"]*\)".*/\1/p' | head -1; }
+token_json="$(curl -s -b "$editor_jar" -X POST "$BASE/api/v1/tokens" -H 'Content-Type: application/json' -H "X-CSRF-Token: $(csrf_of "$editor_jar")" -d '{"name":"verify-demo"}')"
 api_token="$(printf '%s' "$token_json" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 token_id="$(printf '%s' "$token_json" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
-if [ -n "$api_token" ]; then
-    ok "an editor can create an API token at /api/tokens"
-    bearer_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $api_token" "$BASE/api/v1/topics")"
-    note "that token, sent as a bearer to /api/v1/topics, answers $bearer_code (G-API-TOKENS-NEVER-AUTHENTICATE)"
-    curl -s -o /dev/null -b "$editor_jar" -X DELETE -H "X-CSRF-Token: $token_csrf" "$BASE/api/tokens/$token_id"
+if [ -n "$api_token" ] && [ -n "$token_id" ]; then
+    ok "an editor can create an API token at /api/v1/tokens"
+    bearer_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $api_token" "$BASE/api/v1/tokens")"
+    none_code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/tokens")"
+    forged_code="$(curl -s -o /dev/null -w '%{http_code}' -H 'Authorization: Bearer verify-demo-not-a-token' "$BASE/api/v1/tokens")"
+    if [ "$bearer_code" = "200" ] && [ "$none_code" = "401" ] && [ "$forged_code" = "401" ]; then
+        ok "the token authenticates on its own: /api/v1/tokens is 200 with it, 401 without and 401 with a forged one"
+    else
+        bad "token authentication: issued $bearer_code, none $none_code, forged $forged_code (want 200, 401, 401)"
+    fi
+    revoke_code="$(curl -s -o /dev/null -w '%{http_code}' -b "$editor_jar" -X DELETE -H "X-CSRF-Token: $(csrf_of "$editor_jar")" "$BASE/api/v1/tokens/$token_id")"
+    if [ "$revoke_code" = "204" ]; then
+        ok "the token is revoked again (204)"
+    else
+        bad "revoking the verify-demo token answered $revoke_code; it is left on editor_alice's account"
+    fi
 else
-    bad "/api/tokens issued no token to an editor: $(printf '%s' "$token_json" | head -c 120)"
+    bad "/api/v1/tokens issued no token to an editor: $(printf '%s' "$token_json" | head -c 120)"
 fi
 
-# The kernel's ad-hoc gather route, which Ritrovo cannot close: an anonymous
-# definition that selects the whole `fields` column skips field access. Reported
-# so the day it stops leaking is visible here (G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS).
-adhoc="$(curl -s -X POST "$BASE/api/gather/query" -H 'Content-Type: application/json' \
+# The kernel's ad-hoc gather route used to hand an anonymous caller the fields
+# tap_field_access hides (G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS). On the pinned
+# kernel it requires a login; asserted so a regression is a failure here.
+adhoc_code="$(curl -s -o /tmp/verify-demo-adhoc.$$ -w '%{http_code}' -X POST "$BASE/api/v1/gather/query" -H 'Content-Type: application/json' \
     -d '{"definition":{"base_table":"item","item_type":"conference","fields":[{"field_name":"id"},{"field_name":"fields"}],"filters":[],"sorts":[],"relationships":[],"includes":{},"stage_aware":true},"display":{"format":"table","items_per_page":100,"pager":{"enabled":false,"show_count":false,"style":"full"}}}')"
-if printf '%s' "$adhoc" | grep -q 'field_editor_notes'; then
-    note "an anonymous POST to /api/gather/query still returns editors' notes (G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS)"
+if grep -q 'field_editor_notes' "/tmp/verify-demo-adhoc.$$"; then
+    bad "an anonymous POST to /api/v1/gather/query returns editors' notes (G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS)"
 else
-    note "an anonymous POST to /api/gather/query no longer returns editors' notes; re-check G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS"
+    ok "an anonymous POST to /api/v1/gather/query returns no editors' notes ($adhoc_code)"
+fi
+rm -f "/tmp/verify-demo-adhoc.$$"
+
+openapi_paths="$(curl -s "$BASE/api/v1/openapi.json" | grep -o '"/api/v1/[a-z/{}]*"' | sort -u | tr '\n' ' ')"
+case "$openapi_paths" in
+    *'"/api/v1/conferences/{id}"'*'"/api/v1/topics"'*) ok "/api/v1/openapi.json lists Ritrovo's plugin routes" ;;
+    *) bad "/api/v1/openapi.json lists none of Ritrovo's plugin routes (G-OPENAPI-IS-A-STATIC-LIST)" ;;
+esac
+
+# The cache counters count (G-CACHE-METRICS-NEVER-COUNT, fixed on the pinned
+# kernel): after every conference page read above, the item cache has hits.
+item_hits="$(curl -s "$BASE/metrics" | sed -n 's/^cache_hits_total{cache="item"} \([0-9]*\).*/\1/p' | head -1)"
+if [ -n "$item_hits" ] && [ "$item_hits" -gt 0 ]; then
+    ok "/metrics counts item cache hits ($item_hits)"
+else
+    bad "/metrics shows no item cache hits ('${item_hits:-absent}') after reading conference pages (G-CACHE-METRICS-NEVER-COUNT)"
 fi
 
-openapi_paths="$(curl -s "$BASE/api/openapi.json" | grep -o '"/api/v1/[a-z/{}]*"' | sort -u | tr '\n' ' ')"
-case "$openapi_paths" in
-    *conferences*) note "/api/openapi.json lists Ritrovo's conference routes" ;;
-    *) note "/api/openapi.json lists none of Ritrovo's routes (G-OPENAPI-IS-A-STATIC-LIST)" ;;
-esac
+head_ "cleanup"
+
+# What this run created goes again, through the kernel's own delete routes as the
+# administrator, so a second run starts from the demo it found: the submitted
+# conference (and any an earlier run left behind, which would otherwise be what
+# the `limit 1` lookups above find) and the comment and reply. A token was
+# revoked where it was made.
+leftover_items="$(cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    psql -U trovato -d ritrovo -tAc "select id from item where type='conference' and title='$SUBMITTED_NAME'" 2>/dev/null | tr -d '\r')"
+# One delete as the administrator. The checks above have usually spent the
+# rate limit bucket by now (the API checks most of all), so a 429 waits for the
+# window and tries again, for up to two minutes.
+admin_delete() {
+    local code
+    for _ in $(seq 1 40); do
+        code="$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" -X "$1" -H "X-CSRF-Token: $(csrf_of "$JAR")" "$BASE$2")"
+        [ "$code" = "429" ] || return 0
+        sleep 3
+    done
+}
+for id in $leftover_items; do
+    admin_delete POST "/item/$id/delete"
+done
+leftover_comments="$(cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
+    psql -U trovato -d ritrovo -tAc "select id from comment where body like 'Verify demo %' order by depth desc" 2>/dev/null | tr -d '\r')"
+for id in $leftover_comments; do
+    admin_delete DELETE "/api/v1/comment/$id"
+done
+left="$(sql "select (select count(*) from item where type='conference' and title='$SUBMITTED_NAME') + (select count(*) from comment where body like 'Verify demo %')")"
+if [ -z "$left" ]; then
+    note "skipped the cleanup check: no database access"
+elif [ "$left" = "0" ]; then
+    ok "the submitted conference, the comment and the reply are deleted again"
+else
+    bad "$left of this run's conferences and comments are still in the demo after cleanup"
+fi
+
+# The Recent Comments tile is rendered by the importer's tap_cron, so it shows
+# the deleted comments until the next cron call. Wait for that call (the demo's
+# cron pokes once a minute), so the demo is left as it was found and the next
+# run's front page check compares a tile that is current.
+tile_clear=""
+for _ in $(seq 1 50); do
+    case "$(curl -s "$BASE/")" in
+        *"Verify demo comment"*|*"Verify demo reply"*) sleep 3 ;;
+        *) tile_clear=1; break ;;
+    esac
+done
+if [ -n "$tile_clear" ]; then
+    ok "the Recent Comments tile no longer lists this run's comments"
+else
+    bad "the Recent Comments tile still lists this run's comments after 150 s"
+fi
 
 printf '\n'
 if [ "$failures" -eq 0 ]; then

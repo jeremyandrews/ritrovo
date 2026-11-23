@@ -15,8 +15,12 @@ config:
     <p class="tile-list__empty">Filled in by ritrovo_importer on its next cron call.</p>
   format: full_html
 visibility:
+  # `/` and the path site_front_page names. The kernel serves the front page
+  # by rewriting `/` to that path before routing, and matches a tile's paths
+  # against the rewritten one, so `/` alone no longer matches the front page.
   paths:
   - /
+  - /item/7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06
 weight: 0
 status: 1
 plugin: core

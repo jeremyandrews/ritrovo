@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+- **Ritrovo runs on Trovato `main`.** There is no release newer than 0.104.0, so the pin is the newest kernel `main` commit with green CI and a published image: `81290cc862b2c8302bc0a99d270f2571405c51ef`, workspace version 0.107.0, `KERNEL_API_VERSION (0, 107)`, image `ghcr.io/jeremyandrews/trovato:nightly-81290cc` (multi-arch index `sha256:fca4070e75885aa91fa8cd9bae4e79d492e7ded2b7f86c2f7a5c3383392f729b`). `scripts/sync-kernel-release.sh --set-nightly <main|sha>` writes it. The commit is read from the image's own build provenance, so the image and the `rev` cannot disagree. `kernel-release.toml` gains an `image` key for a nightly pin, and `demo_wiring.rs` checks that the key names the `rev`'s nightly tag and that every derived file agrees. `scripts/check-tutorial-templates.sh` fetches the kernel at a tag or a commit.
+- **What the upgrade took**, kernel change by kernel change:
+  - sqlx 0.9.1: dynamic SQL in the test harness is wrapped in `AssertSqlSafe`.
+  - Plugin raw SQL is parsed by the kernel's guard. Every statement Ritrovo sends was run through it.
+    - Two would not parse. The importer's `ON CONFLICT ((fields->>'field_source_id'))` upsert is now an insert, with a lookup and an update when the insert fails (new: `G-SQL-GUARD-REFUSES-INDEX-EXPRESSION-CONFLICT-TARGET`).
+    - The topic-names `WITH RECURSIVE ... UPDATE` moved its CTE into the `UPDATE`'s `FROM` (new: `G-SQL-GUARD-REFUSES-WITH-UPDATE`).
+    - `users` and `user_roles` are now under the guard's floor, so `ritrovo_access` no longer creates the demo accounts in `tap_install`. `scripts/demo-bootstrap.sh` creates them through the kernel's `/admin/people/add` form and gives roles with `trovato user role-add`. The host harness uses the kernel's `User` and `Role` models.
+    - The Recent Comments tile no longer joins `users`. It names authors through `host::load_users`, behind `user_directory = true` in `ritrovo_importer`'s manifest.
+  - Writes through services:
+    - The importer tried `save_item` with `item_background = true`, and every call from its queue worker returned `ERR_NO_SERVICES`. The background services never bind an item service (new, High: `G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE`, with file, line and reproduction). It stays on raw SQL.
+    - The workflow's transitions are now enforced and validated on import, and changing what is published needs the kernel's `publish content`. `variable.workflow.editorial.yml` names it for the curated↔live moves, and the publisher role carries it.
+  - `/api/v1` and `{data,total,page,per_page}`: the harness merges `routes::api_v1::router`. Tests read `data`, and `verify-demo.sh` computes the page count from `total` and `per_page`. An anonymous `?stage=<Incoming>` is now answered from Live, so the check asserts the Live total, with the hidden conference absent.
+  - The kernel's one form pipeline: tests post `_token` and `_form_build_id`, multi-value fields as `name[i]`, and every required field.
+  - Files: the conference and speaker templates draw logo, venue photos, schedule and headshot from `referenced_files`. The listing card drops its logo, because a gather row carries no file URL (new: `G-GATHER-ROWS-HAVE-NO-FILE-URLS`).
+  - The front page: `/` now dispatches the configured path in place. `page--item--7c1d4c55-….html` extends `page--front.html`, and the two front page tiles list the item path beside `/`, because tiles match the configured path where menus match `/` (new: `G-FRONT-PAGE-TILES-MATCH-THE-CONFIGURED-PATH`).
+  - `COOKIE_SECURE` defaults to `always`, so the plain-HTTP demo sets `never` in `docker-compose.demo.yml`, with a warning. `TRUSTED_PROXIES` is left unset. The harness trusts 127.0.0.1. `docs/INSTALL.md` explains both.
+  - Smaller API changes in the harness: `claim_tap_install`, `create_session_layer` with `cookie_secure`, `Arc<Metrics>` for `ItemService` and `PermissionService`, `save_translation` with a `UserContext`, and `TrustedProxies`.
+- **Raw SQL kept, and why**, all of it accepted by the kernel's guard:
+  - The importer's insert and update of conferences: `save_item` cannot run in the background (`G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE`).
+  - The search text and topic names: the same reason, and they must follow every write.
+  - The tiles' reads and their `UPDATE tile`: aggregate reads no seam offers, and a tile write the kernel has no plugin call for.
+  - `ritrovo_access`'s stage moves and the demo seed: the seed runs in `tap_cron`, which is background. The editorial screen's moves run on a request, so `save_item` and the kernel's workflow moves (B69.2) could take them; that is new work.
+  - The importer's two API routes: the detail route's Live-only allowlist of public fields, and the topic tree.
+  - `ritrovo_forms`' submission insert: a request, so the same is true of it. Also its own tables.
+  - `ritrovo_notify`'s rows in the kernel's `user_subscriptions`.
+  - `ritrovo_translate`'s draft and queue reads.
+  - `ritrovo_cfp`'s `SELECT NOW()`.
+
+  The B80 read and write seams (`a370efc`, `4afdcd1`) would take several of these. Moving them is new work, not an upgrade, so none moved.
+- **The blocked rows, rechecked.** Every `STATUS.md` row that was blocked on the kernel was rechecked against the pin, and the tally is recounted. It went from 33 blocked to 9.
+  - Done or part done, each with a test or a demo check: 35.4 and D20 (revisions), 36.2 (WYSIWYG), 38.6 and D19 (API keys).
+  - Stale rows corrected: D2, D16, P18.
+  - 30.3 and 30.7 are "kernel has it".
+  - 15 rows are a new status, **buildable, not built**. Each names the kernel commit that removed its blocker. Nothing was built.
+  - Nine `FRICTION.md` entries are marked fixed, each with its evidence. Two are narrowed. Five are new.
+- **`verify-demo.sh` asserts what used to be notes.**
+  - An API token authenticates on its own: 200 with it, 401 with none or a forged one.
+  - The ad-hoc gather route leaks no editors' notes.
+  - The OpenAPI document lists Ritrovo's routes.
+  - `/metrics` counts item cache hits.
+  - The search settings and analytics screens answer the administrator.
+- **`verify-demo.sh` cleans up after itself.**
+  - It used to leave a "Verify Demo Conference", a comment and a reply in the demo on every run, and the API token it made: the revoke reused a single-use CSRF token and got 403.
+  - Now it revokes the token with a fresh CSRF token and deletes the submitted conference, the comment and the reply through the kernel's routes. It also deletes any an earlier run left behind.
+  - It then waits for the Recent Comments tile to drop them. It retries on a 429.
+- Docs: `docs/API.md` (the list shape, error bodies, working tokens, per-role limits, the generated OpenAPI), `docs/EDITORIAL.md` (how the accounts are made, revisions now work, `publish content`), `docs/FORMS.md`, `docs/CACHING.md` and `docs/INSTALL.md`.
+- No version bump. Ritrovo has no versioning policy yet (`README.md` lists deciding one as open), so neither the workspace version nor any plugin version moved.
+- Test changes. **Fixed because the kernel was fixed, as they were written to be:**
+  - `the_conference_edit_form_is_generated_from_the_type_and_has_no_editor` is now `..._and_loads_the_block_editor` and asserts the block editor loads, with one widget per value.
+  - The save test is now `saving_the_edit_form_keeps_every_field_including_the_ones_it_did_not_render` and asserts that nothing is lost. CI's must-pass list follows the rename.
+
+  New, and on CI's must-pass list: `an_editor_lists_previews_compares_and_reverts_revisions`.
+
+  **One check narrowed, with the reason:** `ritrovo_forms`' two "works without JavaScript" assertions now look inside the `<form>` element rather than the whole page. The harness now renders plugin pages through Ritrovo's theme, whose page loads navigation scripts. The forms themselves still carry no script.
+
+  Nothing was skipped or ignored.
+
 - **Search never shows a visitor what is not Live, and an editor gets no more than a visitor.** A new host test indexes one conference on each of Live, Incoming and Curated and asks the kernel's own `/api/search`. Anonymous visitors and editors get the Live one. Only an administrator switched to Incoming gets Incoming and Live, and never Curated. The editor's stage switch is refused, because only an administrator may set the search stage, whatever the role may read (new: `G-STAGE-SWITCH-IS-ADMIN-ONLY`). The Pagefind index is built from Live only, so the browser's search has no editor view at all. `verify-demo.sh` asks both indexes anonymously for an Incoming and a Curated title, finds neither, and holds the index to the Live count.
 - **What the cache does, measured.** `docs/CACHING.md` lists what is cached: Items in process, keyed by uuid; static files; and no rendered page. It gives the commands for a hit and a miss, and walks through the two write paths.
   - An edit through the kernel's form is on the page at once.

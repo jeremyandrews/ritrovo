@@ -49,7 +49,16 @@ UPDATE item \
 ///
 /// A conference with no topics gets no key at all rather than an empty string,
 /// and one whose topics were all removed loses the key.
+///
+/// One UPDATE whose FROM is a subquery holding the recursive CTE, rather than a
+/// CTE in front of the UPDATE: the kernel's raw-SQL guard parses `WITH ...
+/// UPDATE` as a query and `execute-raw` takes only a row change.
 const DENORMALIZE_TOPICS: &str = "\
+UPDATE item i \
+   SET fields = CASE WHEN w.topic_names IS NULL THEN i.fields - 'field_topic_names' \
+                     ELSE i.fields || jsonb_build_object('field_topic_names', w.topic_names) END, \
+       changed = EXTRACT(EPOCH FROM NOW())::bigint \
+  FROM ( \
 WITH RECURSIVE tagged AS ( \
     SELECT i.id AS item_id, t.value::uuid AS tag_id \
       FROM item i, jsonb_array_elements_text( \
@@ -67,16 +76,11 @@ WITH RECURSIVE tagged AS ( \
     SELECT l.item_id, string_agg(DISTINCT c.label, ' ' ORDER BY c.label) AS topic_names \
       FROM lineage l JOIN category_tag c ON c.id = l.tag_id \
      GROUP BY l.item_id \
-), wanted AS ( \
-    SELECT i.id, n.topic_names \
-      FROM item i LEFT JOIN names n ON n.item_id = i.id \
-     WHERE i.type = 'conference' \
 ) \
-UPDATE item i \
-   SET fields = CASE WHEN w.topic_names IS NULL THEN i.fields - 'field_topic_names' \
-                     ELSE i.fields || jsonb_build_object('field_topic_names', w.topic_names) END, \
-       changed = EXTRACT(EPOCH FROM NOW())::bigint \
-  FROM wanted w \
+    SELECT c.id, n.topic_names \
+      FROM item c LEFT JOIN names n ON n.item_id = c.id \
+     WHERE c.type = 'conference' \
+  ) w \
  WHERE i.id = w.id \
    AND i.fields->>'field_topic_names' IS DISTINCT FROM w.topic_names";
 

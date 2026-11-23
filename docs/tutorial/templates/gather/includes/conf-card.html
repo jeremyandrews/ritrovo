@@ -1,12 +1,12 @@
 {# Shared conference card.
    Used by the upcoming, by-topic, by-country, by-city and this-month listings.
-   Expects `row` from the enclosing {% for row in rows %} loop. #}
+   Expects `row` from the enclosing {% for row in rows %} loop.
+
+   No logo. A File field stores a bare file id; an item page gets the kernel's
+   `referenced_files` to turn it into a url, a gather row gets nothing, and no
+   kernel route serves a file by id. The card used to link
+   `/file/<id>/download`, which does not exist (G-GATHER-ROWS-HAVE-NO-FILE-URLS). #}
 <article class="card card--conf">
-    {% if row.fields.field_logo %}
-    <div class="card__logo">
-        <img src="/file/{{ row.fields.field_logo }}/download" alt="{{ row.title }} logo" loading="lazy">
-    </div>
-    {% endif %}
 
     <h3 class="card__title">
         <a href="/item/{{ row.id }}">{{ row.title }}</a>

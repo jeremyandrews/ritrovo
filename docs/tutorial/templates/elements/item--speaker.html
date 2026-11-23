@@ -15,9 +15,12 @@
         <h1 class="item__title">{{ item.title }}</h1>
     </header>
 
-    {% if item.fields.field_headshot %}
+    {# From `referenced_files`, the kernel's resolution of a File field's id
+       into a url this viewer may fetch. #}
+    {% set headshots = referenced_files.field_headshot | default(value=[]) %}
+    {% if headshots %}
     <div class="speaker-detail__photo">
-        <img src="/file/{{ item.fields.field_headshot }}/download" alt="{{ item.title }}" loading="lazy">
+        <img src="{{ headshots[0].url }}" alt="{{ headshots[0].alt | default(value=item.title) }}" loading="lazy">
     </div>
     {% endif %}
 

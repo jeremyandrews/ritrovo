@@ -202,7 +202,7 @@ pub async fn replay_migrations_raw(pool: &PgPool, name: &str) {
         .expect("parse manifest");
     for file in &info.migrations.files {
         let sql = std::fs::read_to_string(dir.join(file)).unwrap();
-        sqlx::raw_sql(&sql)
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
             .execute(pool)
             .await
             .unwrap_or_else(|e| panic!("replaying {name}/{file} failed: {e}"));
@@ -285,6 +285,7 @@ pub fn items(pool: &PgPool, disp: &Arc<TapDispatcher>) -> ItemService {
         Duration::from_secs(60),
         None,
         None,
+        std::sync::Arc::new(trovato_kernel::metrics::Metrics::new()),
     )
 }
 
@@ -602,7 +603,15 @@ pub async fn app() -> &'static App {
     config.database_url = database_url();
     config.redis_url = redis_url();
     config.plugins_dirs = vec![overlay_plugins()];
-    config.trusted_proxies = vec![std::net::IpAddr::from([127, 0, 0, 1])];
+    // The kernel's own templates, then Ritrovo's, as the demo's TEMPLATES_DIR
+    // orders them. The kernel refuses to start without the templates its page
+    // builder components name, and the image ships them in /app/templates.
+    config.templates_dirs = vec![
+        kernel_source_dir().join("templates"),
+        repo_root().join("docs/tutorial/templates"),
+    ];
+    config.trusted_proxies = trovato_kernel::client_addr::TrustedProxies::parse("127.0.0.1")
+        .expect("parse trusted proxies");
 
     let state = trovato_kernel::AppState::new(&config)
         .await
@@ -611,6 +620,7 @@ pub async fn app() -> &'static App {
     let session_layer = trovato_kernel::session::create_session_layer(
         &config.redis_url,
         tower_sessions::cookie::SameSite::Strict,
+        config.runtime.cookie_secure,
     )
     .await
     .expect("create session layer");
@@ -621,13 +631,15 @@ pub async fn app() -> &'static App {
         // what that form preserves and what it destroys, and the only honest way
         // to find out is to drive the kernel's route rather than a reading of it.
         .merge(trovato_kernel::routes::item::router())
-        // The kernel's comment routes. A7 asserts that a signed-in member can
-        // post one and reply to it on the strength of what `demo/config`
-        // grants, and the only honest way to find that out is to post to the
-        // route a browser posts to. In the kernel these sit behind a gate on
-        // `trovato_comments` being enabled; [`enable_comments`] is that half.
-        .merge(trovato_kernel::routes::comment::router())
-        // The kernel's server search (`/search`, `/api/search`) and its admin
+        // The kernel's JSON API, `/api/v1` and its deprecated unversioned
+        // aliases, built as the server builds it. A7 asserts that a signed-in
+        // member can post a comment and reply to it on the strength of what
+        // `demo/config` grants, and the only honest way to find that out is to
+        // post to the route a browser posts to. The comment routes answer only
+        // while `trovato_comments` is enabled; [`enable_comments`] is that half.
+        // A9's `/api/search` is here too.
+        .merge(trovato_kernel::routes::api_v1::router(&state))
+        // The kernel's server search page (`/search`) and its admin
         // routes, `/admin/stage/switch` among them. A9 asserts which stages a
         // search answers from, for whom, and that only the stage switch changes
         // it; the honest way is the route a browser calls.
@@ -704,7 +716,7 @@ pub async fn prepare_app_database(pool: &PgPool, plugins: &[&str]) {
         install_and_enable(pool, name)
             .await
             .unwrap_or_else(|e| panic!("install {name}: {e}"));
-        trovato_kernel::plugin::status::mark_tap_install_called(pool, name)
+        trovato_kernel::plugin::status::claim_tap_install(pool, name)
             .await
             .unwrap();
     }
@@ -917,6 +929,41 @@ pub async fn clear_rate_limits() {
     }
 }
 
+/// The root of the Trovato checkout cargo resolved the pinned kernel from.
+///
+/// The kernel's `templates/` belongs to that checkout, at the pinned rev, and
+/// nothing else on disk has the same files. Asked of cargo rather than guessed
+/// from `CARGO_HOME`, whose checkout directory names are cargo's own business.
+pub fn kernel_source_dir() -> PathBuf {
+    static DIR: OnceLock<PathBuf> = OnceLock::new();
+    DIR.get_or_init(|| {
+        let output = std::process::Command::new(env!("CARGO"))
+            .args(["metadata", "--format-version", "1"])
+            .current_dir(repo_root())
+            .output()
+            .expect("run cargo metadata");
+        assert!(output.status.success(), "cargo metadata failed");
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("cargo metadata is JSON");
+        let manifest = metadata["packages"]
+            .as_array()
+            .and_then(|packages| {
+                packages
+                    .iter()
+                    .find(|p| p["name"] == "trovato-kernel")
+                    .and_then(|p| p["manifest_path"].as_str())
+            })
+            .expect("cargo metadata names trovato-kernel");
+        // <checkout>/crates/kernel/Cargo.toml
+        PathBuf::from(manifest)
+            .ancestors()
+            .nth(3)
+            .expect("the kernel manifest sits three levels under its checkout")
+            .to_path_buf()
+    })
+    .clone()
+}
+
 /// Parse a tap or route body as JSON, naming the body when it is not.
 pub fn json(raw: &str) -> serde_json::Value {
     serde_json::from_str(raw).unwrap_or_else(|e| panic!("not JSON ({e}): {raw}"))
@@ -925,6 +972,12 @@ pub fn json(raw: &str) -> serde_json::Value {
 /// Create a published `conference` Item through `ItemService::create`, which is
 /// what fires `tap_item_presave` and `tap_item_insert`, as the author the kernel
 /// migrations seed.
+///
+/// Written by the kernel's background principal, which is what writes every
+/// conference on the demo: the importer's queue worker. A person creating a
+/// published item now needs `publish content`, and placing it on a stage other
+/// than the default needs a workflow transition; neither is what these fixtures
+/// are about, and the suites that test who may move what do it explicitly.
 pub async fn create_conference(
     pool: &PgPool,
     items: &ItemService,
@@ -947,7 +1000,7 @@ pub async fn create_conference(
                 language: None,
                 log: None,
             },
-            &UserContext::authenticated(author, vec!["create conference content".to_string()]),
+            &UserContext::background(),
         )
         .await
         .unwrap_or_else(|e| panic!("create conference {title}: {e:#}"))
@@ -963,6 +1016,49 @@ pub async fn visitor(pool: &PgPool, permissions: &[&str]) -> UserContext {
         any_user(pool).await,
         permissions.iter().map(|p| (*p).to_string()).collect(),
     )
+}
+
+/// The demo's three editorial accounts, active, with their roles, as
+/// `scripts/demo-bootstrap.sh` creates them: through the kernel's user and role
+/// models, since no plugin may write `users` or `user_roles`. The passwords are
+/// the published ones in `docs/EDITORIAL.md`. Idempotent.
+pub async fn create_demo_users(pool: &PgPool) {
+    use trovato_kernel::models::{CreateUser, Role, UpdateUser, User};
+    for (name, role, password) in [
+        ("editor_alice", "editor", "ritrovo-editor-demo"),
+        ("publisher_bob", "publisher", "ritrovo-publisher-demo"),
+        ("viewer_carol", "viewer", "ritrovo-viewer-demo"),
+    ] {
+        let user = match User::find_by_name(pool, name).await.unwrap() {
+            Some(user) => user,
+            None => User::create(
+                pool,
+                CreateUser {
+                    name: name.to_string(),
+                    password: password.to_string(),
+                    mail: format!("{name}@ritrovo.example"),
+                    is_admin: false,
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("create {name}: {e:#}")),
+        };
+        User::update(
+            pool,
+            user.id,
+            UpdateUser {
+                status: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let role = Role::find_by_name(pool, role)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("no role {role}; import demo/config first"));
+        Role::assign_to_user(pool, user.id, role.id).await.unwrap();
+    }
 }
 
 /// A real user, with the permissions their real roles really grant.
@@ -983,11 +1079,14 @@ pub async fn visitor_named(pool: &PgPool, username: &str) -> UserContext {
         .unwrap_or_else(|e| panic!("look up {username}: {e}"))
         .unwrap_or_else(|| panic!("no user named {username}"));
 
-    let permissions =
-        trovato_kernel::permissions::PermissionService::new(pool.clone(), Duration::from_secs(60))
-            .load_user_permissions(&user)
-            .await
-            .unwrap_or_else(|e| panic!("load permissions for {username}: {e}"));
+    let permissions = trovato_kernel::permissions::PermissionService::new(
+        pool.clone(),
+        Duration::from_secs(60),
+        std::sync::Arc::new(trovato_kernel::metrics::Metrics::new()),
+    )
+    .load_user_permissions(&user)
+    .await
+    .unwrap_or_else(|e| panic!("load permissions for {username}: {e}"));
 
     trovato_kernel::permissions::context_from_permissions(&user, permissions)
 }

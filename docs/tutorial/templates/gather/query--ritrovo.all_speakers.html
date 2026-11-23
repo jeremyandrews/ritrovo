@@ -4,18 +4,14 @@
 <div class="speaker-list">
     {% for row in rows %}
     <article class="card card--speaker">
-        {% if row.fields.field_headshot %}
-        <div class="speaker-card__photo">
-            <img src="/file/{{ row.fields.field_headshot }}/download" alt="{{ row.title }}" loading="lazy">
-        </div>
-        {% else %}
-        {# No headshot is the normal case, not a broken one: nothing can attach a
-           file from configuration on this kernel (G-NO-FILE-CONFIG-ENTITY), so
-           every seeded speaker lands here. An initial reads better than a gap. #}
+        {# Always the initial. A gather row has no url for a File field (the
+           headshot is a bare file id, only an item page gets the kernel's
+           `referenced_files`, and no route serves a file by id), so the card
+           links no picture rather than a dead one
+           (G-GATHER-ROWS-HAVE-NO-FILE-URLS). The speaker's page shows it. #}
         <div class="speaker-card__photo speaker-card__photo--placeholder">
             <span>{{ row.title | truncate(length=1, end="") }}</span>
         </div>
-        {% endif %}
         <div class="speaker-card__info">
             <h3 class="speaker-card__name">
                 <a href="/item/{{ row.id }}">{{ row.title }}</a>
