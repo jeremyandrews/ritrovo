@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A nightly run tells us within a day when kernel `main` breaks Ritrovo.** `.github/workflows/kernel-nightly.yml` ("Kernel main") runs daily at 04:41 UTC and by hand.
+  - It resolves the newest `ghcr.io/jeremyandrews/trovato:nightly` image to its commit, once per run, with `scripts/sync-kernel-release.sh --set-nightly main`, and points each job's throwaway checkout at that commit.
+  - It runs clippy (host and wasm32), the release build, the unit and host-in-the-loop suites against Postgres and Redis (failing on a suite that did not run or ignored a test), the vendored-template check, and the full demo on that nightly image with `verify-demo.sh`. The pin is never changed.
+  - On red it opens one issue titled "Kernel main breaks Ritrovo", or comments on the open one. The issue or comment carries the pinned and tested commits, the compare link and the newest commits in the range, and every failing job and step, read from the run.
+  - On green it comments and closes that issue.
+  - It uses only the workflow's own `GITHUB_TOKEN` (`issues: write`, `actions: read`).
+
 - **Ritrovo runs on Trovato `main`.** There is no release newer than 0.104.0, so the pin is the newest kernel `main` commit with green CI and a published image: `81290cc862b2c8302bc0a99d270f2571405c51ef`, workspace version 0.107.0, `KERNEL_API_VERSION (0, 107)`, image `ghcr.io/jeremyandrews/trovato:nightly-81290cc` (multi-arch index `sha256:fca4070e75885aa91fa8cd9bae4e79d492e7ded2b7f86c2f7a5c3383392f729b`). `scripts/sync-kernel-release.sh --set-nightly <main|sha>` writes it. The commit is read from the image's own build provenance, so the image and the `rev` cannot disagree. `kernel-release.toml` gains an `image` key for a nightly pin, and `demo_wiring.rs` checks that the key names the `rev`'s nightly tag and that every derived file agrees. `scripts/check-tutorial-templates.sh` fetches the kernel at a tag or a commit.
 - **What the upgrade took**, kernel change by kernel change:
   - sqlx 0.9.1: dynamic SQL in the test harness is wrapped in `AssertSqlSafe`.

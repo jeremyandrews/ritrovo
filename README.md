@@ -186,6 +186,11 @@ generated blocks in this file and `docs/INSTALL.md`. Review the diff.
 `kernel-release.toml`, so a missed location is a test failure rather than
 something a reader discovers.
 
+The `Kernel main` workflow (`.github/workflows/kernel-nightly.yml`) runs
+`--set-nightly main` every night in CI without committing it, builds and tests
+against the result, and keeps one issue, "Kernel main breaks Ritrovo", open while
+that fails.
+
 
 ### Verifying a build
 
