@@ -44,13 +44,13 @@ license = "GPL-2.0-or-later"
 # revs and the recorded pin below included. Then review the diff.
 #
 # kernel-release:begin pin
-#   source              81290cc862b2c8302bc0a99d270f2571405c51ef (kernel main, no release tag)
-#   rev                 81290cc862b2c8302bc0a99d270f2571405c51ef
+#   source              e2877ad35a19a54f44663bfb735d250c252b6ad9 (kernel main, no release tag)
+#   rev                 e2877ad35a19a54f44663bfb735d250c252b6ad9
 #   Trovato version     0.107.0 (the workspace version at that commit)
 #   KERNEL_API_VERSION  (0, 107)
 #
 # A nightly pin: the rev is a commit on Trovato's main branch, and the
-# ghcr.io/jeremyandrews/trovato:nightly-81290cc image the demo runs is the multi-arch nightly
+# ghcr.io/jeremyandrews/trovato:nightly-e2877ad image the demo runs is the multi-arch nightly
 # whose build provenance names that commit.
 # The plugin manifests declare `api_version = "0.107"` to match.
 # kernel-release:end pin
@@ -58,7 +58,7 @@ license = "GPL-2.0-or-later"
 # `trovato-sdk` pulls `trovato-sdk-macros` through a repo-relative path
 # dependency; cargo resolves that inside the git checkout, so only this one
 # entry is needed.
-trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "81290cc862b2c8302bc0a99d270f2571405c51ef" }
+trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "e2877ad35a19a54f44663bfb735d250c252b6ad9" }
 
 # trovato-kernel: TEST ONLY, and pinned to the same revision as the SDK above.
 #
@@ -77,7 +77,7 @@ trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "812
 # against another kernel is a test that proves nothing about what ships;
 # demo/checks/src/lib.rs asserts the two pins are the same string, so moving one
 # without the other fails the build.
-trovato-kernel = { git = "https://github.com/jeremyandrews/trovato.git", rev = "81290cc862b2c8302bc0a99d270f2571405c51ef" }
+trovato-kernel = { git = "https://github.com/jeremyandrews/trovato.git", rev = "e2877ad35a19a54f44663bfb735d250c252b6ad9" }
 
 # trovato-mcp: TEST ONLY, the kernel's MCP server as a library, and pinned to the
 # same revision as the two above for the same reason. `ritrovo_access`'s suite
@@ -87,7 +87,7 @@ trovato-kernel = { git = "https://github.com/jeremyandrews/trovato.git", rev = "
 # checkout, so cargo resolves one kernel for both. scripts/sync-kernel-release.sh
 # writes this rev with the other two and demo/checks/tests/demo_wiring.rs holds it
 # to kernel-release.toml.
-trovato-mcp = { git = "https://github.com/jeremyandrews/trovato.git", rev = "81290cc862b2c8302bc0a99d270f2571405c51ef" }
+trovato-mcp = { git = "https://github.com/jeremyandrews/trovato.git", rev = "e2877ad35a19a54f44663bfb735d250c252b6ad9" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

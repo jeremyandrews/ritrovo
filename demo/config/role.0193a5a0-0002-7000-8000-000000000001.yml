@@ -23,8 +23,13 @@
 # viewer genuinely cannot see the internal stages in this demo, which is what
 # the brief wants for a viewer anyway. The roles that need that access get it
 # through a kernel permission instead; see the editor and publisher files.
+#
+# `search content` is the kernel's search permission (B160, Trovato 0149541),
+# granted wherever `access content` is. The anonymous file says why it has to
+# be listed rather than left to the kernel's migration.
 id: 0193a5a0-0002-7000-8000-000000000001
 name: viewer
 created: "2026-01-01T00:00:00Z"
 permissions:
 - access content
+- search content

@@ -295,6 +295,58 @@ fn the_real_roles_grant_what_the_editorial_workflow_needs() {
             reader.permissions
         );
 
+        // Everyone who may read content may search it. The kernel gates
+        // `/search` and `/api/v1/search` on `search content` (B160), and its
+        // migration's grant is revoked by this import, whose role files are
+        // authoritative; a role file that drops the line takes search away
+        // from that role with a 401 or 403.
+        for (who, viewer) in [
+            ("anonymous", &anonymous),
+            ("viewer_carol", &reader),
+            ("editor_alice", &editor),
+            ("publisher_bob", &publisher),
+        ] {
+            assert!(
+                viewer.permissions.iter().any(|p| p == "access content"),
+                "{who} cannot read content. Holds: {:?}",
+                viewer.permissions
+            );
+            assert!(
+                viewer.permissions.iter().any(|p| p == "search content"),
+                "{who} may read content but not search it; a demo/config \
+                 role file has dropped `search content`. Holds: {:?}",
+                viewer.permissions
+            );
+        }
+        // Per role, not per user: viewer_carol would still search through the
+        // authenticated role if the viewer file alone dropped the line. The
+        // five role files in demo/config, by their ids. Each grants
+        // `access content`, so each has to grant `search content` as well.
+        const DEMO_ROLE_IDS: [&str; 5] = [
+            "00000000-0000-0000-0000-000000000001",
+            "00000000-0000-0000-0000-000000000002",
+            "0193a5a0-0002-7000-8000-000000000001",
+            "0193a5a0-0002-7000-8000-000000000002",
+            "0193a5a0-0002-7000-8000-000000000003",
+        ];
+        let can_search: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT p.role_id::text FROM role_permissions p \
+             WHERE p.role_id::text = ANY($1) AND p.permission = 'search content'",
+        )
+        .bind(DEMO_ROLE_IDS.map(str::to_string).to_vec())
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let cannot_search: Vec<&str> = DEMO_ROLE_IDS
+            .into_iter()
+            .filter(|id| !can_search.iter().any(|c| c == id))
+            .collect();
+        assert!(
+            cannot_search.is_empty(),
+            "these demo/config roles may read content but not search it: \
+             {cannot_search:?}"
+        );
+
         // The four that matter: each internal stage, seen by someone with
         // editorial standing and by someone without.
         let cases = [

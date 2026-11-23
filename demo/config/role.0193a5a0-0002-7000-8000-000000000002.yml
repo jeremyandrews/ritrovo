@@ -58,6 +58,10 @@
 # `edit any comments` is NOT here: `ritrovo_access` declares it and nothing in
 # the kernel checks it, so it would be a grant with nothing behind it.
 #
+# `search content` is the kernel's search permission (B160, Trovato 0149541),
+# granted wherever `access content` is. The anonymous file says why it has to
+# be listed rather than left to the kernel's migration.
+#
 # `view ai usage` opens the kernel's AI usage dashboard, /admin/system/ai-budgets:
 # who spent how many tokens on which provider this period. Saving the budgets
 # there needs `configure ai`, which only the administrator holds. docs/AI.md.
@@ -71,6 +75,7 @@ created: "2026-01-01T00:00:00Z"
 permissions:
 - access administration pages
 - access content
+- search content
 - administer comments
 - create content
 - edit own content

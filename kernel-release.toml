@@ -47,5 +47,5 @@
 # every mention if you want to sweep them by hand.
 
 version = "0.107.0"
-rev = "81290cc862b2c8302bc0a99d270f2571405c51ef"
-image = "nightly-81290cc"
+rev = "e2877ad35a19a54f44663bfb735d250c252b6ad9"
+image = "nightly-e2877ad"

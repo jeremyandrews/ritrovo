@@ -155,13 +155,13 @@ from there into every file that repeats it:
 | | |
 |---|---|
 | source | Trovato `main`, no release tag |
-| `rev` | `81290cc862b2c8302bc0a99d270f2571405c51ef` |
-| image | `ghcr.io/jeremyandrews/trovato:nightly-81290cc` |
+| `rev` | `e2877ad35a19a54f44663bfb735d250c252b6ad9` |
+| image | `ghcr.io/jeremyandrews/trovato:nightly-e2877ad` |
 | Trovato version | 0.107.0 (the workspace version at that commit) |
 | `KERNEL_API_VERSION` | (0, 107) |
 
 A nightly pin. The `rev` is a commit on Trovato's `main`, and the
-`ghcr.io/jeremyandrews/trovato:nightly-81290cc` image is the multi-arch nightly whose build
+`ghcr.io/jeremyandrews/trovato:nightly-e2877ad` image is the multi-arch nightly whose build
 provenance names that commit, so the SDK the plugins compile against and the
 kernel the demo runs are the same code. The plugin manifests declare
 `api_version = "0.107"` to match.

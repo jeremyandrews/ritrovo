@@ -128,7 +128,7 @@ services:
         ls -la /overlay/plugins
 
   trovato:
-    image: ghcr.io/jeremyandrews/trovato:nightly-81290cc
+    image: ghcr.io/jeremyandrews/trovato:nightly-e2877ad
     depends_on:
       postgres:
         condition: service_healthy
@@ -161,7 +161,7 @@ services:
 
   # There is no scheduler in the kernel. This is it.
   cron:
-    image: ghcr.io/jeremyandrews/trovato:nightly-81290cc
+    image: ghcr.io/jeremyandrews/trovato:nightly-e2877ad
     depends_on:
       trovato:
         condition: service_started

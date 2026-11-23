@@ -9,14 +9,23 @@
 # authoritative, and removing a line here revokes that permission on the next
 # import. Omitting the key entirely would leave the role's grants alone.
 #
-# Anonymous deliberately holds `access content` and nothing else. That single
-# permission is what the kernel's published-content fast path checks before it
-# consults any plugin, so it is what lets a visitor read a published conference
-# on the Live stage. It grants nothing on the internal stages: the kernel denies
-# an unauthenticated viewer any item on a stage whose visibility is `internal`,
-# before `ritrovo_access` is asked at all.
+# Anonymous deliberately holds `access content` and `search content` and
+# nothing else. `access content` is what the kernel's published-content fast
+# path checks before it consults any plugin, so it is what lets a visitor read a
+# published conference on the Live stage. It grants nothing on the internal
+# stages: the kernel denies an unauthenticated viewer any item on a stage whose
+# visibility is `internal`, before `ritrovo_access` is asked at all.
+#
+# `search content` opens `/search` and `/api/v1/search`. The kernel gates both
+# on it since B160 (Trovato 0149541); without it a visitor gets 401 from the
+# search page. The kernel's migration that grants it to every role holding
+# `access content` runs before this file is imported, and the import's REPLACE
+# semantics revoke whatever is not listed, so it has to be listed here. Search
+# reads the same Live stage `access content` does, so it shows a visitor
+# nothing they could not already open.
 id: 00000000-0000-0000-0000-000000000001
 name: anonymous user
 created: "2026-01-01T00:00:00Z"
 permissions:
 - access content
+- search content
