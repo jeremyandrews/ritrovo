@@ -1137,6 +1137,10 @@ fn a_kernel_edit_shows_at_once_a_raw_write_waits_for_the_cache_and_no_view_leaks
         .join("&");
         let saved = app.post_form(&edit, &body, &editor).await;
         assert_eq!(saved.status, 200, "the edit was refused: {}", saved.body);
+        // The edit also bumps the item cache's generation, and the watcher
+        // clears the whole kind up to 250 ms later. Let that land before the
+        // read below warms the entry the raw write is measured against.
+        host::settle_cache_generations().await;
         let after_edit = app.get(&page, "").await;
         assert!(
             after_edit.body.contains("Wombatcon Edited")

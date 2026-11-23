@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **A test race the first nightly run found, fixed in the test.** `a_kernel_edit_shows_at_once_a_raw_write_waits_for_the_cache_and_no_view_leaks` failed once in "Kernel main" run 45179977543 and has passed everywhere else. Since Trovato `1dc0467`, already in the pin, a kernel write bumps its cache kind in Redis, and a watcher clears the whole kind on its next 250 ms poll. The editor's save could therefore clear the item cache after the test had re-warmed it, and the raw write then showed through. `tests/host/mod.rs` gains `settle_cache_generations()`, the same 750 ms wait the kernel's own tests use, and the test calls it after the save. The assertion is unchanged; nothing was loosened.
+
 - **A nightly run tells us within a day when kernel `main` breaks Ritrovo.** `.github/workflows/kernel-nightly.yml` ("Kernel main") runs daily at 04:41 UTC and by hand.
   - It resolves the newest `ghcr.io/jeremyandrews/trovato:nightly` image to its commit, once per run, with `scripts/sync-kernel-release.sh --set-nightly main`, and points each job's throwaway checkout at that commit.
   - It runs clippy (host and wasm32), the release build, the unit and host-in-the-loop suites against Postgres and Redis (failing on a suite that did not run or ignored a test), the vendored-template check, and the full demo on that nightly image with `verify-demo.sh`. The pin is never changed.
