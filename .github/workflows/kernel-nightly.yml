@@ -1,0 +1,298 @@
+# Ritrovo against the newest kernel `main`, every night.
+#
+# ci.yml and demo.yml test Ritrovo on the kernel it pins (kernel-release.toml).
+# This workflow tests it on the kernel it will pin next: the newest nightly image
+# Trovato publishes from `main`, and the commit that image was built from. It
+# changes nothing in the repository. Every job rewrites its own checkout with
+# `scripts/sync-kernel-release.sh --set-nightly <sha>` and throws it away, so the
+# pin moves only when someone commits a sync.
+#
+#   resolve    reads the commit out of the `nightly` image's build provenance,
+#              once, so every job below tests the same commit even if a newer
+#              nightly lands mid-run.
+#   build      clippy (host and wasm32) and the release build of the plugins.
+#   test       the unit and host-in-the-loop suites, against Postgres and Redis,
+#              with the kernel crate at that commit.
+#   templates  the tutorial files vendored from the kernel still match it.
+#   demo       the one-command demo on that nightly image, then verify-demo.sh.
+#   report     keeps one issue, "Kernel main breaks Ritrovo". On red it opens the
+#              issue, or comments on the open one, with the kernel commit range
+#              since the pin and every failing job and step. On green it closes
+#              the issue. It uses only the workflow's own GITHUB_TOKEN.
+#
+# A red run here is news, not a broken build: `main` stays green on its pin. Fix
+# Ritrovo for the new kernel, or write the kernel defect up in FRICTION.md, then
+# sync the pin in a pull request.
+#
+# Daily at 04:41 UTC (the odd minute because GitHub delays runs queued on the
+# hour), and by hand from the Actions tab.
+
+name: Kernel main
+
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-main
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.96.0"
+
+jobs:
+  resolve:
+    name: resolve the newest kernel main nightly
+    runs-on: ubuntu-latest
+    outputs:
+      pinned: ${{ steps.pinned.outputs.rev }}
+      nightly: ${{ steps.nightly.outputs.rev }}
+      image: ${{ steps.nightly.outputs.image }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read the pin
+        id: pinned
+        run: echo "rev=$(sed -n 's/^rev = "\([0-9a-f]*\)"$/\1/p' kernel-release.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the newest nightly (sync-kernel-release.sh --set-nightly main)
+        id: nightly
+        run: |
+          scripts/sync-kernel-release.sh --set-nightly main
+          rev="$(sed -n 's/^rev = "\([0-9a-f]*\)"$/\1/p' kernel-release.toml)"
+          image="$(sed -n 's/^image = "\(nightly-[0-9a-f]*\)"$/\1/p' kernel-release.toml)"
+          [ "${#rev}" = 40 ] && [ -n "$image" ] || { echo "::error::no nightly resolved"; exit 1; }
+          echo "rev=$rev" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "### Kernel main nightly: \`$image\` (\`$rev\`)" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: build
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Point the checkout at the nightly
+        env:
+          NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+        run: scripts/sync-kernel-release.sh --set-nightly "$NIGHTLY"
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-wasip1
+          components: clippy
+
+      - name: Clippy (host target, all targets)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (wasm32-wasip1)
+        run: cargo clippy --workspace --target wasm32-wasip1 --release -- -D warnings
+
+      - name: Build the plugins for WebAssembly
+        run: cargo build --target wasm32-wasip1 --release
+
+  test:
+    name: unit and host-in-the-loop tests
+    needs: resolve
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: trovato
+          POSTGRES_PASSWORD: trovato
+          POSTGRES_DB: trovato
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U trovato"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://trovato:trovato@localhost:5432/trovato
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Point the checkout at the nightly
+        env:
+          NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+        run: scripts/sync-kernel-release.sh --set-nightly "$NIGHTLY"
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-wasip1
+
+      - name: Build and assemble the overlay the suites load
+        run: |
+          cargo build --target wasm32-wasip1 --release
+          scripts/assemble-overlay.sh
+
+      # As in ci.yml: pipefail, and a suite that did not run, or ignored a
+      # test, is a failure rather than a quiet green.
+      - name: Tests
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee test-raw.log
+          sed -e 's/\x1b\[[0-9;]*m//g' test-raw.log > test.log
+          status=0
+          for plugin in ritrovo_access ritrovo_cfp ritrovo_forms ritrovo_importer ritrovo_notify ritrovo_translate; do
+            grep -q "Running tests/${plugin}_host.rs" test.log \
+              || { echo "::error::the $plugin host-in-the-loop suite did not run"; status=1; }
+          done
+          if grep -E '^test result:' test.log | grep -vq ' 0 ignored;'; then
+            echo "::error::a suite ignored a test"
+            status=1
+          fi
+          exit "$status"
+
+  templates:
+    name: vendored tutorial files
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Point the checkout at the nightly
+        env:
+          NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+        run: scripts/sync-kernel-release.sh --set-nightly "$NIGHTLY"
+
+      - name: Vendored tutorial files match the kernel
+        run: scripts/check-tutorial-templates.sh
+
+  demo:
+    name: serve the demo on the nightly image and verify it
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Point the checkout at the nightly
+        env:
+          NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+        run: scripts/sync-kernel-release.sh --set-nightly "$NIGHTLY"
+
+      - name: Stand the demo up (scripts/serve-demo.sh)
+        env:
+          DRAIN_TIMEOUT: "1500"
+        run: scripts/serve-demo.sh --fresh --no-verify
+
+      - name: Verify the site (scripts/verify-demo.sh)
+        run: scripts/verify-demo.sh http://localhost:3000
+
+      - name: Builder, kernel and cron logs
+        if: failure()
+        run: |
+          docker compose -f docker-compose.demo.yml ps -a
+          for service in plugin-builder trovato cron; do
+            echo "::group::$service"
+            docker compose -f docker-compose.demo.yml logs --no-color --tail 200 "$service" || true
+            echo "::endgroup::"
+          done
+
+      - name: Tear down
+        if: always()
+        run: scripts/serve-demo.sh --down
+
+  report:
+    name: open, update or close the issue
+    needs: [resolve, build, test, templates, demo]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ISSUE_TITLE: Kernel main breaks Ritrovo
+      PINNED: ${{ needs.resolve.outputs.pinned }}
+      NIGHTLY: ${{ needs.resolve.outputs.nightly }}
+      IMAGE: ${{ needs.resolve.outputs.image }}
+      RESULTS: ${{ join(needs.*.result, ' ') }}
+    steps:
+      - name: Report
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          echo "job results: $RESULTS"
+          case " $RESULTS " in
+            *" cancelled "*) echo "the run was cancelled; nothing to report"; exit 0 ;;
+          esac
+
+          issue="$(gh issue list --state open --limit 200 --json number,title \
+            --jq '.[] | select(.title == env.ISSUE_TITLE) | .number' | head -n 1)"
+
+          case " $RESULTS " in
+            *" failure "*)
+              failed="$(gh api --paginate \
+                "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+                --jq '.jobs[] | select(.conclusion == "failure")
+                      | "- **\(.name)**: \([.steps[] | select(.conclusion == "failure") | .name] | join(", "))"')"
+              {
+                echo "Ritrovo fails on the newest Trovato \`main\` nightly. Run: $run_url"
+                echo
+                if [ -n "$NIGHTLY" ]; then
+                  echo "- Pinned (\`kernel-release.toml\`): \`$PINNED\`"
+                  echo "- Tested: \`$NIGHTLY\`, image \`ghcr.io/jeremyandrews/trovato:$IMAGE\`"
+                  echo "- Kernel commits in range: https://github.com/jeremyandrews/trovato/compare/$PINNED...$NIGHTLY"
+                  # The backticks are Markdown, not an expansion.
+                  # shellcheck disable=SC2016
+                  subjects="$(gh api "repos/jeremyandrews/trovato/compare/$PINNED...$NIGHTLY" \
+                    --jq '.commits[-30:][] | "  - `\(.sha[0:7])` \(.commit.message | split("\n")[0])"' 2>/dev/null || true)"
+                  if [ -n "$subjects" ]; then
+                    echo "- The newest commits in the range:"
+                    echo "$subjects"
+                  fi
+                else
+                  echo "- Pinned (\`kernel-release.toml\`): \`$PINNED\`"
+                  echo "- The newest nightly could not be resolved, so no range was tested."
+                fi
+                echo
+                echo "Failing:"
+                echo
+                echo "${failed:-- (no failing step could be read; see the run)}"
+              } > body.md
+              if [ -n "$issue" ]; then
+                gh issue comment "$issue" --body-file body.md
+                echo "commented on #$issue"
+              else
+                gh issue create --title "$ISSUE_TITLE" --body-file body.md
+              fi
+              ;;
+            *)
+              if [ -n "$issue" ]; then
+                # shellcheck disable=SC2016
+                printf 'Green again on Trovato `main` `%s` (image `%s`). Run: %s\n' \
+                  "$NIGHTLY" "$IMAGE" "$run_url" > body.md
+                gh issue comment "$issue" --body-file body.md
+                gh issue close "$issue" --reason completed
+                echo "closed #$issue"
+              else
+                echo "green on $NIGHTLY; no open issue"
+              fi
+              ;;
+          esac
