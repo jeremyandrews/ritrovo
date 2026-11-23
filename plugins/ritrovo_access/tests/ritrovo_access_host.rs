@@ -206,6 +206,41 @@ fn incoming_and_curated_conferences_are_gated_by_permission() {
     });
 }
 
+/// The ids of the role files in `demo/config` whose `permissions:` list
+/// `permission`.
+///
+/// A role file is a flat YAML document: an `id:` line and one `- name` line per
+/// permission, which is all this reads. Sorted, so a failure lists them in a
+/// stable order.
+fn demo_role_ids_granting(permission: &str) -> Vec<String> {
+    let dir = host::repo_root().join("demo/config");
+    let mut ids = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !(name.starts_with("role.") && name.ends_with(".yml")) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let grants = text
+            .lines()
+            .any(|line| line.trim_end() == format!("- {permission}"));
+        if !grants {
+            continue;
+        }
+        let id = text
+            .lines()
+            .find_map(|line| line.strip_prefix("id:"))
+            .unwrap_or_else(|| panic!("{name} has no id line"))
+            .trim()
+            .trim_matches('"')
+            .to_string();
+        ids.push(id);
+    }
+    ids.sort();
+    ids
+}
+
 /// The four role-and-stage combinations that decide the brief, driven through
 /// the real roles rather than through a permission set the test made up.
 ///
@@ -319,27 +354,29 @@ fn the_real_roles_grant_what_the_editorial_workflow_needs() {
             );
         }
         // Per role, not per user: viewer_carol would still search through the
-        // authenticated role if the viewer file alone dropped the line. The
-        // five role files in demo/config, by their ids. Each grants
-        // `access content`, so each has to grant `search content` as well.
-        const DEMO_ROLE_IDS: [&str; 5] = [
-            "00000000-0000-0000-0000-000000000001",
-            "00000000-0000-0000-0000-000000000002",
-            "0193a5a0-0002-7000-8000-000000000001",
-            "0193a5a0-0002-7000-8000-000000000002",
-            "0193a5a0-0002-7000-8000-000000000003",
-        ];
+        // authenticated role if the viewer file alone dropped the line. Every
+        // role file in demo/config that grants `access content`, read from the
+        // files rather than listed here, so a role added later is held to the
+        // same rule.
+        let readers = demo_role_ids_granting("access content");
+        assert!(
+            readers
+                .iter()
+                .any(|id| id == "00000000-0000-0000-0000-000000000001"),
+            "the anonymous role file no longer grants `access content`, or the \
+             role files could not be read: {readers:?}"
+        );
         let can_search: Vec<String> = sqlx::query_scalar(
             "SELECT DISTINCT p.role_id::text FROM role_permissions p \
              WHERE p.role_id::text = ANY($1) AND p.permission = 'search content'",
         )
-        .bind(DEMO_ROLE_IDS.map(str::to_string).to_vec())
+        .bind(&readers)
         .fetch_all(&pool)
         .await
         .unwrap();
-        let cannot_search: Vec<&str> = DEMO_ROLE_IDS
-            .into_iter()
-            .filter(|id| !can_search.iter().any(|c| c == id))
+        let cannot_search: Vec<&String> = readers
+            .iter()
+            .filter(|id| !can_search.contains(id))
             .collect();
         assert!(
             cannot_search.is_empty(),
