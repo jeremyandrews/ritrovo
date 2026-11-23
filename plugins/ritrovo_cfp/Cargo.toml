@@ -35,3 +35,6 @@ tower = { workspace = true }
 tower-sessions = { workspace = true }
 redis = { workspace = true }
 uuid = { workspace = true }
+# The assistant suite reads the shared AI helpers in tests/host/ai.rs.
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

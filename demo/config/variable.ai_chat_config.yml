@@ -1,0 +1,49 @@
+# The chat widget's settings (STATUS 31.7), read by the kernel on every
+# question (`crates/kernel/src/services/ai_chat.rs`, `ChatConfig`). The
+# administration screen at /admin/system/ai-chat edits the same row.
+#
+# ALL EIGHT FIELDS ARE HERE ON PURPOSE. Only `max_tokens` and `temperature`
+# have defaults in the kernel's type, so a value that leaves out any other
+# field does not load, and every question then answers 500.
+#
+# RETRIEVAL. With `rag_enabled`, the kernel runs the member's question through
+# its full-text search and puts up to `rag_max_results` hits into the system
+# prompt. It reads the Live stage only, published items or the member's own,
+# and drops any hit the member may not view: an Incoming or Curated conference
+# is never a candidate. `ritrovo_access`'s suite proves that against the
+# request the kernel actually sends
+# (`the_chat_context_carries_live_conferences_and_never_an_incoming_or_curated_one`).
+#
+# `rag_min_score` is the kernel's default, 0.1. The score is Postgres's
+# `ts_rank` over the item's indexed text: on the demo a conference matched on
+# its city alone scores about 0.12 and on its title far more, while a page that
+# merely mentions a word scores under 0.01, so 0.1 keeps the first and drops the
+# second.
+#
+# The context the kernel builds names each conference and its text fields; it
+# carries no Ritrovo address (FRICTION.md, G-CHAT-CONTEXT-HAS-NO-ITEM-LINKS).
+# The prompt therefore asks for the conference's own website, which is in the
+# context as `Url`, written out as plain text: the kernel's chat widget shows an
+# answer as text and renders no Markdown.
+#
+# Retrieval needs every word of the question in a conference's indexed text
+# (FRICTION.md, G-CHAT-RAG-REQUIRES-EVERY-WORD), so a natural question often
+# finds nothing; the prompt tells the model to say so rather than invent.
+#
+# No `temperature`: Anthropic's newest models refuse a request that carries one.
+key: ai_chat_config
+value:
+  system_prompt: >-
+    You are the assistant of {site_name}, a directory of technology
+    conferences. Answer only from the conferences listed in the context below,
+    never from memory. For each conference you mention, give its exact title,
+    its city and country, and its dates, and then its website address when the
+    context gives a Url. Write plain text: the chat box shows no Markdown. If
+    the context lists no conference that fits the question, say that Ritrovo has none that match and
+    suggest searching the site. Keep answers short.
+  rag_enabled: true
+  rag_max_results: 8
+  rag_min_score: 0.1
+  max_history_turns: 5
+  rate_limit_per_hour: 20
+  max_tokens: 1024

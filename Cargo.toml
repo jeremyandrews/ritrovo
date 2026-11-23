@@ -79,6 +79,16 @@ trovato-sdk = { git = "https://github.com/jeremyandrews/trovato.git", rev = "812
 # without the other fails the build.
 trovato-kernel = { git = "https://github.com/jeremyandrews/trovato.git", rev = "81290cc862b2c8302bc0a99d270f2571405c51ef" }
 
+# trovato-mcp: TEST ONLY, the kernel's MCP server as a library, and pinned to the
+# same revision as the two above for the same reason. `ritrovo_access`'s suite
+# serves `TrovatoMcpServer` in process over Ritrovo's own configuration and
+# speaks JSON-RPC to it, which is the only honest way to say what an MCP client
+# can reach on this site. It depends on `trovato-kernel` by path inside the same
+# checkout, so cargo resolves one kernel for both. scripts/sync-kernel-release.sh
+# writes this rev with the other two and demo/checks/tests/demo_wiring.rs holds it
+# to kernel-release.toml.
+trovato-mcp = { git = "https://github.com/jeremyandrews/trovato.git", rev = "81290cc862b2c8302bc0a99d270f2571405c51ef" }
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
@@ -104,6 +114,10 @@ uuid = { version = "1", features = ["v7", "serde"] }
 # pinned kernel resolves.
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+# The MCP protocol crate, for `ServiceExt::serve` on an in-process pipe in the
+# MCP suite. The same requirement the pinned `trovato-mcp` declares, so the two
+# resolve to one crate (this repository keeps no lockfile).
+rmcp = { version = "3.10", features = ["transport-io"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }

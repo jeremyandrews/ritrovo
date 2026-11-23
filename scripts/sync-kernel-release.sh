@@ -6,8 +6,9 @@
 # only place either is written by hand. Everything else derives from them, and
 # this script is the derivation:
 #
-#   Cargo.toml                          the rev on trovato-sdk and trovato-kernel,
-#                                       and the recorded pin block
+#   Cargo.toml                          the rev on trovato-sdk, trovato-kernel
+#                                       and trovato-mcp, and the recorded pin
+#                                       block
 #   plugins/*/*.info.toml               api_version, the major.minor of version
 #   docker-compose.demo.yml             the kernel image tag, on both services
 #   scripts/check-tutorial-templates.sh RELEASE, the git tag
@@ -304,14 +305,17 @@ echo "    KERNEL_API_VERSION  $api_pair"
 echo "    demo image          $image"
 echo "==> rewriting"
 
-# Cargo.toml: both git dependencies carry the literal sha, because cargo cannot
-# read a `rev` from anywhere else. They must be the same sha, which
+# Cargo.toml: the three git dependencies carry the literal sha, because cargo
+# cannot read a `rev` from anywhere else. They must be the same sha, which
 # demo/checks/src/lib.rs asserts on its own: a plugin compiled against one
-# contract and tested on another kernel proves nothing about what ships.
+# contract and tested on another kernel proves nothing about what ships, and an
+# MCP server from a third commit would be testing a kernel nobody runs.
 sub "$ROOT/Cargo.toml" '^trovato-sdk = ' \
     "s|^\\(trovato-sdk = .*rev = \"\\)[0-9a-f]*\\(\".*\\)\$|\\1$rev\\2|"
 sub "$ROOT/Cargo.toml" '^trovato-kernel = ' \
     "s|^\\(trovato-kernel = .*rev = \"\\)[0-9a-f]*\\(\".*\\)\$|\\1$rev\\2|"
+sub "$ROOT/Cargo.toml" '^trovato-mcp = ' \
+    "s|^\\(trovato-mcp = .*rev = \"\\)[0-9a-f]*\\(\".*\\)\$|\\1$rev\\2|"
 
 if [ -n "$image_tag" ]; then
     cat > "$work/cargo-pin" <<EOF

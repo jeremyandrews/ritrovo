@@ -37,3 +37,7 @@ redis = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+# The MCP suite: the kernel's MCP server, served in process over this
+# repository's configuration (31.10).
+trovato-mcp = { workspace = true }
+rmcp = { workspace = true }

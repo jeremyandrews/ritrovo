@@ -1969,3 +1969,426 @@ fn similar_conferences_ranks_live_conferences_by_q_and_is_empty_without_embeddin
         }
     });
 }
+
+// ===========================================================================
+// The chat tile and what its answers may read (A9b, 31.7)
+// ===========================================================================
+
+/// One Live, one Incoming and one Curated conference, all titled for the same
+/// question, written through the kernel's item service.
+async fn wombat_conferences(pool: &sqlx::PgPool) -> [trovato_kernel::models::Item; 3] {
+    sqlx::query("DELETE FROM item WHERE type = 'conference' AND title LIKE 'Wombat Rust%'")
+        .execute(pool)
+        .await
+        .unwrap();
+    let disp = host::dispatcher(PLUGIN);
+    let items = host::items(pool, &disp);
+    let fields = serde_json::json!({
+        "field_start_date": "2099-03-02",
+        "field_end_date": "2099-03-04",
+        "field_city": "Wombatville",
+        "field_country": "Wombatland",
+        "field_url": "https://wombat-rust.example",
+    });
+    let mut made = Vec::new();
+    for (title, stage) in [
+        ("Wombat Rust Days", None),
+        ("Wombat Rust Incoming", Some(host::INCOMING_STAGE)),
+        ("Wombat Rust Curated", Some(host::CURATED_STAGE)),
+    ] {
+        made.push(host::create_conference(pool, &items, title, stage, fields.clone()).await);
+    }
+    host::settle_cache_generations().await;
+    made.try_into().unwrap()
+}
+
+/// `demo/config` places the kernel's chat widget in the sidebar for signed-in
+/// members, and nowhere for an anonymous visitor.
+#[test]
+fn the_chat_tile_is_in_the_sidebar_for_a_member_and_absent_for_a_visitor() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        let [live, _, _] = wombat_conferences(&pool).await;
+        let page = format!("/item/{}", live.id);
+
+        let (member, _) = app.login_as_new_member(&[]).await;
+        let as_member = app.get(&page, &member).await;
+        assert_eq!(as_member.status, 200, "{}", as_member.body);
+        assert!(
+            as_member.body.contains(r#"id="chat-widget-ask_ritrovo""#),
+            "no chat tile for a member: {}",
+            as_member.body
+        );
+        assert!(as_member.body.contains("/static/js/chat-widget.js"));
+
+        let as_visitor = app.get(&page, "").await;
+        assert_eq!(as_visitor.status, 200, "{}", as_visitor.body);
+        assert!(
+            !as_visitor.body.contains("chat-widget"),
+            "an anonymous visitor got the chat tile"
+        );
+        assert_eq!(
+            recorder.request_count(),
+            0,
+            "rendering a page asked a model"
+        );
+    });
+}
+
+/// A member's question reaches the model with Ritrovo's system prompt and the
+/// matching Live conference in its context, and never an Incoming or Curated
+/// one, though all three match the question word for word. Read from the
+/// request the kernel actually sent the provider.
+///
+/// The context names the conference and carries its own website, and no
+/// address on this site: the kernel's context builder writes the title and the
+/// item's text fields only (FRICTION.md, G-CHAT-CONTEXT-HAS-NO-ITEM-LINKS).
+#[test]
+fn the_chat_context_carries_live_conferences_and_never_an_incoming_or_curated_one() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        let [live, incoming, curated] = wombat_conferences(&pool).await;
+        recorder.push(Scripted::ok(ai::anthropic_reply(
+            "Wombat Rust Days.",
+            50,
+            5,
+        )));
+
+        ai::set_fake_keys();
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "Wombat Rust"}),
+            &member,
+            &token,
+        )
+        .await;
+        ai::unset_keys();
+        assert_eq!(chat.status, 200, "{}", chat.body);
+
+        let requests = recorder.requests();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        let request = &requests[0];
+        assert_eq!(request["model"], ai::CHAT_MODEL);
+        assert!(request.get("temperature").is_none(), "{request}");
+        let system = request["system"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no system prompt: {request}"));
+
+        assert!(
+            system.contains("a directory of technology conferences"),
+            "not Ritrovo's prompt: {system}"
+        );
+        assert!(system.contains("---BEGIN CONTEXT---"), "{system}");
+        assert!(system.contains("Wombat Rust Days"), "{system}");
+        assert!(
+            system.contains("Url: https://wombat-rust.example"),
+            "{system}"
+        );
+        for hidden in [&incoming, &curated] {
+            assert!(
+                !system.contains(&hidden.title),
+                "{} reached the model: {system}",
+                hidden.title
+            );
+        }
+        // No address on this site for the conference, alias or item path.
+        assert!(!system.contains(&live.id.to_string()), "{system}");
+        assert!(!system.contains("/conferences/"), "{system}");
+    });
+}
+
+// ===========================================================================
+// The kernel's MCP server over Ritrovo (A9b, 31.10)
+// ===========================================================================
+//
+// `trovato-mcp` at the pinned rev, served in process on one end of a byte pipe
+// exactly as its binary serves it on STDIO, with an MCP client's raw JSON-RPC
+// on the other end. Each session is opened with a real API token, resolved the
+// way the binary resolves `--token`.
+
+mod mcp {
+    use rmcp::ServiceExt;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    /// An MCP session for one raw API token, over an in-process pipe.
+    pub struct Session {
+        write: tokio::io::WriteHalf<tokio::io::DuplexStream>,
+        read: BufReader<tokio::io::ReadHalf<tokio::io::DuplexStream>>,
+        next_id: u64,
+    }
+
+    impl Session {
+        /// Resolve the token as `trovato-mcp --token` does and serve a session
+        /// for its user, or the resolver's refusal.
+        pub async fn open(state: &trovato_kernel::AppState, raw: &str) -> Result<Self, String> {
+            let user = trovato_mcp::auth::resolve_token(state, raw)
+                .await
+                .map_err(|e| e.to_string())?;
+            let ctx = trovato_mcp::auth::build_user_context(state, &user)
+                .await
+                .map_err(|e| e.to_string())?;
+            let server =
+                trovato_mcp::server::TrovatoMcpServer::new(state.clone(), raw.to_string(), ctx);
+            let (client_end, server_end) = tokio::io::duplex(1024 * 1024);
+            let (server_read, server_write) = tokio::io::split(server_end);
+            tokio::spawn(async move {
+                if let Ok(running) = server.serve((server_read, server_write)).await {
+                    let _ = running.waiting().await;
+                }
+            });
+            let (read, write) = tokio::io::split(client_end);
+            let mut session = Self {
+                write,
+                read: BufReader::new(read),
+                next_id: 1,
+            };
+            let init = session
+                .request(
+                    "initialize",
+                    serde_json::json!({
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "ritrovo-host-test", "version": "0"}
+                    }),
+                )
+                .await;
+            assert!(init.get("result").is_some(), "initialize: {init}");
+            session
+                .send(serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}))
+                .await;
+            Ok(session)
+        }
+
+        async fn send(&mut self, message: serde_json::Value) {
+            let mut line = serde_json::to_vec(&message).unwrap();
+            line.push(b'\n');
+            self.write.write_all(&line).await.unwrap();
+            self.write.flush().await.unwrap();
+        }
+
+        /// One JSON-RPC request and its response.
+        pub async fn request(
+            &mut self,
+            method: &str,
+            params: serde_json::Value,
+        ) -> serde_json::Value {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.send(
+                serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
+            )
+            .await;
+            loop {
+                let mut line = String::new();
+                let n = self.read.read_line(&mut line).await.unwrap();
+                assert!(
+                    n > 0,
+                    "the server closed the pipe before answering {method}"
+                );
+                let message: serde_json::Value = serde_json::from_str(&line).unwrap();
+                if message.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
+                    return message;
+                }
+            }
+        }
+
+        /// `tools/call`, returning the whole response.
+        pub async fn call(
+            &mut self,
+            tool: &str,
+            arguments: serde_json::Value,
+        ) -> serde_json::Value {
+            self.request(
+                "tools/call",
+                serde_json::json!({"name": tool, "arguments": arguments}),
+            )
+            .await
+        }
+    }
+}
+
+/// A raw API token for `user`, as `/api/v1/tokens` issues one.
+async fn api_token(pool: &sqlx::PgPool, user: uuid::Uuid) -> String {
+    let (_, raw) =
+        trovato_kernel::models::api_token::ApiToken::create(pool, user, "mcp host test", None)
+            .await
+            .unwrap();
+    raw
+}
+
+/// An editor's token lists conference content and reads a Curated conference;
+/// a member's token lists the Live conference and cannot read the Curated one;
+/// a token that is not one is refused before any session exists.
+#[test]
+fn trovato_mcp_serves_an_editor_s_token_hides_curated_from_a_member_and_refuses_a_bad_token() {
+    serial(async {
+        let (app, pool, _recorder) = ai_app().await;
+        let [live, _incoming, curated] = wombat_conferences(&pool).await;
+        let (_, editor) = app.login_as_new_member(&["editor"]).await;
+        let (_, member) = app.login_as_new_member(&[]).await;
+
+        let mut as_editor = mcp::Session::open(&app.state, &api_token(&pool, editor).await)
+            .await
+            .unwrap();
+        let tools = as_editor.request("tools/list", serde_json::json!({})).await;
+        let mut names: Vec<String> = tools["result"]["tools"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{tools}"))
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            [
+                "create_item",
+                "delete_item",
+                "get_item",
+                "list_categories",
+                "list_content_types",
+                "list_items",
+                "list_tags",
+                "run_gather",
+                "search",
+                "update_item",
+            ]
+        );
+
+        let listed = as_editor
+            .call(
+                "list_items",
+                serde_json::json!({"content_type": "conference", "per_page": 100}),
+            )
+            .await;
+        assert_eq!(listed["result"]["isError"], false, "{listed}");
+        let text = listed["result"]["content"].to_string();
+        assert!(text.contains("Wombat Rust Days"), "{text}");
+
+        let types = as_editor
+            .call("list_content_types", serde_json::json!({}))
+            .await;
+        assert!(
+            types["result"]["content"]
+                .to_string()
+                .contains("conference"),
+            "{types}"
+        );
+
+        let editor_reads = as_editor
+            .call(
+                "get_item",
+                serde_json::json!({"id": curated.id.to_string()}),
+            )
+            .await;
+        assert!(
+            editor_reads["result"]["content"]
+                .to_string()
+                .contains("Wombat Rust Curated"),
+            "an editor could not read a Curated conference: {editor_reads}"
+        );
+
+        let mut as_member = mcp::Session::open(&app.state, &api_token(&pool, member).await)
+            .await
+            .unwrap();
+        let member_reads_live = as_member
+            .call("get_item", serde_json::json!({"id": live.id.to_string()}))
+            .await;
+        assert!(
+            member_reads_live["result"]["content"]
+                .to_string()
+                .contains("Wombat Rust Days"),
+            "{member_reads_live}"
+        );
+        let member_reads_curated = as_member
+            .call(
+                "get_item",
+                serde_json::json!({"id": curated.id.to_string()}),
+            )
+            .await;
+        assert!(
+            !member_reads_curated
+                .to_string()
+                .contains("Wombat Rust Curated"),
+            "a member's token read a Curated conference: {member_reads_curated}"
+        );
+        assert!(
+            member_reads_curated.get("error").is_some()
+                || member_reads_curated["result"]["isError"] == true,
+            "{member_reads_curated}"
+        );
+
+        for bad in ["", "not-a-token", &"0".repeat(64)] {
+            assert!(
+                mcp::Session::open(&app.state, bad).await.is_err(),
+                "the token {bad:?} opened a session"
+            );
+        }
+    });
+}
+
+/// `run_gather` refuses every one of Ritrovo's gathers, because their ids
+/// carry a dot and the tool takes a bare machine name
+/// (FRICTION.md, G-MCP-RUN-GATHER-REFUSES-DOTTED-QUERY-IDS). When this fails,
+/// the kernel has fixed it: run `ritrovo.upcoming_conferences` here instead.
+#[test]
+fn trovato_mcp_cannot_run_ritrovo_upcoming_conferences_because_its_id_has_a_dot() {
+    serial(async {
+        let (app, pool, _recorder) = ai_app().await;
+        let (_, editor) = app.login_as_new_member(&["editor"]).await;
+        let mut session = mcp::Session::open(&app.state, &api_token(&pool, editor).await)
+            .await
+            .unwrap();
+        let ran = session
+            .call(
+                "run_gather",
+                serde_json::json!({"query_id": "ritrovo.upcoming_conferences"}),
+            )
+            .await;
+        assert_eq!(ran["error"]["code"], -32602, "{ran}");
+        assert!(
+            ran["error"]["message"]
+                .as_str()
+                .is_some_and(|m| m.contains("invalid query_id")),
+            "{ran}"
+        );
+    });
+}
+
+/// The kernel's chat retrieval needs every word of the question in a
+/// conference's indexed text, so a natural question finds nothing: the Live
+/// conference matches "Wombat Rust" (above) and is not retrieved for "Wombat
+/// Rust conferences", because a conference's text does not say "conferences".
+/// The model is then asked with no context at all. FRICTION.md,
+/// G-CHAT-RAG-REQUIRES-EVERY-WORD; when this fails, the kernel has fixed it.
+#[test]
+fn a_question_with_one_word_no_conference_contains_retrieves_no_context() {
+    serial(async {
+        let (app, pool, recorder) = ai_app().await;
+        wombat_conferences(&pool).await;
+        recorder.push(Scripted::ok(ai::anthropic_reply("None.", 50, 5)));
+
+        ai::set_fake_keys();
+        let (member, token) = member_session(app).await;
+        let chat = post_json(
+            app,
+            "/api/v1/chat",
+            serde_json::json!({"message": "Wombat Rust conferences"}),
+            &member,
+            &token,
+        )
+        .await;
+        ai::unset_keys();
+        assert_eq!(chat.status, 200, "{}", chat.body);
+
+        let requests = recorder.requests();
+        assert_eq!(requests.len(), 1, "{requests:?}");
+        let system = requests[0]["system"].as_str().unwrap_or_default();
+        assert!(
+            !system.contains("---BEGIN CONTEXT---"),
+            "retrieval found a context for a question with a word no conference has: {system}"
+        );
+        assert!(!system.contains("Wombat Rust Days"), "{system}");
+    });
+}

@@ -47,13 +47,15 @@ answers anything else with a redirect.
 
 ## `tile.*.yml` — placement and visibility
 
-Eight tiles. The kernel owns where they go, in what order and for whom; the five
+Nine tiles. The kernel owns where they go, in what order and for whom; the five
 data tiles (`conferences_this_month`, `cfps_closing_soon`, `topic_cloud`,
 `recent_comments`, `front_upcoming`) carry a placeholder body here, which
 `ritrovo_importer`'s cron replaces with rendered rows, because a `gather_query`
 tile renders nothing (`G-TILE-GATHER-QUERY-RENDERS-NOTHING`). Visibility uses
 both kinds of rule the kernel has: paths (`front_upcoming` on `/` only, which is
-also the path of `/it/`) and roles (`my_subscriptions` for `authenticated user`).
+also the path of `/it/`) and roles (`my_subscriptions` and `ask_ritrovo` for
+`authenticated user`). `ask_ritrovo` is the kernel's chat widget, whose settings
+are `variable.ai_chat_config.yml` (`docs/AI.md`).
 Change a tile's region, weight or rule here or at `/admin/structure/tiles`; change
 what a data tile shows in `plugins/ritrovo_importer/src/tiles.rs`.
 
