@@ -178,6 +178,8 @@ jobs:
             verify_demo_fails_unless_trovato_ai_reads_enabled \
             a_disabled_plugin_reads_disabled_not_enabled \
             a_list_that_does_not_name_the_plugin_reads_absent \
+            the_bootstrap_servers_listen_on_a_private_port_and_only_the_last_on_port \
+            the_final_site_url_is_set_before_any_server_starts \
             ai_request_refuses_a_caller_without_use_ai_before_asking_any_provider \
             a_draft_goes_through_ai_request_with_ritrovo_s_model_no_temperature_and_a_priced_usage_row \
             the_daily_budget_stops_a_member_at_20000_tokens_and_lets_an_editor_past_it \
