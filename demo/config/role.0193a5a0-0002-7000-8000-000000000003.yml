@@ -29,6 +29,10 @@
 # and by the same two grants. The editor file has the account of what 0.103.0
 # changed and what it did not.
 #
+# `search content` is the kernel's search permission (B160, Trovato 0149541),
+# granted wherever `access content` is. The anonymous file says why it has to
+# be listed rather than left to the kernel's migration.
+#
 # `view ai usage` opens the kernel's AI usage dashboard, /admin/system/ai-budgets:
 # who spent how many tokens on which provider this period. Saving the budgets
 # there needs `configure ai`, which only the administrator holds. docs/AI.md.
@@ -43,6 +47,7 @@ permissions:
 - access administration pages
 - administer comments
 - access content
+- search content
 - create content
 - edit own content
 - edit any content

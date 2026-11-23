@@ -1,11 +1,12 @@
 # Ritrovo: Friction Log
 
 Produced by running Ritrovo's six plugins on the kernel they ship against. Since
-A11 that is Trovato `main` at `rev 81290cc862b2c8302bc0a99d270f2571405c51ef`
+A13 that is Trovato `main` at `rev e2877ad35a19a54f44663bfb735d250c252b6ad9`
 (workspace version 0.107.0, `KERNEL_API_VERSION (0, 107)`, image
-`ghcr.io/jeremyandrews/trovato:nightly-81290cc`), the same revision the workspace
+`ghcr.io/jeremyandrews/trovato:nightly-e2877ad`), the same revision the workspace
 pins for both `trovato-sdk` and the test-only `trovato-kernel`. Entries written
-before A11 cite Trovato `v0.103.0`, `rev 496b8f113be66102830723c1e2a968cad2ec1e0d`,
+from A11 through A9b cite `main` at `rev 81290cc862b2c8302bc0a99d270f2571405c51ef`,
+and their `file:line` evidence is at that revision. Entries written before A11 cite Trovato `v0.103.0`, `rev 496b8f113be66102830723c1e2a968cad2ec1e0d`,
 and their `file:line` evidence is at that revision unless the entry says otherwise. Ritrovo meets the kernel as a
 content application: it imports Items in bulk from a third-party feed, gates them
 by editorial stage, decorates their pages, and serves admin screens of its own.
@@ -111,6 +112,15 @@ edit form, checked by `verify-demo.sh` and live. Four more:
 `G-AI-ASSIST-WORKS-ONCE-PER-PAGE` (Medium: the second press on a page is refused
 for its CSRF token), `G-AI-ASSIST-READS-ONLY-THE-FIRST-CONTENT-BLOCK`,
 `G-AI-ASSIST-CHECKS-NO-BUDGET` and `G-AI-ASSIST-SKIPS-BLOCK-FIELDS`.
+
+**A13, 2026-11-23, Trovato `main` at `e2877ad`.** The pin moved from `81290cc`
+to `e2877ad` (image `nightly-e2877ad`, still 0.107.0), because B160 made search
+need a permission the old pin could not import. The host suites and
+`verify-demo.sh` pass on it. One new entry:
+`G-PERMISSION-MIGRATION-UNDONE-BY-CONFIG-IMPORT` (Medium: the role import revoked
+the kernel migration's `search content` grant, and every role lost search).
+Entries the move may affect (B160's search page with JavaScript off, for
+`G-SEARCH-PAGE-BLANK-WITHOUT-INDEX`) were not re-checked and stay as written.
 
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
@@ -2905,6 +2915,44 @@ The live shorten was run on a description's text in the summary field.
 
 **Recommendation.** Give the block editor's paragraph blocks the same five
 operations, or document AI Assist as plain-text fields only.
+
+### G-PERMISSION-MIGRATION-UNDONE-BY-CONFIG-IMPORT: **[Medium, NEW]** a kernel migration that grants a new permission is revoked by the next role import, so an upgrade can silently take a feature away
+
+Found at Trovato `main` `0149541` (B160), and still true at `e2877ad`. B160 gates
+`/search` and `/api/v1/search` on a new kernel permission, `search content`
+(`crates/kernel/src/routes/search.rs`, `SEARCH_PERMISSION`). So that no site
+loses search on upgrade, migration `20261127160001_grant_search_content.sql`
+grants it to every role that held `access content` at migration time.
+
+That only holds until the site imports its roles. `config import` applies a
+role file's `permissions:` with REPLACE semantics, which is what makes a
+configuration set authoritative. A role file written before the permission
+existed cannot list it, so the import revokes the migration's grant. Nothing
+says so: the import succeeds, and the first sign is a visitor's 401 on
+`/search`. Ritrovo imports `demo/config` on every demo start and in its host
+suites, so on `0149541` every role lost search. The `Kernel main` run
+45241646004 failed on it: two host tests and three `verify-demo.sh` checks, all
+anonymous or member search answering 401 (issue #35).
+
+The opposite direction is closed too: a role file cannot grant the permission
+ahead of the upgrade. The kernel before `0149541` rejects `search content` at
+import as unknown (`crates/kernel/src/config_storage/yaml.rs`,
+`validate_role_permissions` at `81290cc`), and the kernel at or after it refuses a
+plugin that declares a kernel permission's name
+(`crates/kernel/src/plugin/permission_registry.rs:120`). So a site with
+authoritative role files has to change those files in the same step as the
+kernel. Ritrovo did that in A13: it moved the pin to `e2877ad` and listed
+`search content` in all five role files in one pull request.
+
+**Blocks.** Nothing now. Every site that keeps its roles in configuration,
+on any upgrade that adds a permission by migration.
+
+**Recommendation.** Either have `config import` keep a kernel permission that
+a migration granted after the role file was last exported (for example by
+recording such grants and reporting them on import), or have import warn when
+it revokes a permission the kernel added since the set was written. At least,
+name the new permission in the release notes as one every role configuration
+has to list.
 
 ## No-friction findings (surfaces that just worked)
 
