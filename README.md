@@ -39,7 +39,7 @@ What it stands up, in order, because the order is the interesting part:
 |---|---|
 | Postgres 16, Redis 7 | the kernel's two dependencies |
 | the six Ritrovo plugins | compiled to WebAssembly in a throwaway `rust:1-bookworm` container, staged into an overlay volume |
-| `ghcr.io/jeremyandrews/trovato` | the **released** kernel at the pinned version, unmodified, with the overlay appended to its three search paths |
+| `ghcr.io/jeremyandrews/trovato` | the kernel image at the pinned revision (a release tag, or since A11 a `nightly-<sha>` image), unmodified, with the overlay appended to its three search paths |
 | the installer | completed over HTTP, so nobody has to fill in a form |
 | the tutorial config set | imported **before** the plugins are enabled, which is the trap: `ritrovo_importer` resolves the topic taxonomy once, in `tap_install` |
 | the six plugins | enabled, then a restart, which is when `tap_install` fires and the conference import begins |
@@ -168,12 +168,17 @@ time with `requires API 1.0 but kernel provides API 0.99`.)
 To build against a different contract revision:
 
 ```bash
-scripts/sync-kernel-release.sh --set-version X.Y.Z
+scripts/sync-kernel-release.sh --set-version X.Y.Z   # a release tag
+scripts/sync-kernel-release.sh --set-nightly main    # kernel main's newest nightly image
+scripts/sync-kernel-release.sh --set-nightly 81290cc # the nightly image of one main commit
 ```
 
-That resolves the tag against the public Trovato repository, refuses a tag that
-does not exist, writes the version and the commit into `kernel-release.toml`, and
-rewrites every derived location: both `rev`s and the pin block above in
+`--set-version` resolves the tag against the public Trovato repository and refuses
+a tag that does not exist. `--set-nightly` reads the commit out of the nightly
+image's own build provenance (`docker buildx imagetools inspect`), so the image and
+the `rev` cannot disagree, and reads the version from Trovato's `Cargo.toml` at that
+commit. Either writes the version and the commit (and for a nightly the image tag)
+into `kernel-release.toml`, and rewrites every derived location: both `rev`s and the pin block above in
 `Cargo.toml`, `api_version` in all five plugin manifests, the kernel image on
 both demo services, `RELEASE` in `scripts/check-tutorial-templates.sh`, and the
 generated blocks in this file and `docs/INSTALL.md`. Review the diff.

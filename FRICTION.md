@@ -1,9 +1,12 @@
 # Ritrovo: Friction Log
 
-Produced by running Ritrovo's six plugins on the kernel they ship against:
-Trovato `v0.103.0`, `rev 496b8f113be66102830723c1e2a968cad2ec1e0d`,
-`KERNEL_API_VERSION (0, 103)`, the same revision the workspace pins for both
-`trovato-sdk` and the test-only `trovato-kernel`. Ritrovo meets the kernel as a
+Produced by running Ritrovo's six plugins on the kernel they ship against. Since
+A11 that is Trovato `main` at `rev 81290cc862b2c8302bc0a99d270f2571405c51ef`
+(workspace version 0.107.0, `KERNEL_API_VERSION (0, 107)`, image
+`ghcr.io/jeremyandrews/trovato:nightly-81290cc`), the same revision the workspace
+pins for both `trovato-sdk` and the test-only `trovato-kernel`. Entries written
+before A11 cite Trovato `v0.103.0`, `rev 496b8f113be66102830723c1e2a968cad2ec1e0d`,
+and their `file:line` evidence is at that revision unless the entry says otherwise. Ritrovo meets the kernel as a
 content application: it imports Items in bulk from a third-party feed, gates them
 by editorial stage, decorates their pages, and serves admin screens of its own.
 
@@ -61,6 +64,26 @@ and `G-CACHE-METRICS-NEVER-COUNT`. `G-NO-REQUEST-PROFILER` is narrowed, because
 `Server-Timing` is layered at 0.103.0, and stays open.
 `G-PLUGIN-CANNOT-INVALIDATE-THE-ITEM-CACHE` is re-verified with a host test and
 stays open.
+
+**A11, 2026-11-23, Trovato `main` at `81290cc`.** The pin moved from 0.103.0 to a
+`main` revision, and every entry Ritrovo's code or checks lean on was re-checked
+by test or by `verify-demo.sh`. Nine are **FIXED at main 81290cc**, each with the
+test or demo check that shows it: `G-REVISION-HISTORY-500`,
+`G-REVISION-NO-COMPARE`, `G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER`,
+`G-CARDINALITY-IS-INERT`, `G-ITEM-EDIT-FORM-LOADS-NO-ASSETS`,
+`G-API-TOKENS-NEVER-AUTHENTICATE`, `G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS`,
+`G-OPENAPI-IS-A-STATIC-LIST` and `G-CACHE-METRICS-NEVER-COUNT`. Two are
+**narrowed**: `G-FRONTEND-ITEM-FORM-STORES-EVERY-FIELD-AS-A-STRING` (Booleans are
+typed; nothing else was checked) and `G-ITEM-API-BYPASSES-ITEM-SERVICE` (a request
+path write goes through `ItemService`; a background one cannot be made at all, the
+first entry below). Five are new: `G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE`
+(High), `G-SQL-GUARD-REFUSES-INDEX-EXPRESSION-CONFLICT-TARGET` (Medium),
+`G-SQL-GUARD-REFUSES-WITH-UPDATE` (Low), `G-FRONT-PAGE-TILES-MATCH-THE-CONFIGURED-PATH`
+(Low) and `G-GATHER-ROWS-HAVE-NO-FILE-URLS` (Low). Entries the kernel's changelog
+says are addressed, and which Ritrovo has not built on, are listed in
+`docs/ritrovo/STATUS.md` under "A11: the kernel-blocked rows rechecked" as
+buildable and not built; they are not marked fixed here, because nothing in this
+repository has exercised them.
 
 Every item is severity-tagged with `file:line` evidence at that revision and
 phrased as a concrete, decidable item for the kernel's own backlog. **NEW**
@@ -269,7 +292,9 @@ workaround is the only path.
 rendered. Once `tap_perm` is dispatched, render plugin permissions too, grouped by
 plugin.
 
-### G-REVISION-HISTORY-500: **[High, NEW]** the revision history page and revert fail for any item that has a revision
+### G-REVISION-HISTORY-500: **[FIXED at main 81290cc]** the revision history page and revert fail for any item that has a revision
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `4c75594` (B70) rebuilt the revision routes on `ItemService::load_revisions`. `an_editor_lists_previews_compares_and_reverts_revisions` (`plugins/ritrovo_access/tests/ritrovo_access_host.rs`) saves a conference through the kernel form as an editor and gets 200 from the history page, with the log message, and a working revert that puts the old value back. On the demo, `/item/{id}/revisions` was 200 for an Incoming conference after an edit. What follows is the entry as written at 0.103.0.
 
 `ItemRevision` derives `sqlx::FromRow` with two fields beyond the eight columns the
 queries select: `change_summary` and `ai_generated`
@@ -433,7 +458,9 @@ kernel's table is exactly what this entry exists to avoid.
 over `ItemService::save_translation`, with the language checked against the site's
 languages as the route checks it.
 
-### G-ITEM-API-BYPASSES-ITEM-SERVICE: **[High, RESIDUAL]** a plugin's item write fires no taps, checks no access and invalidates no cache
+### G-ITEM-API-BYPASSES-ITEM-SERVICE: **[NARROWED at main 81290cc; High]** a plugin's item write fires no taps, checks no access and invalidates no cache
+
+**Re-checked at Trovato `main` 81290cc, 2026-11-23 (A11).** Kernel `db45018` (B68.2) sends a plugin's item writes through `ItemService` on a request. In the background, where every one of Ritrovo's item writes happens, the call fails instead (`G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE`), so the importer still writes by raw SQL and fires no taps. The cache half is better: a plugin's raw write now bumps the item cache generation (`crates/kernel/src/host/db.rs:306`).
 
 Recorded by netgrasp-trovato as `G-SAVE-ITEM-BYPASSES-SERVICE`, re-confirmed here.
 `item-api` calls the `Item` model directly, by design, "to avoid re-entrant tap
@@ -713,7 +740,9 @@ own name as well, for example `plugin_output`, leaving `children` exactly as it 
 for the templates that want the generic rendering. One line of context, no
 behaviour change for anything that exists.
 
-### G-FRONTEND-ITEM-FORM-STORES-EVERY-FIELD-AS-A-STRING: **[Low, NEW]** the non-admin item form writes every value as a JSON string and runs none of the typed processing the admin form runs
+### G-FRONTEND-ITEM-FORM-STORES-EVERY-FIELD-AS-A-STRING: **[NARROWED at main 81290cc; Low]** the non-admin item form writes every value as a JSON string and runs none of the typed processing the admin form runs
+
+**Re-checked at Trovato `main` 81290cc, 2026-11-23 (A11).** Kernel `5fcc2d8` (B71.2) builds a typed submission. An unchecked Boolean is stored as JSON `false` (`saving_the_edit_form_keeps_every_field_including_the_ones_it_did_not_render`). Integer, Float and Date kinds were not checked from here, so the entry stays open for them.
 
 `ItemSubmission::from_form` inserts every posted value as
 `serde_json::Value::String` with no reference to the field's declared type
@@ -894,7 +923,9 @@ below).
 **Recommendation.** A `CategoryReference(category_id)` field kind with a tag
 autocomplete, storing the array shape the gather operators already read.
 
-### G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER: **[High, NEW]** saving an item through either form replaces its whole field set, so anything the form cannot show is destroyed
+### G-FORM-SAVE-DROPS-EVERY-FIELD-THE-FORM-DID-NOT-RENDER: **[FIXED at main 81290cc]** saving an item through either form replaces its whole field set, so anything the form cannot show is destroyed
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `cca05f9` (B125). `saving_the_edit_form_keeps_every_field_including_the_ones_it_did_not_render` (formerly the test that pinned the loss) saves through the kernel form as an editor and finds `field_topics`, which the form does not render, unchanged. What follows is the entry as written at 0.103.0.
 
 `extract_content_fields` builds a **fresh** map from the POST body alone
 (`crates/kernel/src/routes/admin_content.rs:23-33`): no whitelist against the
@@ -923,7 +954,9 @@ form showed. That is a real change, in two form paths.
 takes the existing item, the content type and the rendered field list, and writes
 back only what the form was actually capable of showing.
 
-### G-CARDINALITY-IS-INERT: **[Medium, NEW]** `cardinality` round-trips through configuration and is read by nothing that renders, collects or validates
+### G-CARDINALITY-IS-INERT: **[FIXED at main 81290cc]** `cardinality` round-trips through configuration and is read by nothing that renders, collects or validates
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** The edit form renders `field_venue_photos[0]`, `[1]` and `field_speakers[0]`, and a save posting `name[i]` keeps both as arrays (`the_conference_edit_form_is_generated_from_the_type_and_loads_the_block_editor` and `saving_the_edit_form_keeps_every_field_including_the_ones_it_did_not_render`). What follows is the entry as written at 0.103.0.
 
 `FieldDefinition.cardinality` exists, defaults to 1, and `-1` means unlimited
 (`crates/plugin-sdk/src/types.rs:229-244`; the only place the convention is
@@ -1286,7 +1319,9 @@ script tag to the page it is themed into.
 filtered result, refusing a format the current user may not use. The filter already
 exists and already knows the permission rule; only the seam is missing.
 
-### G-ITEM-EDIT-FORM-LOADS-NO-ASSETS: **[Medium, NEW]** the non-admin item form renders the block editor's container onto a page with no scripts, so rich text is administrator-only in practice
+### G-ITEM-EDIT-FORM-LOADS-NO-ASSETS: **[FIXED at main 81290cc]** the non-admin item form renders the block editor's container onto a page with no scripts, so rich text is administrator-only in practice
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `044c5dc` (B71.3) put every content form through `FormService`. The editor's `/item/{id}/edit` loads `block-editor.js`, asserted by `the_conference_edit_form_is_generated_from_the_type_and_loads_the_block_editor` (`plugins/ritrovo_access/tests/ritrovo_access_host.rs`). What follows is the entry as written at 0.103.0.
 
 `/item/{id}/edit` builds its response as a bare HTML document in
 `crates/kernel/src/routes/item.rs:1095-1115`: a `<style>` block, the form, and no
@@ -1304,7 +1339,7 @@ The consequence for Ritrovo is that `field_description` — a `Blocks` field pre
 because that is the kernel's rich text — is not editable by the role the brief calls
 an editor. It is editable by an administrator, on a screen `G-ADMIN-SCREENS-ARE-ADMIN-ONLY`
 keeps editors off. Verified by
-`the_conference_edit_form_is_generated_from_the_type_and_has_no_editor` in
+`the_conference_edit_form_is_generated_from_the_type_and_has_no_editor` (since renamed `..._loads_the_block_editor`, which asserts the opposite) in
 `plugins/ritrovo_access/tests/ritrovo_access_host.rs`, which asserts the container is
 rendered and the page carries no script.
 
@@ -1390,7 +1425,9 @@ exist. `docs/CACHING.md` walks through the cache by behaviour instead, because
 there is no profiler to read it from, and the cache counters it would have read
 never move (`G-CACHE-METRICS-NEVER-COUNT`).
 
-### G-REVISION-NO-COMPARE: **[Low, NEW]** revisions store a change summary, and nothing shows a comparison
+### G-REVISION-NO-COMPARE: **[FIXED at main 81290cc]** revisions store a change summary, and nothing shows a comparison
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `4c75594` (B70) added `/item/{id}/revisions/{rev}` (preview) and `/item/{id}/revisions/compare?from=&to=`. The same test, `an_editor_lists_previews_compares_and_reverts_revisions`, gets 200 from both, with the old value in the preview and both values in the comparison. What follows is the entry as written at 0.103.0.
 
 `item_revision.change_summary` holds added, removed and changed fields
 (`crates/kernel/src/models/item.rs:96-101`); no route or template renders a
@@ -1855,7 +1892,9 @@ not in it. `verify-demo.sh` records what the listing shows as a note.
 **Recommendation.** Swap the operands, `"item"."fields" || "_tr"."fields"`, and test the
 rows a translated gather returns rather than the SQL string.
 
-### G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS: **[High, NEW]** an anonymous POST to `/api/gather/query` returns fields `tap_field_access` hides
+### G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS: **[FIXED at main 81290cc]** an anonymous POST to `/api/gather/query` returns fields `tap_field_access` hides
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `e6a1420` requires `administer site` for an ad-hoc gather. `verify-demo.sh` now asserts the anonymous POST it used to report gets no editors' notes (it is 401). What follows is the entry as written at 0.103.0.
 
 `POST /api/gather/query` (`crates/kernel/src/routes/gather.rs:46`, handler
 `execute_adhoc_query` at `:213`) runs any query definition the caller sends. It asks for
@@ -1884,7 +1923,9 @@ plugin cannot remove, wrap or gate a kernel route. Until the kernel does, nothin
 and treat a whole-`fields` selection as `item.*` in the field access pass. Restrict
 `base_table` to `item` and the registered record tables.
 
-### G-API-TOKENS-NEVER-AUTHENTICATE: **[High, NEW]** a token from `/api/tokens` is rejected before the middleware that would accept it runs
+### G-API-TOKENS-NEVER-AUTHENTICATE: **[FIXED at main 81290cc]** a token from `/api/tokens` is rejected before the middleware that would accept it runs
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `d7a014e` (S7). `verify-demo.sh` issues editor_alice a token at `/api/v1/tokens`, gets 200 from `GET /api/v1/tokens` with it as the only credential and 401 with none or a forged one, then revokes it (204). What follows is the entry as written at 0.103.0.
 
 `POST /api/tokens` issues a token, and `authenticate_api_token`
 (`crates/kernel/src/middleware/api_token.rs:39-60`) would accept it as
@@ -1906,7 +1947,9 @@ needs more than a visitor can see has no way in.
 **Recommendation.** Let `authenticate_bearer_token` pass a token it cannot parse as a
 JWT on to the token middleware, or swap the two layers.
 
-### G-OPENAPI-IS-A-STATIC-LIST: **[Low, NEW]** `/api/openapi.json` lists a fixed set of kernel routes, three of which do not exist, and no plugin route
+### G-OPENAPI-IS-A-STATIC-LIST: **[FIXED at main 81290cc]** `/api/openapi.json` lists a fixed set of kernel routes, three of which do not exist, and no plugin route
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `226fa5d` and `3b86b5a` build the document from the served routes. `verify-demo.sh` asserts `/api/v1/openapi.json` lists Ritrovo's `/api/v1/conferences/{id}` and `/api/v1/topics`. What follows is the entry as written at 0.103.0.
 
 `/api/openapi.json` (`crates/kernel/src/routes/api_v1.rs:75`, `:96`) renders the
 registry `register_kernel_routes` fills by hand (`crates/kernel/src/routes/route_metadata.rs:66`).
@@ -2231,7 +2274,9 @@ in either index; `verify-demo.sh` checks both, by title, on the demo.
 search stage, and give the Pagefind export a per-stage index, or document it as
 the public index.
 
-### G-CACHE-METRICS-NEVER-COUNT: **[Low, NEW]** `/metrics` exports cache hit and miss counters that nothing increments
+### G-CACHE-METRICS-NEVER-COUNT: **[FIXED at main 81290cc]** `/metrics` exports cache hit and miss counters that nothing increments
+
+**Fixed at Trovato `main` 81290cc, verified 2026-11-23 (A11).** Kernel `ff0257a` (B76.1). `verify-demo.sh` asserts that `cache_hits_total{cache="item"}` on `/metrics` is above zero after it has read conference pages. What follows is the entry as written at 0.103.0.
 
 `cache_hits_total` and `cache_misses_total` are registered
 (`crates/kernel/src/metrics/mod.rs:127-135`) and incremented nowhere in
@@ -2240,6 +2285,137 @@ after any amount of traffic.
 
 **Recommendation.** Count in `ItemService::load` and `CacheLayer::get`, or drop the
 two series so nobody reads a zero as a cold cache.
+
+### G-BACKGROUND-ITEM-API-HAS-NO-ITEM-SERVICE: **[High, NEW]** `item_background = true` is accepted, and every item write from `tap_cron` or `tap_queue_worker` fails with `ERR_NO_SERVICES`
+
+Found at Trovato `main` `81290cc`, still present at `64467b3`. Blocks P9 and keeps
+the importer on raw SQL (`plugins/ritrovo_importer/src/lib.rs`, `insert_conference`).
+
+The B68 design sends a plugin's item writes through `ItemService`, and a plugin
+that writes in the background declares `item_background = true` to act with
+kernel authority there (`crates/kernel/src/host/item.rs:24`, `:81`, `:107`). The
+write itself needs the `ItemService` that `RequestServices` holds weakly
+(`decide_with`, `host/item.rs:120`). `save-item` returns `ERR_NO_SERVICES` when it
+is missing (`host/item.rs:285-287`), and so do the reads that decide access
+(`:216-218`).
+
+Nothing binds it in the background. `CronService::background_services`
+(`crates/kernel/src/cron/mod.rs:1841-1856`) builds the services for `tap_cron`
+(`:1108`), the queue drain (`:1460`) and `tap_install` (`:1832`) from
+`RequestServices::for_background(...)` and `with_plugin_runtime`, the rate limiter
+and email. It never calls `RequestServices::set_item_service`
+(`crates/kernel/src/tap/request_state.rs:424`), although `CronService` holds an
+`ItemService` (it uses it only for the Pagefind export). The kernel's own tests do
+not catch this: `crates/kernel/tests/plugin_item_api_test.rs:104` and `:824` call
+`set_item_service` on the services by hand before dispatching, so they never take
+the path cron takes.
+
+**Reproduction.** A plugin with `host_interfaces = [..., "item-api"]` and
+`item_background = true` whose `tap_queue_worker` calls `host::save_item` with a
+new conference. Enqueue one job and run `CronService::drain_plugin_queues`, or let
+the demo's cron drain it. `save_item` returns -10 (`ERR_NO_SERVICES`) and nothing
+is written. In Ritrovo it was `ritrovo_importer`'s batch worker, with its insert
+moved to `save_item` and the manifest carrying both keys. Every import job failed this way in the
+host test, and the importer went back to SQL.
+
+**Recommendation.** In `background_services`, call
+`services.set_item_service(&self.items)` (and the gather service's equivalent)
+before returning. Add a test that dispatches `tap_queue_worker` through
+`drain_plugin_queues` with nothing bound by hand.
+
+### G-SQL-GUARD-REFUSES-INDEX-EXPRESSION-CONFLICT-TARGET: **[Medium, NEW]** the raw-SQL guard cannot parse `ON CONFLICT ((expression))`, which is valid PostgreSQL and the only way to upsert against an expression index
+
+The raw-SQL guard (`crates/kernel/src/host/sql_guard.rs`, `parse_one` at `:77`,
+called by `check_execute_raw` at `:114`) parses every plugin statement with
+`sqlparser`'s `PostgreSqlDialect`. That parser does not accept an index
+expression as a conflict target. The statement is refused as
+`Unparseable("sql parser error: Expected: identifier, found: ( at Line 1, Column
+388")` before it reaches Postgres, which would run it.
+
+**Reproduction.** `host::execute_raw` with
+
+```sql
+INSERT INTO item (id, type, title, ...) VALUES (...)
+ON CONFLICT ((fields->>'field_source_id')) WHERE type = 'conference'
+DO UPDATE SET ...
+```
+
+against a table with a unique index on `((fields->>'field_source_id')) WHERE type =
+'conference'`. Ritrovo's conference type has exactly that index. This was the
+importer's upsert through 0.103.0.
+
+**What Ritrovo did.** A plain `INSERT`. If it fails, the importer looks the
+conference up by source id and updates it, which takes two statements where one
+did the job. The fallback handles a conflict however it arises, another worker's
+insert of the same conference included. The cost is a failed statement and two
+more round trips for every conference a re-import already has, which is most of
+them.
+
+**Recommendation.** Either accept the statement when `sqlparser` fails and
+Postgres's own parser (`EXPLAIN` without `ANALYZE`, or `pg_query`) accepts it, so
+the guard refuses nothing Postgres would run, or document the gap in
+`docs/plugin-capabilities.md` and give plugins an upsert on `item` through the
+B80.4 write seam.
+
+### G-SQL-GUARD-REFUSES-WITH-UPDATE: **[Low, NEW]** `WITH ... UPDATE` is refused by `execute-raw` as not a row change
+
+`check_execute_raw` (`crates/kernel/src/host/sql_guard.rs:114-118`) accepts a
+top-level `INSERT`, `UPDATE` or `DELETE`. `sqlparser` parses `WITH x AS (...)
+UPDATE ...` as a `Query` whose body is the update, so it falls into the `_` arm and
+is refused as `NotARowChange`. `query-raw` refuses it too, because it contains a
+write. So a data-modifying statement with a CTE in front cannot run at all.
+
+**Reproduction.** `host::execute_raw("WITH RECURSIVE t AS (SELECT 1) UPDATE item SET
+changed = changed WHERE false", &[])` returns the guard's refusal.
+
+**What Ritrovo did.** `search_text.rs` moved the recursive CTE into a subquery in
+the `UPDATE`'s `FROM`, which the guard accepts and which Postgres runs with the same
+plan. This entry is recorded because a guard that refuses a standard form costs
+every plugin author the hour it took to find out why.
+
+**Recommendation.** Treat a `Query` whose body is an `Insert`, `Update` or `Delete`
+as that statement in `check_execute_raw`, checking the CTEs for writes as
+`check_query_raw` already does.
+
+### G-FRONT-PAGE-TILES-MATCH-THE-CONFIGURED-PATH: **[Low, NEW]** at `/`, menus see `/` and tiles see the configured front page's path, so a tile placed on `/` is not on the front page
+
+Since `9b964d2` (B122) `/` dispatches the configured `site_front_page` path in
+place. The page context keeps `requested_path` (`/`) beside `path` (the configured
+path) (`crates/kernel/src/routes/helpers.rs:304-306`). Menus are filtered by
+`requested_path` (`:332-338`). Tiles are filtered by `path`, which
+`render_region(region, LIVE_STAGE_ID, path, ...)` receives (`:429`). Page template
+suggestions are built from the rewritten path as well, so `page--front.html`
+applies only to the default listing and not to a front page that is an item.
+
+**Reproduction.** Set `site_front_page` to `/item/{uuid}` and give a tile the
+visibility path `/`. The tile shows at `/item/{uuid}` and not at `/`. Before
+B122, `/` redirected and the tile matched the address the browser had.
+
+**What Ritrovo did.** The two front page tiles list both `/` and the item path
+(`demo/config/tile.*0003.yml`, `*0006.yml`).
+`docs/tutorial/templates/page--item--7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06.html`
+extends `page--front.html`, so the front page keeps its template.
+`verify-demo.sh` asserts the welcome and the tiles at `/` and at `/it/`.
+
+**Recommendation.** Match tiles on `requested_path`, as menus do. Add `front` to
+the page suggestions whenever `is_front_page_request()` is true.
+
+### G-GATHER-ROWS-HAVE-NO-FILE-URLS: **[Low, NEW]** an item template gets `referenced_files`, and a gather row gets a file's id and no way to link it
+
+`c578da4` (B72.1) gives the item route `referenced_files`, keyed by field, with a
+`url` and `alt` for each file. Ritrovo's `item--conference.html` and
+`item--speaker.html` now draw the logo, venue photos, schedule and headshot from
+it. A gather row carries the field's stored value: a file id, or a `public://`
+URI in older data. It carries no `referenced_files` and no URL. No route serves a
+file by its id, so a listing template cannot draw a conference's logo.
+
+**What Ritrovo did.** `gather/includes/conf-card.html` no longer draws a logo; its
+comment names this entry. Before, it drew one from the `public://` URI, which only
+worked for the URI form.
+
+**Recommendation.** Resolve File fields to `{url, alt}` on gather rows as the item
+route does, or serve `/file/{id}` with the file access check `183e16e` added.
+
 
 ## No-friction findings (surfaces that just worked)
 

@@ -39,6 +39,13 @@ x-kernel-env: &kernel-env
   STATIC_DIR: /var/lib/ritrovo/index:/app/static:/ritrovo/docs/tutorial/static
   UPLOADS_DIR: /var/lib/ritrovo/uploads
   RUST_LOG: ${RUST_LOG:-info,sqlx=warn,tower_http=warn}
+  # The demo is served over plain HTTP on localhost, and the kernel marks its
+  # session cookie `Secure` by default (`always`) since its 0.107 line, which a
+  # client then never sends back over http. `never` is the kernel's documented
+  # setting for a plain-HTTP development site and nothing else; the kernel
+  # refuses it outright with an https:// SITE_URL. Put a TLS proxy in front and
+  # remove this line before the demo faces anyone.
+  COOKIE_SECURE: ${COOKIE_SECURE:-never}
   # How long the kernel keeps an Item in its in-process cache. Default 300.
   #
   # Lowered because Ritrovo's editorial screen changes an item's stage through

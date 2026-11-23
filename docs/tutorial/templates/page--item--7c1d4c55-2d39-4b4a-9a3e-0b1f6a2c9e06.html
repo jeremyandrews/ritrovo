@@ -1,0 +1,9 @@
+{% extends "page--front.html" %}
+{# The front page's layout, under the name the kernel looks for.
+
+   The kernel serves `/` by rewriting it to the path site_front_page names
+   (demo/config/variable.site_front_page.yml, the welcome page item) and
+   rendering that path's layout, so a theme's page--front.html applies only to
+   its default listing. The page suggestion for this item is
+   page--item--<its uuid>.html, and this is that file. The layout itself stays
+   in page--front.html. #}

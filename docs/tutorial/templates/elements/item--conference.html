@@ -146,9 +146,14 @@
         {% endif %}
     </header>
 
-    {% if item.fields.field_logo %}
+    {# Files come from `referenced_files`, which the kernel builds for every
+       File field: {id, url, filename, mime, alt} per file this viewer may
+       fetch. A File field stores a bare file id, and there is no route that
+       serves a file by id, so the url has to come from the kernel. #}
+    {% set logos = referenced_files.field_logo | default(value=[]) %}
+    {% if logos %}
     <div class="conf-detail__logo">
-        <img src="/file/{{ item.fields.field_logo }}/download" alt="{{ item.title }} logo" loading="lazy">
+        <img src="{{ logos[0].url }}" alt="{{ logos[0].alt | default(value=item.title ~ ' logo') }}" loading="lazy">
     </div>
     {% endif %}
 
@@ -182,17 +187,15 @@
     {% endif %}
     {% endif %}
 
-    {# venue_photos is multi-value, so it is iterated rather than printed. The
-       kernel renders one widget whatever the declared cardinality, so the only
-       way an array gets here is seeded configuration (G-CARDINALITY-IS-INERT),
-       and no file can be seeded at all yet (G-NO-FILE-CONFIG-ENTITY). The gallery
-       is therefore written and empty, which is the honest state of it. #}
-    {% if item.fields.field_venue_photos %}
+    {# venue_photos is multi-value, so it is iterated rather than printed: one
+       entry of `referenced_files` per photo this viewer may fetch. #}
+    {% set photos = referenced_files.field_venue_photos | default(value=[]) %}
+    {% if photos %}
     <div class="conf-detail__venue">
         <h2>Venue</h2>
         <div class="conf-detail__gallery">
-            {% for photo in item.fields.field_venue_photos %}
-            <img src="/file/{{ photo }}/download" alt="Venue photo" loading="lazy">
+            {% for photo in photos %}
+            <img src="{{ photo.url }}" alt="{{ photo.alt | default(value='Venue photo') }}" loading="lazy">
             {% endfor %}
         </div>
     </div>
@@ -213,9 +216,10 @@
     </div>
     {% endif %}
 
-    {% if item.fields.field_schedule_pdf %}
+    {% set schedules = referenced_files.field_schedule_pdf | default(value=[]) %}
+    {% if schedules %}
     <div class="conf-detail__schedule">
-        <a href="/file/{{ item.fields.field_schedule_pdf }}/download">Schedule (PDF)</a>
+        <a href="{{ schedules[0].url }}">Schedule (PDF)</a>
     </div>
     {% endif %}
 

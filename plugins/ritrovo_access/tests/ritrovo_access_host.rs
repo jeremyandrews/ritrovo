@@ -430,20 +430,20 @@ fn editor_notes_is_stripped_from_the_item_a_reader_is_given() {
 /// writing one, which is the story's "auto-generated from the Item Type
 /// definition" and the reason Ritrovo configures rather than codes here.
 ///
-/// Two absences are asserted as carefully as the presences, because they are the
-/// ones that cost content:
+/// Two things are asserted as carefully as the widgets:
 ///
-/// - **`field_topics` has no widget at all.** It is not declared as a field and
-///   cannot be: the kernel has no taxonomic `FieldType`
-///   (`G-NO-CATEGORY-REFERENCE-FIELD-KIND`), and declaring it as `Text` would put
-///   a single-line box over a JSON array.
-/// - **No block editor.** `field_description` is a `Blocks` field, which is the
-///   kernel's rich text, and the form renders the container the editor attaches
-///   to — but this page is a bare HTML document with a `<style>` block and no
-///   script of any kind, so nothing ever attaches. The kernel's WYSIWYG exists
-///   and lives on the administrator-only content form.
+/// - **`field_topics` has no widget at all.** It is not declared as a field.
+///   Through 0.103 it could not be (`G-NO-CATEGORY-REFERENCE-FIELD-KIND`); the
+///   pinned kernel has a `RecordReference("category_term")` widget, and
+///   declaring the field with it is a feature not yet built, so this pins the
+///   form as it is.
+/// - **The block editor loads.** `field_description` is a `Blocks` field, the
+///   kernel's rich text. Through 0.103 this page rendered the editor's
+///   container with no script, so nothing attached
+///   (`G-ITEM-EDIT-FORM-LOADS-NO-ASSETS`); since the kernel's one form pipeline
+///   the page loads `block-editor.js`, so an editor gets the WYSIWYG.
 #[test]
-fn the_conference_edit_form_is_generated_from_the_type_and_has_no_editor() {
+fn the_conference_edit_form_is_generated_from_the_type_and_loads_the_block_editor() {
     serial(async {
         let pool = host::fresh_pool().await;
         host::prepare_app_database(&pool, &[PLUGIN]).await;
@@ -504,7 +504,7 @@ fn the_conference_edit_form_is_generated_from_the_type_and_has_no_editor() {
         // Not declared, so not rendered. This is the one that costs data below.
         assert!(
             !form.body.contains(r#"name="field_topics""#),
-            "field_topics has a widget now; G-NO-CATEGORY-REFERENCE-FIELD-KIND may have been fixed"
+            "field_topics has a widget now; update STATUS 29.1"
         );
 
         // The block editor's container is rendered and, since the kernel's
@@ -628,6 +628,126 @@ fn saving_the_edit_form_keeps_every_field_including_the_ones_it_did_not_render()
             serde_json::json!(false),
             "an unchecked Boolean was not stored as false: {after}"
         );
+    });
+}
+
+/// Story 35.4 on the pinned kernel: an editor's save writes a revision with its
+/// log message, and the same editor can list, preview, compare and revert. At
+/// 0.103.0 the history page was a 500 for any item with a revision
+/// (`G-REVISION-HISTORY-500`) and compare and preview did not exist
+/// (`G-REVISION-NO-COMPARE`). This drives the kernel's own routes, as a
+/// browser would, and reads the result back from the item.
+#[test]
+fn an_editor_lists_previews_compares_and_reverts_revisions() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::prepare_app_database(&pool, &[PLUGIN]).await;
+        host::import_demo_config(&pool).await;
+        let app = host::app().await;
+
+        sqlx::query("DELETE FROM item WHERE type = 'conference'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let items = host::items(&pool, &host::dispatcher(PLUGIN));
+        let fields = conference_fields(&pool).await;
+        let conference =
+            host::create_conference(&pool, &items, "Revision Conf", None, fields).await;
+        let first: uuid::Uuid = sqlx::query_scalar(
+            "SELECT id FROM item_revision WHERE item_id = $1 ORDER BY created, id LIMIT 1",
+        )
+        .bind(conference.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        // The edit: Torino becomes Milano, with a log message.
+        let (cookies, _) = app.login_as_new_member(&["editor"]).await;
+        let path = format!("/item/{}/edit", conference.id);
+        let form = app.get(&path, &cookies).await;
+        assert_eq!(form.status, 200, "{}", form.body);
+        let body = [
+            form_tokens(&form.body),
+            "title=Revision+Conf".to_string(),
+            "status=1".to_string(),
+            "field_start_date=2027-05-01".to_string(),
+            "field_end_date=2027-05-03".to_string(),
+            "field_city=Milano".to_string(),
+            "field_country=Italy".to_string(),
+            "log=Moved+to+Milano".to_string(),
+        ]
+        .join("&");
+        let saved = app.post_form(&path, &body, &cookies).await;
+        assert_eq!(saved.status, 200, "the save was refused: {}", saved.body);
+        let second: uuid::Uuid = sqlx::query_scalar(
+            "SELECT id FROM item_revision WHERE item_id = $1 ORDER BY created DESC, id DESC LIMIT 1",
+        )
+        .bind(conference.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_ne!(first, second, "the save wrote no revision");
+
+        // The history: both revisions and the log message.
+        let history_path = format!("/item/{}/revisions", conference.id);
+        let history = app.get(&history_path, &cookies).await;
+        assert_eq!(history.status, 200, "{}", history.body);
+        assert!(history.body.contains("Moved to Milano"), "{}", history.body);
+        assert!(
+            history.body.contains(&first.to_string()),
+            "{}",
+            history.body
+        );
+
+        // Preview of the first revision shows its value.
+        let preview = app
+            .get(
+                &format!("/item/{}/revisions/{first}", conference.id),
+                &cookies,
+            )
+            .await;
+        assert_eq!(preview.status, 200, "{}", preview.body);
+        assert!(preview.body.contains("Torino"), "{}", preview.body);
+
+        // Compare shows both sides of the change.
+        let compare = app
+            .get(
+                &format!(
+                    "/item/{}/revisions/compare?from={first}&to={second}",
+                    conference.id
+                ),
+                &cookies,
+            )
+            .await;
+        assert_eq!(compare.status, 200, "{}", compare.body);
+        assert!(
+            compare.body.contains("Torino") && compare.body.contains("Milano"),
+            "{}",
+            compare.body
+        );
+
+        // Revert to the first revision, with the history page's own token.
+        let reverted = app
+            .post_form(
+                &format!("/item/{}/revert/{first}", conference.id),
+                &format!("_token={}", csrf(&history.body)),
+                &cookies,
+            )
+            .await;
+        assert!(
+            (300..400).contains(&reverted.status),
+            "the revert was refused: {} {}",
+            reverted.status,
+            reverted.body
+        );
+        let city: Option<String> =
+            sqlx::query_scalar("SELECT fields->>'field_city' FROM item WHERE id = $1")
+                .bind(conference.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(city.as_deref(), Some("Torino"), "the revert did not apply");
     });
 }
 

@@ -1,8 +1,8 @@
 # Caching on the Ritrovo demo
 
 What is cached when a page is served, what empties each cache, and the commands
-that show a hit and a miss. Everything here is checked against Trovato 0.103.0 at
-the pinned revision. Every claim about invalidation is also asserted:
+that show a hit and a miss. Everything here was checked against Trovato 0.103.0 and
+re-checked on Trovato `main` `81290cc` (A11), with the changes marked. Every claim about invalidation is also asserted:
 
 - by `scripts/verify-demo.sh`, section "search and the cache, by stage";
 - by the host test
@@ -34,10 +34,8 @@ shared, and the cached item is checked again for each viewer.
 
 ## A hit and a miss, by hand
 
-The item cache logs nothing and counts nothing: `/metrics` registers
-`cache_hits_total` and `cache_misses_total`, and nothing increments them. So a
-hit shows as an answer the database no longer agrees with, and a miss as the
-database's answer.
+A hit shows as an answer the database no longer agrees with, and a miss as the
+database's answer. Since A11 the counters show it too (below).
 
 ```sh
 ID=$(psql_demo "select id from item where type='conference' and status=1 and stage_id='0193a5a0-0000-7000-8000-000000000001' order by title limit 1")
@@ -51,12 +49,13 @@ curl -s "$BASE/item/$ID" | grep -c "(raw)"               # MISS: 1, reloaded fro
 psql_demo "update item set title = '$TITLE' where id='$ID'"
 ```
 
-And the counters that never move:
+And the counters, labelled per cache since Trovato `ff0257a`. At 0.103.0 nothing
+incremented them (`G-CACHE-METRICS-NEVER-COUNT`, fixed). `verify-demo.sh` asserts the
+item cache's hits are above zero:
 
 ```sh
-curl -s "$BASE/metrics" | grep '^cache_'
-# cache_hits_total_total 0
-# cache_misses_total_total 0
+curl -s "$BASE/metrics" | grep '^cache_hits_total{cache="item"}'
+# cache_hits_total{cache="item"} 336
 ```
 
 ## After a kernel edit, and after an importer update
@@ -80,6 +79,15 @@ a default install the same import is invisible on the item's own page for up to
 five minutes. Listings, tiles and search are not affected, because they read the
 database or the index, never the item cache. There is nothing more Ritrovo can do
 without a host call.
+
+**A11: the pinned kernel may have closed this for plugin writes.** On Trovato `main`
+`81290cc` a plugin's `execute_raw` bumps the item cache generation
+(`crates/kernel/src/host/db.rs:306`, from `1dc0467`), so an importer write would empty
+the item cache on every server. That has not been measured from here: the commands
+above, `verify-demo.sh` and the host test all write with `psql` or `sqlx` directly,
+not through a plugin, so they still show the TTL, and the demo still sets
+`CACHE_TTL_ITEMS: 10`. Measuring it through `ritrovo_importer` is buildable and not
+built (`docs/ritrovo/STATUS.md`, 39.1).
 
 ## An editor's view never reaches a visitor
 

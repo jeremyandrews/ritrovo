@@ -47,7 +47,13 @@ no second public stage to leak through.
 
 ## The three editorial accounts
 
-Created by `ritrovo_access`'s `tap_install` when the demo bootstraps. **These
+Created by `scripts/demo-bootstrap.sh` when the demo bootstraps: each account through the
+kernel's own `/admin/people/add` form as the administrator, then its role with
+`trovato user role-add`. Through 0.103 `ritrovo_access`'s `tap_install` inserted them by
+SQL; on the pinned kernel `users` and `user_roles` are under the raw-SQL floor, so no
+plugin can write them, and the kernel's own paths are the right ones anyway. The host
+tests make the same three through the kernel's `User` and `Role` models
+(`tests/host/mod.rs`, `create_demo_users`). **These
 passwords are published because the point of the accounts is that you log in as
 each one and see a different site.** They exist only on a demo database.
 
@@ -60,7 +66,7 @@ each one and see a different site.** They exist only on a demo database.
 
 Log in at `/user/login`.
 
-### Why a plugin creates them rather than the registration form
+### Why the bootstrap creates them rather than the registration form
 
 The brief's recipe is to register the three and activate them by SQL, and that is
 what this did first. It cannot work on this kernel. **The registration rate limit
@@ -72,9 +78,10 @@ the third by the middleware, each with a different error shape.
 
 To watch registration itself, register a fourth account by hand at
 `/user/register`. Exactly one will succeed per hour, for the reason above. It
-will land inactive and with no role, and nothing in the kernel can activate it or
-give it one: there is no admin screen for user-to-role assignment, and
-`trovato user` has a single subcommand, `reset-password`.
+will land inactive and with no role. Through 0.103 nothing in the kernel could activate
+it or give it one. On the pinned kernel the administrator can, at `/admin/people`, and
+`trovato user role-add <name> <role>` gives a role from the command line, which is what
+the bootstrap uses.
 
 ---
 
@@ -148,6 +155,13 @@ give it one: there is no admin screen for user-to-role assignment, and
 9. **Publish.** Tick the conferences you just curated, press **Publish to Live**.
    On the verified run: `Moved 2 conference(s) from curated to live.`
 
+   Since A11 the publisher role carries the kernel's `publish content` as well as
+   `ritrovo_access`'s `publish conferences`. The pinned kernel checks the workflow's
+   transitions on import and refuses a permission it does not define, and it requires
+   `publish content` for any write that changes what is published. So the curated to
+   live transitions in `demo/config/variable.workflow.editorial.yml` name the kernel's
+   permission, and `ritrovo_access` still decides who sees the button.
+
 10. **Check as a visitor.** `/item/<id>` signed out is now **200**, and the
     conference appears in `/conferences`. Verified end to end on the run above.
 
@@ -181,7 +195,9 @@ rather than letting an editor conclude the promotion failed.
          LEFT JOIN role_permissions rp ON rp.role_id = r.id GROUP BY 1 ORDER BY 1;"
    ```
 
-3. **Notice what is missing.** The brief asks for seven permissions:
+3. **Notice what is missing** (at 0.102; since A7 `tap_perm` is dispatched and the
+   roles carry `ritrovo_access`'s own permissions, so this step is history). The
+   brief asks for seven permissions:
    `view incoming`, `view curated`, `edit conferences`, `publish conferences`,
    `post comments`, `edit own comments`, `edit any comments`. `ritrovo_access`
    declares all seven through `tap_perm`. **Not one of them is held by any role,
@@ -282,8 +298,19 @@ reason, and the selection is bounded by a 50-row page.
 
 ## Walkthrough 4: revisions
 
-**This one does not work, and the failure is the kernel's.** It is written up
-rather than demonstrated because there is nothing to demonstrate.
+**Since A11 this works.** On Trovato `main` `81290cc` an editor's save writes a
+revision with its log message, and the same editor can open `/item/<id>/revisions`,
+preview a revision at `/item/<id>/revisions/<rev>`, compare two at
+`/item/<id>/revisions/compare?from=<rev>&to=<rev>` and revert with the button on the
+history page. `an_editor_lists_previews_compares_and_reverts_revisions`
+(`plugins/ritrovo_access/tests/ritrovo_access_host.rs`) does all four through the
+kernel's routes. The brief's draft-while-live, cross-stage and emergency-unpublish
+scenarios have not been walked (`docs/ritrovo/STATUS.md`, 35.4). The rest of this
+section is the record of how it failed at 0.103.0, kept for the reader who meets an
+older pin.
+
+**At 0.103.0 this did not work, and the failure was the kernel's.** It was written up
+rather than demonstrated because there was nothing to demonstrate.
 
 What the brief asks for is edit, preview the draft, revert, and compare. Here is
 the state of each at the pinned release.

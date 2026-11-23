@@ -9,7 +9,16 @@ kernel over a real Postgres rather than a model of it. Where the kernel cannot d
 something the brief asks for, the section says so and names the `FRICTION.md`
 entry rather than pretending.
 
-**Kernel:** Trovato `v0.103.0`, rev `496b8f113be66102830723c1e2a968cad2ec1e0d`.
+**Kernel:** written against Trovato `v0.103.0`, rev `496b8f1`. Since A11 Ritrovo
+pins Trovato `main` at `81290cc`, and much of section 1 is history now: an
+editor's save keeps every field, multi-value fields render a widget per value and
+post `name[0]`, `name[1]`, a Boolean is stored as JSON `false`, the block editor
+loads on the editor's form, the CSRF field is `_token` and a save must also carry
+`_form_build_id`. The kernel's changelog says every content form now goes through
+`FormService`, so the form taps fire; Ritrovo has not built on that yet
+(`docs/ritrovo/STATUS.md`, "A11: the kernel-blocked rows rechecked"). The section
+is kept as written, with the tests that now hold the fixed behaviour named under
+"Verified by".
 
 ---
 
@@ -131,15 +140,21 @@ kernel rich text is administrator-only in practice. New finding:
 
 `plugins/ritrovo_access/tests/ritrovo_access_host.rs`:
 
-- `the_conference_edit_form_is_generated_from_the_type_and_has_no_editor` — an
-  editor gets 200, every declared field has a widget, `field_topics` has none,
-  and the page carries no script.
-- `saving_the_edit_form_keeps_rendered_fields_and_drops_the_rest` — posts the
-  form as a browser would and asserts what survived and what did not.
+- `the_conference_edit_form_is_generated_from_the_type_and_loads_the_block_editor`
+  — an editor gets 200, every declared field has a widget (one per value for the
+  two multi-value fields), `field_topics` has none, and the page loads
+  `block-editor.js`.
+- `saving_the_edit_form_keeps_every_field_including_the_ones_it_did_not_render`
+  — posts the form as a browser would, with `_token`, `_form_build_id` and
+  `name[i]` values, and asserts that `field_topics`, `field_speakers` and
+  `field_venue_photos` survive and that an unchecked Boolean is `false`.
+- `an_editor_lists_previews_compares_and_reverts_revisions` — the save writes a
+  revision with its log message, and the editor can list, preview, compare and
+  revert it.
 
-Those tests are written so that **if the kernel is fixed they fail**, naming the
-`FRICTION.md` entry to reopen. A test that pins a loss has to break when the loss
-stops happening, or it becomes the reason nobody notices.
+Through 0.103 the first two were written so that **if the kernel was fixed they
+failed**, naming the `FRICTION.md` entry to reopen. The kernel was fixed, they
+failed on the A11 pin as intended, and they now pin the fixed behaviour.
 
 ---
 

@@ -116,6 +116,11 @@ UPDATE=0
 #       page is an item (the welcome page, translated for /it/) with the
 #       upcoming-conference and sidebar tiles under it.
 #
+#   page--item--7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06.html
+#       Not in the release. The kernel renders a configured front page with its
+#       own path's layout, and this is the welcome page item's: it extends
+#       page--front.html, which holds the layout.
+#
 #   gather/query--ritrovo.by_topic.html
 #       The release's listing with a breadcrumb in front of it: Home, Topics and
 #       the topic's ancestors, which the kernel's gather breadcrumb cannot know.
@@ -128,6 +133,7 @@ UPDATE=0
 OWNED_TEMPLATES="
 page.html
 page--front.html
+page--item--7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06.html
 gather/query--ritrovo.by_topic.html
 elements/item--conference.html
 elements/item--page.html

@@ -38,6 +38,7 @@ const IMAGE_REPO: &str = "ghcr.io/jeremyandrews/trovato";
 const TUTORIAL_TEMPLATES: &[&str] = &[
     "page.html",
     "page--front.html",
+    "page--item--7c1d4c55-2d39-4b4a-9a3e-0b1f6a2c9e06.html",
     "page--admin--content--translations.html",
     "elements/item--conference.html",
     "elements/item--page.html",
