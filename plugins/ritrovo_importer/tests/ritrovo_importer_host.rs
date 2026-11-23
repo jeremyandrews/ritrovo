@@ -414,6 +414,135 @@ fn replaying_the_import_adds_no_conference_and_no_duplicate() {
     });
 }
 
+/// The conference update merges `field_topics` with what the row holds when it
+/// runs, not with what the batch read before it started.
+///
+/// Two batches for different topics of the same conference run at once, each
+/// with the topics it read at its start. Here the row already holds A and B,
+/// and the update arrives with A and C, as a batch that read only A and adds C
+/// would send it. Writing that list as it stands would drop B. The statement is
+/// the file the plugin runs, so this is the plugin's own update, and it has to
+/// pass the kernel's raw-SQL guard as well as run.
+#[test]
+fn a_conference_update_keeps_topics_another_batch_added_since_it_read_them() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        clean_install(&pool).await;
+
+        const UPDATE_CONFERENCE_SQL: &str = include_str!("../src/update_conference.sql");
+        trovato_kernel::host::sql_guard::check_execute_raw(UPDATE_CONFERENCE_SQL)
+            .unwrap_or_else(|e| panic!("the kernel's guard refuses the update: {e:?}"));
+
+        let a = "0193a5a0-0001-7000-8000-00000000000a";
+        let b = "0193a5a0-0001-7000-8000-00000000000b";
+        let c = "0193a5a0-0001-7000-8000-00000000000c";
+        let id = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO item (id, type, title, status, author_id, stage_id, created, changed, fields, language) \
+             VALUES ($1, 'conference', 'Topic Race Conf', 1, \
+                     '00000000-0000-0000-0000-000000000000'::uuid, \
+                     '0193a5a0-0000-7000-8000-000000000002'::uuid, $2, $2, $3, 'en')",
+        )
+        .bind(id)
+        .bind(host::now())
+        .bind(serde_json::json!({
+            "field_source_id": "topic-race-conf-2027-03-01-online",
+            "field_topics": [b, a],
+        }))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let stale = serde_json::json!({
+            "field_source_id": "topic-race-conf-2027-03-01-online",
+            "field_topics": [a, c],
+        });
+        let updated = sqlx::query(UPDATE_CONFERENCE_SQL)
+            .bind("Topic Race Conf")
+            .bind(host::now())
+            .bind(stale.to_string())
+            .bind(id.to_string())
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(updated.rows_affected(), 1);
+
+        let topics: serde_json::Value =
+            sqlx::query_scalar("SELECT fields->'field_topics' FROM item WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            topics,
+            serde_json::json!([a, b, c]),
+            "the update lost a topic it had not read, or did not sort them"
+        );
+
+        sqlx::query("DELETE FROM item WHERE id = $1")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+    });
+}
+
+/// A conference the batch did not know about, inserted by someone else before
+/// this batch's own insert, is counted as updated and not as imported.
+///
+/// The batch carries the same conference twice. Neither copy is in the
+/// conferences the worker read at its start, so it inserts the first, and the
+/// unique index refuses the second, which the worker then finds and updates.
+/// That is the path another worker's concurrent insert takes. One conference
+/// exists afterwards, and the batch's report has to say one imported and one
+/// updated, or the import's totals overstate what it added.
+#[test]
+fn a_conference_inserted_first_by_someone_else_is_counted_as_updated() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        clean_install(&pool).await;
+
+        let conference = serde_json::json!({
+            "name": "Counted Once Conf",
+            "url": "https://counted-once.example",
+            "startDate": "2027-03-01",
+            "endDate": "2027-03-02",
+            "city": "Utrecht",
+            "country": "Netherlands",
+            "online": false,
+        });
+        let payload = serde_json::json!({
+            "topic": "rust",
+            "year": 2027,
+            "conferences": serde_json::json!([conference, conference]).to_string(),
+        });
+
+        let disp = host::dispatcher(PLUGIN);
+        let report = host::json(
+            &host::dispatch(
+                &pool,
+                &disp,
+                PLUGIN,
+                "tap_queue_worker",
+                &payload.to_string(),
+                UserContext::background(),
+                host::offline_client(),
+            )
+            .await,
+        );
+
+        assert_eq!(conferences(&pool).await, 1, "{report}");
+        assert_eq!(report["imported"], 1, "{report}");
+        assert_eq!(report["updated"], 1, "{report}");
+        assert_eq!(report["invalid"], 0, "{report}");
+
+        sqlx::query("DELETE FROM item WHERE type = 'conference'")
+            .execute(&pool)
+            .await
+            .unwrap();
+    });
+}
+
 // ===========================================================================
 // The admin screens
 // ===========================================================================

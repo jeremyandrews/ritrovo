@@ -100,18 +100,33 @@ contract_get_optional() {
 # Docker Publish builds with buildx, which records `vcs:revision` in the SLSA
 # provenance it attaches to each platform's manifest. The image carries no OCI
 # revision label, so this is the only statement the image itself makes about
-# its source. Every platform must be present and must name the same commit.
+# its source.
+#
+# Each platform the demo runs on is read on its own, and each must have
+# provenance naming exactly one commit, the same one. Reading the whole document
+# at once would accept an image whose arm64 half had no provenance, or was not
+# there at all, as long as the amd64 half named one commit: the pin would then
+# send every Apple-silicon machine an image nobody can say the source of. A
+# platform missing from the image reads back as `{}`.
+IMAGE_PLATFORMS="linux/amd64 linux/arm64"
 image_revision() {
-    local ref="$1" revisions count
+    local ref="$1" platform provenance found count revision=""
     command -v docker > /dev/null || die "--set-nightly needs docker (buildx) to read $ref"
-    revisions="$(docker buildx imagetools inspect "$ref" --format '{{json .Provenance}}')" \
-        || die "cannot inspect $ref"
-    revisions="$(printf '%s' "$revisions" \
-        | grep -o '"vcs:revision": *"[0-9a-f]\{40\}"' \
-        | grep -o '[0-9a-f]\{40\}' | sort -u)"
-    count="$(printf '%s' "$revisions" | grep -c . || true)"
-    [ "$count" -eq 1 ] || die "$ref names $count source commits in its provenance, expected one"
-    printf '%s' "$revisions"
+    for platform in $IMAGE_PLATFORMS; do
+        provenance="$(docker buildx imagetools inspect "$ref" \
+            --format "{{json (index .Provenance \"$platform\")}}")" \
+            || die "cannot inspect $ref"
+        found="$(printf '%s' "$provenance" \
+            | grep -o '"vcs:revision": *"[0-9a-f]\{40\}"' \
+            | grep -o '[0-9a-f]\{40\}' | sort -u)"
+        count="$(printf '%s' "$found" | grep -c . || true)"
+        [ "$count" -eq 1 ] \
+            || die "$ref names $count source commits in its $platform provenance, expected one"
+        [ -z "$revision" ] || [ "$found" = "$revision" ] \
+            || die "$ref was built from $revision for one platform and $found for $platform"
+        revision="$found"
+    done
+    printf '%s' "$revision"
 }
 
 # Replace a file's contents only if they changed, and say so.

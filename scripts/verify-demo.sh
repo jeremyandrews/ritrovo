@@ -26,8 +26,19 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.demo.yml}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JAR="$(mktemp)"
 trap 'rm -f "$JAR"' EXIT
+# shellcheck source=scripts/json-string.sh
+. "$ROOT/scripts/json-string.sh"
 
 failures=0
+
+# What this run writes carries this tag, and the cleanup deletes the rows it
+# recorded the ids of, and nothing else: not a conference someone else gave the
+# same title, not another run's comments, which a second run against the same
+# demo would otherwise delete in the middle of its checks.
+RUN_TAG="$(date +%s)-$$"
+submitted_id=""
+parent=""
+reply_id=""
 
 ok()   { printf '  ok    %s\n' "$*"; }
 bad()  { printf '  FAIL  %s\n' "$*"; failures=$((failures + 1)); }
@@ -109,7 +120,7 @@ fi
 head_ "the importer's admin screens"
 curl -s -c "$JAR" -o /dev/null -X POST "$BASE/user/login/json" \
     -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$DEMO_ADMIN_USER\",\"password\":\"$DEMO_ADMIN_PASSWORD\"}"
+    -d "{\"username\":$(json_string "$DEMO_ADMIN_USER"),\"password\":$(json_string "$DEMO_ADMIN_PASSWORD")}"
 for path in /admin/content/conferences /admin/config/importer; do
     anon="$(code "$path")"
     admin="$(code_as_admin "$path")"
@@ -863,8 +874,8 @@ else
 fi
 
 # A name nothing else in the demo uses, so the assertions below cannot match an
-# imported conference.
-SUBMITTED_NAME="Verify Demo Conference"
+# imported conference, and no other run's either.
+SUBMITTED_NAME="Verify Demo Conference $RUN_TAG"
 
 step2_page="$(curl -s -b "$viewer_jar" -X POST "$BASE$SUBMIT_PATH" \
     --data-urlencode "_token=$(token_from "$step1_page")" \
@@ -1013,8 +1024,8 @@ else
     # takes. Two names, one session store.
     csrf_from() { printf '%s' "$1" | sed -n 's/.*name="_csrf" value="\([^"]*\)".*/\1/p' | head -1; }
 
-    COMMENT_BODY="Verify demo comment $$"
-    REPLY_BODY="Verify demo reply $$"
+    COMMENT_BODY="Verify demo comment $RUN_TAG"
+    REPLY_BODY="Verify demo reply $RUN_TAG"
 
     # Post as viewer_carol with a token from a fresh page. A 429 (the run's API
     # checks share the bucket) waits for the window and posts again.
@@ -1032,7 +1043,7 @@ else
     }
     post_comment "" "$COMMENT_BODY"
 
-    parent="$(sql "SELECT id FROM comment WHERE item_id = '$COMMENT_CONF' AND body LIKE 'Verify demo comment%' ORDER BY created DESC LIMIT 1")"
+    parent="$(sql "SELECT id FROM comment WHERE item_id = '$COMMENT_CONF' AND body LIKE '%$COMMENT_BODY%' ORDER BY created DESC LIMIT 1")"
     if [ -n "$parent" ]; then
         ok "a signed-in member's comment is stored"
     else
@@ -1042,7 +1053,8 @@ else
     if [ -n "$parent" ]; then
         post_comment "$parent" "$REPLY_BODY"
 
-        reply_depth="$(sql "SELECT depth FROM comment WHERE item_id = '$COMMENT_CONF' AND parent_id = '$parent' LIMIT 1")"
+        reply_id="$(sql "SELECT id FROM comment WHERE item_id = '$COMMENT_CONF' AND parent_id = '$parent' AND body LIKE '%$REPLY_BODY%' LIMIT 1")"
+        reply_depth="$(sql "SELECT depth FROM comment WHERE id = '${reply_id:-00000000-0000-0000-0000-000000000000}'")"
         if [ "$reply_depth" = "1" ]; then
             ok "a reply is nested one level under its parent"
         else
@@ -1535,10 +1547,15 @@ fi
 # kernel it requires a login; asserted so a regression is a failure here.
 adhoc_code="$(curl -s -o /tmp/verify-demo-adhoc.$$ -w '%{http_code}' -X POST "$BASE/api/v1/gather/query" -H 'Content-Type: application/json' \
     -d '{"definition":{"base_table":"item","item_type":"conference","fields":[{"field_name":"id"},{"field_name":"fields"}],"filters":[],"sorts":[],"relationships":[],"includes":{},"stage_aware":true},"display":{"format":"table","items_per_page":100,"pager":{"enabled":false,"show_count":false,"style":"full"}}}')"
+# Both halves: the route refuses (a 200 with no notes in it would pass a check
+# on the body alone, whether the gate held or the demo simply had no notes),
+# and nothing it sent back holds a note.
 if grep -q 'field_editor_notes' "/tmp/verify-demo-adhoc.$$"; then
     bad "an anonymous POST to /api/v1/gather/query returns editors' notes (G-ADHOC-GATHER-BYPASSES-FIELD-ACCESS)"
+elif [ "$adhoc_code" != "401" ] && [ "$adhoc_code" != "403" ]; then
+    bad "an anonymous POST to /api/v1/gather/query answered $adhoc_code, expected 401 or 403"
 else
-    ok "an anonymous POST to /api/v1/gather/query returns no editors' notes ($adhoc_code)"
+    ok "an anonymous POST to /api/v1/gather/query is refused ($adhoc_code) and returns no editors' notes"
 fi
 rm -f "/tmp/verify-demo-adhoc.$$"
 
@@ -1561,11 +1578,18 @@ head_ "cleanup"
 
 # What this run created goes again, through the kernel's own delete routes as the
 # administrator, so a second run starts from the demo it found: the submitted
-# conference (and any an earlier run left behind, which would otherwise be what
-# the `limit 1` lookups above find) and the comment and reply. A token was
-# revoked where it was made.
-leftover_items="$(cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
-    psql -U trovato -d ritrovo -tAc "select id from item where type='conference' and title='$SUBMITTED_NAME'" 2>/dev/null | tr -d '\r')"
+# conference, the comment and the reply, by the ids recorded when they were
+# made. Nothing is deleted by title or body, so a conference or comment that
+# only looks like this run's, another run's included, is left where it is, and
+# the check below holds the cleanup to that. A token was revoked where it was
+# made.
+NO_ID="00000000-0000-0000-0000-000000000000"
+run_items="'${submitted_id:-$NO_ID}'"
+run_comments="'${reply_id:-$NO_ID}','${parent:-$NO_ID}'"
+lookalikes() {
+    sql "select (select count(*) from item where type='conference' and title like 'Verify Demo Conference%' and id not in ($run_items)) + (select count(*) from comment where body like '%Verify demo %' and id not in ($run_comments))"
+}
+lookalikes_before="$(lookalikes)"
 # One delete as the administrator. The checks above have usually spent the
 # rate limit bucket by now (the API checks most of all), so a 429 waits for the
 # window and tries again, for up to two minutes.
@@ -1577,21 +1601,26 @@ admin_delete() {
         sleep 3
     done
 }
-for id in $leftover_items; do
-    admin_delete POST "/item/$id/delete"
-done
-leftover_comments="$(cd "$ROOT" && docker compose -f "$COMPOSE_FILE" exec -T postgres \
-    psql -U trovato -d ritrovo -tAc "select id from comment where body like 'Verify demo %' order by depth desc" 2>/dev/null | tr -d '\r')"
-for id in $leftover_comments; do
+# The reply before its parent.
+for id in $reply_id $parent; do
     admin_delete DELETE "/api/v1/comment/$id"
 done
-left="$(sql "select (select count(*) from item where type='conference' and title='$SUBMITTED_NAME') + (select count(*) from comment where body like 'Verify demo %')")"
+if [ -n "$submitted_id" ]; then
+    admin_delete POST "/item/$submitted_id/delete"
+fi
+left="$(sql "select (select count(*) from item where id in ($run_items)) + (select count(*) from comment where id in ($run_comments))")"
 if [ -z "$left" ]; then
     note "skipped the cleanup check: no database access"
 elif [ "$left" = "0" ]; then
     ok "the submitted conference, the comment and the reply are deleted again"
 else
     bad "$left of this run's conferences and comments are still in the demo after cleanup"
+fi
+lookalikes_after="$(lookalikes)"
+if [ -n "$lookalikes_before" ] && [ "$lookalikes_after" != "$lookalikes_before" ]; then
+    bad "the cleanup deleted conferences or comments this run did not make ($lookalikes_before before, $lookalikes_after after)"
+elif [ -n "$lookalikes_before" ]; then
+    ok "the cleanup left the $lookalikes_before look-alike conference(s) and comment(s) another run made"
 fi
 
 # The Recent Comments tile is rendered by the importer's tap_cron, so it shows
@@ -1601,7 +1630,7 @@ fi
 tile_clear=""
 for _ in $(seq 1 50); do
     case "$(curl -s "$BASE/")" in
-        *"Verify demo comment"*|*"Verify demo reply"*) sleep 3 ;;
+        *"Verify demo comment $RUN_TAG"*|*"Verify demo reply $RUN_TAG"*) sleep 3 ;;
         *) tile_clear=1; break ;;
     esac
 done

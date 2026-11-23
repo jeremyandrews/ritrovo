@@ -332,6 +332,128 @@ fn the_real_roles_grant_what_the_editorial_workflow_needs() {
     });
 }
 
+/// Publishing on the editorial screen needs the kernel's `publish content`, the
+/// permission the kernel itself requires to change what is published.
+///
+/// The screen moves stages with a raw `UPDATE`, so the kernel's own check never
+/// runs on it and the plugin's gate is the only one. A role with every editor's
+/// permission and `delete any content`, the old stand-in for a publisher, but
+/// without `publish content`, is refused and the conference stays on Curated.
+/// The real publisher role, which holds `publish content`, moves it to Live.
+#[test]
+fn publishing_on_the_editorial_screen_needs_publish_content() {
+    serial(async {
+        let pool = host::fresh_pool().await;
+        host::prepare_app_database(&pool, &[PLUGIN]).await;
+        host::import_demo_config(&pool).await;
+        let app = host::app().await;
+        host::clear_rate_limits().await;
+
+        sqlx::query("DELETE FROM item WHERE type = 'conference'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let items = host::items(&pool, &host::dispatcher(PLUGIN));
+        let curated = host::create_conference(
+            &pool,
+            &items,
+            "Gatekept Conf",
+            Some(CURATED_STAGE),
+            serde_json::json!({
+                "field_start_date": "2027-03-01",
+                "field_end_date": "2027-03-02",
+            }),
+        )
+        .await;
+
+        // A role that is everything a publisher used to be on this screen
+        // except the kernel's publish permission.
+        let role = "ritrovo-test-deleter";
+        sqlx::query("DELETE FROM roles WHERE name = $1")
+            .bind(role)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let role_id = uuid::Uuid::now_v7();
+        sqlx::query("INSERT INTO roles (id, name) VALUES ($1, $2)")
+            .bind(role_id)
+            .bind(role)
+            .execute(&pool)
+            .await
+            .unwrap();
+        for permission in [
+            "access content",
+            "access administration pages",
+            "edit any content",
+            "delete any content",
+        ] {
+            sqlx::query("INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2)")
+                .bind(role_id)
+                .bind(permission)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let stage_of = |id: uuid::Uuid| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, uuid::Uuid>("SELECT stage_id FROM item WHERE id = $1")
+                    .bind(id)
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap()
+                    .to_string()
+            }
+        };
+        let publish = |cookies: String| {
+            let app = &app;
+            async move {
+                let queue = app
+                    .get("/admin/content/editorial?stage=curated", &cookies)
+                    .await;
+                assert_eq!(queue.status, 200, "{}", queue.body);
+                let body = format!(
+                    "_token={}&from=curated&to=live&id={}",
+                    csrf(&queue.body),
+                    curated.id
+                );
+                app.post_form("/admin/content/editorial?stage=curated", &body, &cookies)
+                    .await
+            }
+        };
+
+        let (deleter, _) = app.login_as_new_member(&[role]).await;
+        let refused = publish(deleter).await;
+        assert_eq!(
+            refused.status, 403,
+            "a role without `publish content` was allowed to publish: {}",
+            refused.body
+        );
+        assert_eq!(
+            stage_of(curated.id).await,
+            CURATED_STAGE,
+            "the refused publish moved the conference anyway"
+        );
+
+        let (publisher, _) = app.login_as_new_member(&["publisher"]).await;
+        let published = publish(publisher).await;
+        assert_eq!(published.status, 200, "{}", published.body);
+        assert_eq!(
+            stage_of(curated.id).await,
+            trovato_kernel::models::stage::LIVE_STAGE_ID.to_string(),
+            "the publisher's publish did not move the conference: {}",
+            published.body
+        );
+
+        sqlx::query("DELETE FROM roles WHERE name = $1")
+            .bind(role)
+            .execute(&pool)
+            .await
+            .unwrap();
+    });
+}
+
 /// `editor_notes` is removed from the Item before anything renders it.
 ///
 /// This is the test that says the field hiding is access control rather than

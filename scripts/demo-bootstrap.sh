@@ -36,8 +36,9 @@
 # The three editorial users — editor_alice, publisher_bob and viewer_carol — are
 # created here, in step 2a, through the kernel's user service: the
 # administrator's "Add user" form, then `trovato user role-add` once the import
-# has created the roles. Their passwords are in docs/EDITORIAL.md, next to the
-# walkthrough that uses them.
+# has created the roles. scripts/demo-users.sh does both, and gives a role only
+# to an account this start created. Their passwords are in docs/EDITORIAL.md,
+# next to the walkthrough that uses them.
 
 set -eu
 
@@ -72,6 +73,13 @@ RITROVO_PLUGINS="ritrovo_importer ritrovo_access ritrovo_cfp ritrovo_forms ritro
 KERNEL_PLUGINS="trovato_search"
 
 say() { printf '\n==> %s\n' "$*"; }
+
+# json_string, and the demo accounts. Beside this script in the image's mount.
+SCRIPTS_DIR="$(dirname "$0")"
+# shellcheck source=scripts/json-string.sh
+. "$SCRIPTS_DIR/json-string.sh"
+# shellcheck source=scripts/demo-users.sh
+. "$SCRIPTS_DIR/demo-users.sh"
 
 # The install-check middleware redirects every path to /install until the site is
 # installed, so a Location header naming /install is the "not installed" signal.
@@ -150,42 +158,13 @@ fi
 # published demo password), and `trovato user role-add` in step 3b for the
 # role, once the config import has created the roles.
 #
-# Idempotent: an account that exists is left alone (`trovato user roles`
-# succeeds for it), and role-add of a role already held changes nothing.
-DEMO_USERS="editor_alice:editor:ritrovo-editor-demo publisher_bob:publisher:ritrovo-publisher-demo viewer_carol:viewer:ritrovo-viewer-demo"
-
-admin_jar="$(mktemp)"
-admin_logged_in=0
-for entry in $DEMO_USERS; do
-    name="${entry%%:*}"
-    password="${entry##*:}"
-    if ./trovato user roles "$name" >/dev/null 2>&1; then
-        continue
-    fi
-    if [ "$admin_logged_in" -eq 0 ]; then
-        curl -fsS -o /dev/null -c "$admin_jar" -X POST "$BASE/user/login/json" \
-            -H 'Content-Type: application/json' \
-            --data-binary "{\"username\":\"$DEMO_ADMIN_USER\",\"password\":\"$DEMO_ADMIN_PASSWORD\"}"
-        admin_logged_in=1
-    fi
-    say "creating the demo account $name"
-    form="$(curl -fsS -b "$admin_jar" -c "$admin_jar" "$BASE/admin/people/add")"
-    token="$(printf '%s' "$form" | sed -n 's/.*name="_token" value="\([^"]*\)".*/\1/p' | head -n 1)"
-    build="$(printf '%s' "$form" | sed -n 's/.*name="_form_build_id" value="\([^"]*\)".*/\1/p' | head -n 1)"
-    curl -fsS -o /dev/null -b "$admin_jar" -c "$admin_jar" -X POST "$BASE/admin/people/add" \
-        --data-urlencode "_token=$token" \
-        --data-urlencode "_form_build_id=$build" \
-        --data-urlencode "name=$name" \
-        --data-urlencode "mail=$name@ritrovo.example" \
-        --data-urlencode "password=$password" \
-        --data-urlencode "status=1"
-    if ! ./trovato user roles "$name" >/dev/null 2>&1; then
-        echo "error: the kernel did not create $name; see the log below" >&2
-        cat /tmp/bootstrap-serve.log >&2
-        exit 1
-    fi
-done
-rm -f "$admin_jar"
+# An account that exists is left alone, whoever made it, and only the accounts
+# made here are given a role in step 3b (scripts/demo-users.sh says why).
+if ! demo_users_create; then
+    echo "see the log below" >&2
+    cat /tmp/bootstrap-serve.log >&2
+    exit 1
+fi
 
 say "stopping the bootstrap server"
 kill "$bootstrap_pid" 2>/dev/null || true
@@ -255,12 +234,7 @@ say "importing Ritrovo's config set from $RITROVO_CONFIG_DIR"
 
 # ── 3b. The demo accounts' roles, which the import just created ─────────────
 
-for entry in $DEMO_USERS; do
-    name="${entry%%:*}"
-    role="${entry#*:}"
-    role="${role%%:*}"
-    ./trovato user role-add "$name" "$role"
-done
+demo_users_grant_roles
 
 # ── 4. Enable the six plugins ───────────────────────────────────────────────
 

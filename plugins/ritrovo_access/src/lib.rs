@@ -76,22 +76,19 @@ const EDITOR_PERMISSIONS: &[&str] = &["edit conferences", "edit any content"];
 
 /// What this plugin accepts as "this viewer may publish".
 ///
-/// `publish conferences` is the brief's permission and is equally ungrantable.
-/// The kernel has no permission that means "publish", because promoting a stage
-/// is not an operation it models at all, so there is nothing to substitute that
-/// means the same thing. `delete any content` is used as the marker that
-/// separates the publisher role from the editor role, and it is a stand-in
-/// rather than an equivalent. The editorial screen says so where it matters, on
-/// the control it gates.
+/// The kernel's own `publish content`, and nothing else. Moving a conference
+/// on to or off Live changes what is published, and since its 0.107 line the
+/// kernel requires `publish content` for exactly that, on every path it owns
+/// and in the editorial workflow's curated <-> live transitions
+/// (`demo/config/variable.workflow.editorial.yml`). This screen moves stages
+/// with a raw `UPDATE`, which the kernel's check never sees, so this list is
+/// the only thing holding the screen to the same rule and must not be wider.
 ///
-/// The kernel now has `publish content`, which its editorial workflow requires for
-/// the curated <-> live transitions; the publisher role holds it, so it is
-/// accepted here too.
-const PUBLISHER_PERMISSIONS: &[&str] = &[
-    "publish conferences",
-    "publish content",
-    "delete any content",
-];
+/// Before the kernel had a publish permission, `delete any content` stood in
+/// for one, and `publish conferences` (this plugin's own, declared in
+/// `tap_perm`) was accepted beside it. Both are gone from this list: either
+/// would let a role publish here that the kernel refuses everywhere else.
+const PUBLISHER_PERMISSIONS: &[&str] = &["publish content"];
 
 /// The administrator's permission.
 ///
@@ -355,7 +352,7 @@ const TRANSITIONS: &[Transition] = &[
         to_uuid: LIVE_STAGE,
         label: "Publish to Live",
         allowed_by: PUBLISHER_PERMISSIONS,
-        substituted: true,
+        substituted: false,
     },
     Transition {
         from: "live",
@@ -363,7 +360,7 @@ const TRANSITIONS: &[Transition] = &[
         to_uuid: CURATED_STAGE,
         label: "Unpublish to Curated",
         allowed_by: PUBLISHER_PERMISSIONS,
-        substituted: true,
+        substituted: false,
     },
 ];
 
@@ -1259,7 +1256,12 @@ mod tests {
         vec!["access content", "edit any content"]
     }
     fn publisher_perms() -> Vec<&'static str> {
-        vec!["access content", "edit any content", "delete any content"]
+        vec![
+            "access content",
+            "edit any content",
+            "delete any content",
+            "publish content",
+        ]
     }
     /// What an editor would hold if `tap_perm` were dispatched.
     fn brief_editor_perms() -> Vec<&'static str> {

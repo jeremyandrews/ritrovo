@@ -160,7 +160,13 @@ the bootstrap uses.
    transitions on import and refuses a permission it does not define, and it requires
    `publish content` for any write that changes what is published. So the curated to
    live transitions in `demo/config/variable.workflow.editorial.yml` name the kernel's
-   permission, and `ritrovo_access` still decides who sees the button.
+   permission, and so does `ritrovo_access`: **Publish to Live** and **Unpublish
+   to Curated** are shown to, and accepted from, a role holding `publish content`,
+   and nothing else. The screen moves a conference with a raw `UPDATE`, which the
+   kernel's own check never sees, so the plugin's gate is the only one and must
+   ask for what the kernel asks for. A role with `publish conferences` or
+   `delete any content` and without `publish content` is refused with a 403
+   (`publishing_on_the_editorial_screen_needs_publish_content`).
 
 10. **Check as a visitor.** `/item/<id>` signed out is now **200**, and the
     conference appears in `/conferences`. Verified end to end on the run above.
@@ -240,7 +246,9 @@ rather than letting an editor conclude the promotion failed.
    the kernel has no permission that means "publish", because promoting a stage
    is not an operation it models, so nothing means the same thing and
    `delete any content` is used purely as the marker that separates a publisher
-   from an editor.
+   from an editor. (Since A11 it no longer does: publishing on the editorial
+   screen needs the kernel's `publish content`, as step 9 of Walkthrough 1 says,
+   and `delete any content` grants nothing there.)
 
    `ritrovo_access` reads the brief's permission **first** and the substitute
    second, so the day the kernel dispatches `tap_perm` the role files gain four

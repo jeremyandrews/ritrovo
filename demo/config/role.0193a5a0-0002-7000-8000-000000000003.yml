@@ -18,17 +18,13 @@
 # in full; the short version is that `edit any content` is the editorial signal
 # `ritrovo_access` reads instead.
 #
-# `publish conferences` has no kernel equivalent at all, because the kernel has
-# no notion of publishing as a permission: promoting a stage is not an operation
-# it models. What separates a publisher from an editor in this demo is therefore
-# `delete any content` plus the promote-to-Live control on the editorial screen,
-# which `ritrovo_access` gates on `delete any content` for exactly that reason.
-# It is a stand-in for a permission the kernel cannot express, and it is named as
-# one both here and on the screen itself.
-# Since the kernel's 0.107 line there IS a kernel publish permission, `publish
-# content`: changing whether an item is published, and the editorial workflow's
-# curated <-> live transitions, require it. The publisher holds it; the editor
-# does not.
+# What separates a publisher from an editor is the kernel's `publish content`.
+# Since the kernel's 0.107 line, changing whether an item is published, and the
+# editorial workflow's curated <-> live transitions, require it, and
+# `ritrovo_access`'s editorial screen gates its Publish and Unpublish controls on
+# it and on nothing else. The publisher holds it; the editor does not. (Before
+# the kernel had a publish permission, `delete any content` stood in for one on
+# that screen. It no longer counts there; the publisher keeps it as a grant.)
 # COMMENTS: a publisher moderates them too, for the same reason an editor does,
 # and by the same two grants. The editor file has the account of what 0.103.0
 # changed and what it did not.
